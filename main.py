@@ -424,6 +424,46 @@ async def main():
     async def _setlang(cb: CallbackQuery):
         await set_lang_cb(cb)
 
+    @dp.callback_query(F.data == "check_join")
+    async def _check_join(cb: CallbackQuery):
+        """دکمه «عضو شدم» — بعد از عضویت در کانال‌های اجباری"""
+        lang = get_user_lang(cb.from_user.id)
+        missing = await check_forced_join(cb.bot, cb.from_user.id)
+        if missing:
+            await cb.answer(t("not_member", lang), show_alert=True)
+            try:
+                await cb.message.edit_text(
+                    t("force_join_msg", lang),
+                    reply_markup=_join_kb(missing, lang),
+                    parse_mode=ParseMode.HTML,
+                )
+            except Exception:
+                pass
+            return
+
+        await cb.answer("✅")
+        # کاربر عضو شد → ادامه
+        user = await db.get_user(cb.from_user.id)
+        if not user:
+            await db.upsert_user(
+                cb.from_user.id,
+                cb.from_user.username or "",
+                cb.from_user.first_name or "",
+            )
+
+        if cb.message.chat.type == "private":
+            await _show_pm_welcome(
+                cb, cb.from_user.id, cb.from_user.first_name or "دوست"
+            )
+        else:
+            text, markup = await _build_main_menu(
+                cb.from_user.id, cb.from_user.first_name or "دوست"
+            )
+            try:
+                await cb.message.edit_text(text, reply_markup=markup, parse_mode=ParseMode.HTML)
+            except Exception:
+                pass
+
     @dp.callback_query(F.data == "menu")
     async def _menu(cb: CallbackQuery):
         await cb.answer()
