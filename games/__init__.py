@@ -20,9 +20,9 @@ from .gardone import router as gardone_r
 
 
 def register_all_games(dp: Dispatcher) -> None:
-    """فقط بازی‌ها — anon, stop, lb, admin در main.py ثبت می‌شوند"""
+    """فقط بازی‌ها — anon, stop, lb, inline, admin در main.py ثبت می‌شوند"""
     dp.include_routers(
-        panel_r,       # پنل بازی‌ها
+        panel_r,
         hokm_r,
         doz4p_r,
         dooz_r,
