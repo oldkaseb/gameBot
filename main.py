@@ -4,7 +4,6 @@
 from aiogram import BaseMiddleware
 from aiogram.types import CallbackQuery
 from games.leaderboard import router as lb_router
-from __future__ import annotations
 import asyncio, logging, os
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
