@@ -169,4 +169,102 @@ async def eteraf_got_text(msg: Message, state_fsm: FSMContext):
     chat_id = data["chat_id"]
     me = await msg.bot.get_me()
 
-    starter = await msg.bot
+    starter = await msg.bot.send_message(chat_id, msg.text)
+    keyboard = kb([[success(f"{E.MASK} {t('eteraf_send_btn', lang)}",
+                             url=f"https://t.me/{me.username}?start=eteraf_{chat_id}_{starter.message_id}")]])
+    await starter.edit_reply_markup(reply_markup=keyboard)
+
+    try: await msg.bot.delete_message(chat_id, data["prompt_msg"])
+    except: pass
+    try: await msg.delete()
+    except: pass
+    await state_fsm.clear()
+
+
+# ══════════ دریافت پیام ناشناس از دیپ‌لینک
+@router.message(CommandStart(deep_link=True))
+async def handle_deeplink(msg: Message, state_fsm: FSMContext, command=None):
+    """
+    فقط دیپ‌لینک‌های gharch_ و eteraf_ را مدیریت کن.
+    بقیه را با SkipHandler رد کن تا cmd_start در main.py اجرا شود.
+    """
+    payload = command.args if command else ""
+    if not payload:
+        raise SkipHandler
+
+    # فقط این دو حالت را می‌گیریم
+    if not (payload.startswith("gharch_") or payload.startswith("eteraf_")):
+        raise SkipHandler  # ← cmd_start را اجرا کن (برای game_hokm و ...)
+
+    parts = payload.split("_")
+    kind = parts[0]
+    lang = get_user_lang(msg.from_user.id)
+
+    if kind == "gharch":
+        try:
+            chat_id = int(parts[1])
+        except (IndexError, ValueError):
+            await msg.answer(t("gharch_not_active", lang)); return
+        if chat_id not in active_gharch:
+            await msg.answer(t("gharch_not_active", lang)); return
+        god = active_gharch[chat_id]["god_username"]
+        await state_fsm.update_data(anon_chat=chat_id, anon_type="gharch")
+        await msg.answer(f"{E.MASK} {t('eteraf_write', lang)}\n\n{E.INFO} {god}")
+        return
+
+    if kind == "eteraf":
+        try:
+            chat_id = int(parts[1])
+        except (IndexError, ValueError):
+            return
+        reply_to = None
+        if len(parts) > 2:
+            try: reply_to = int(parts[2])
+            except ValueError: pass
+        await state_fsm.update_data(anon_chat=chat_id, anon_type="eteraf", anon_reply=reply_to)
+        await msg.answer(f"{E.GHOST} {t('eteraf_write', lang)}")
+        return
+
+
+@router.message(F.chat.type == "private", F.text, ~F.text.startswith("/"))
+async def receive_anon_text(msg: Message, state_fsm: FSMContext):
+    """فقط وقتی کاربر در حالت ناشناس است این پیام را بگیر."""
+    data = await state_fsm.get_data()
+    if "anon_chat" not in data:
+        raise SkipHandler  # ← بقیه هندلرها (شروع، منو، ...) اجرا شوند
+
+    lang = get_user_lang(msg.from_user.id)
+    chat_id = data["anon_chat"]
+    kind = data["anon_type"]
+    sender = msg.from_user
+
+    if kind == "gharch":
+        if chat_id not in active_gharch:
+            await msg.answer(t("gharch_not_active", lang)); return
+        god_id = active_gharch[chat_id]["god_id"]
+        try:
+            await msg.bot.send_message(chat_id, f"{t('gharch_received', lang)}\n\n{msg.text}")
+            await msg.answer(t("gharch_sent", lang))
+            report = t("gharch_god_report", lang, name=sender.first_name,
+                       uname=sender.username or "—", uid=sender.id, msg=msg.text)
+            await msg.bot.send_message(god_id, report)
+            for owner in OWNER_IDS:
+                if owner != god_id:
+                    try: await msg.bot.send_message(owner, report)
+                    except: pass
+        except Exception:
+            await msg.answer(t("error_occured", lang))
+    elif kind == "eteraf":
+        try:
+            await msg.bot.send_message(chat_id, f"{t('eteraf_header', lang)}\n\n{msg.text}",
+                                       reply_to_message_id=data.get("anon_reply"))
+            await msg.answer(t("eteraf_sent", lang))
+            report = t("gharch_god_report", lang, name=sender.first_name,
+                       uname=sender.username or "—", uid=sender.id, msg=msg.text)
+            for owner in OWNER_IDS:
+                try: await msg.bot.send_message(owner, report)
+                except: pass
+        except Exception:
+            await msg.answer(t("error_occured", lang))
+
+    await state_fsm.clear()
