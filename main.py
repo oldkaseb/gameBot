@@ -92,6 +92,40 @@ async def cmd_lang(message: Message):
     rows = [[btn(v, f"set_lang:{k}")] for k, v in LANGS.items()]
     await message.answer(t("choose_lang", uid), reply_markup=kb(rows), parse_mode=ParseMode.HTML)
 
+class GameGuard(BaseMiddleware):
+    """چک می‌کند بازی مورد نظر روشن باشد، قبل از اجرای start"""
+    PREFIXES = {
+        "hokm_start_": "hokm",
+        "dooz_start_": "dooz",
+        "doz4p_start_": "doz4p",
+        "connect4_start_": "connect4",
+        "rps_start_": "rps",
+        "memory_start_": "memory",
+        "2048_start_": "2048",
+        "samegame_start_": "samegame",
+        "spuzzle_start_": "spuzzle",
+        "hads_kalame_start_": "hangman",
+        "type_start_": "typing",
+        "hads_addad_start_": "number_guess",
+        "gardone_start_": "gardone",
+        "gharch_start_": "gharch",
+        "eteraf_start_": "eteraf",
+    }
+
+    async def __call__(self, handler, event, data):
+        if isinstance(event, CallbackQuery) and event.data:
+            for prefix, gtype in self.PREFIXES.items():
+                if event.data.startswith(prefix):
+                    from database import db
+                    if not await db.is_game_enabled(gtype):
+                        await event.answer(
+                            "🔒 این بازی موقتاً غیرفعال است.",
+                            show_alert=True,
+                        )
+                        return
+                    break
+        return await handler(event, data)
+
 
 async def main():
     bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
