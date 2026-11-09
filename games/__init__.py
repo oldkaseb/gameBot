@@ -1,6 +1,9 @@
+# -*- coding: utf-8 -*-
 """ثبت همه بازی‌ها در Dispatcher"""
 
 from aiogram import Dispatcher
+
+from .panel import router as panel_r
 from .hangman import router as hangman_r
 from .typing_game import router as typing_r
 from .number_guess import router as guess_r
@@ -14,13 +17,23 @@ from .rps import router as rps_r
 from .memory import router as memory_r
 from .hokm import router as hokm_r
 from .gardone import router as gardone_r
-from .anon import router as anon_r
-from .panel import router as panel_r
 
 
 def register_all_games(dp: Dispatcher) -> None:
+    """فقط بازی‌ها — anon, stop, lb, admin در main.py ثبت می‌شوند"""
     dp.include_routers(
-        panel_r, anon_r, gardone_r, hokm_r, memory_r, rps_r,
-        connect4_r, doz4p_r, dooz_r, spuzzle_r, samegame_r,
-        g2048_r, guess_r, typing_r, hangman_r,
+        panel_r,       # پنل بازی‌ها
+        hokm_r,
+        doz4p_r,
+        dooz_r,
+        connect4_r,
+        rps_r,
+        memory_r,
+        spuzzle_r,
+        samegame_r,
+        g2048_r,
+        typing_r,
+        guess_r,
+        hangman_r,
+        gardone_r,
     )
