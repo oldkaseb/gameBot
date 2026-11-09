@@ -1,13 +1,13 @@
 # -*- coding: utf-8 -*-
-"""کمکی‌های بکاپ — هندلرها در panel.py"""
+"""بکاپ دیتابیس"""
 
-from __future__ import annotations
 import asyncio
 import os
 import random
 from datetime import datetime
 from pathlib import Path
 
+from aiogram import Bot
 from aiogram.types import FSInputFile
 from aiogram.enums import ParseMode
 
@@ -33,7 +33,7 @@ async def _run_pg_dump(out: Path) -> None:
         raise RuntimeError(f"pg_dump: {err.decode()[:400]}")
 
 
-def _split(src: Path, size: int) -> list[Path]:
+def _split(src: Path, size: int) -> list:
     parts = []
     with src.open("rb") as f:
         i = 1
@@ -45,8 +45,8 @@ def _split(src: Path, size: int) -> list[Path]:
     return parts
 
 
-async def create_and_send_backup(chat_id: int, label: str = "manual"):
-    from main import bot
+async def create_and_send_backup(chat_id: int, bot: Bot, label: str = "manual"):
+    """bot به عنوان پارامتر پاس داده می‌شود — بدون import از main"""
     BACKUP_DIR.mkdir(parents=True, exist_ok=True)
     bid = _short_id()
     dump = BACKUP_DIR / f"bk_{bid}.dump"
