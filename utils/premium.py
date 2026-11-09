@@ -9,7 +9,6 @@ EMOJI_ID_RE = re.compile(r"\[(\d{5,25})\]")
 
 
 def _strip_icon(text: str):
-    """اولین [id] داخل متن را جدا می‌کند و به عنوان آیکون برمی‌گرداند."""
     m = EMOJI_ID_RE.search(text or "")
     if not m:
         return text or "·", None
@@ -26,7 +25,7 @@ def btn(
     switch_inline=None,
     switch_current=None,
 ) -> InlineKeyboardButton:
-    """دکمه با استایل و ایموجی پریمیوم"""
+    """دکمه با استایل و ایموجی پریمیوم — پشتیبانی از callback_data یا url"""
     cleaned, icon = _strip_icon(text)
     kwargs = {"text": cleaned}
     if data is not None:
@@ -52,18 +51,20 @@ def btn(
             return InlineKeyboardButton(**kwargs)
 
 
-def primary(text: str, data: str) -> InlineKeyboardButton:
-    return btn(text, data, style="primary")
+# ── میان‌برهای رنگ — حالا از url هم پشتیبانی می‌کنند
+def primary(text: str, data=None, *, url=None) -> InlineKeyboardButton:
+    return btn(text, data, url=url, style="primary")
 
-def success(text: str, data: str) -> InlineKeyboardButton:
-    return btn(text, data, style="success")
 
-def danger(text: str, data: str) -> InlineKeyboardButton:
-    return btn(text, data, style="danger")
+def success(text: str, data=None, *, url=None) -> InlineKeyboardButton:
+    return btn(text, data, url=url, style="success")
+
+
+def danger(text: str, data=None, *, url=None) -> InlineKeyboardButton:
+    return btn(text, data, url=url, style="danger")
 
 
 def _resolve_lang(user_or_lang) -> str:
-    """هم uid (int) و هم کد زبان (str) را می‌پذیرد."""
     if isinstance(user_or_lang, int):
         return get_user_lang(user_or_lang)
     if isinstance(user_or_lang, str) and user_or_lang in LANGS:
