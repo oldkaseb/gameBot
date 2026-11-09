@@ -1,8 +1,12 @@
-"""پنل ادمین استایل‌دار — به سبک ربات ایموجی"""
+# -*- coding: utf-8 -*-
+"""پنل ادمین استایل‌دار — نسخه بازی"""
 
 from __future__ import annotations
+import asyncio
 import math
+from datetime import datetime, timezone
 from typing import Union
+
 from aiogram import Router, F
 from aiogram.types import CallbackQuery, Message
 from aiogram.enums import ParseMode
@@ -21,155 +25,196 @@ router = Router(name="admin_panel")
 
 OWNER_IDS = {7662192190, 6041119040}
 USERS_PAGE = 8
+GROUPS_PAGE = 6
 
 
-class AdminStates(StatesGroup):
+class A(StatesGroup):
     search_user = State()
-    charge_days = State()
-    broadcast = State()
+    broadcast_users = State()
+    broadcast_groups = State()
     add_admin = State()
-    set_trial = State()
-    set_price = State()
+    add_channel = State()
+    set_hangman_lives = State()
 
 
-# ─────────── بررسی سطح دسترسی
+# ═══════════════════════════════════════════════
+# کمکی‌ها
+# ═══════════════════════════════════════════════
+
 async def _is_admin(uid: int) -> bool:
     if uid in OWNER_IDS:
         return True
-    return await db.pool.fetchval("SELECT 1 FROM admins WHERE user_id = $1", uid) is not None
+    return await db.pool.fetchval(
+        "SELECT 1 FROM admins WHERE user_id=$1", uid
+    ) is not None
 
 
 async def _is_owner(uid: int) -> bool:
     return uid in OWNER_IDS
 
 
-# ─────────── منوی اصلی ادمین
-def _admin_menu_kb(lang: str = "fa") -> "InlineKeyboardMarkup":
+def _fa_digits(s: str) -> str:
+    return s.translate(str.maketrans("۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩", "01234567890123456789"))
+
+
+GAME_NAMES = {
+    "hokm": "حکم", "dooz": "دوز ۲ نفره", "doz4p": "دوز ۴ نفره",
+    "connect4": "چهار در ردیف", "rps": "سنگ کاغذ قیچی",
+    "memory": "بازی حافظه", "2048": "2048", "samegame": "جفت‌ها",
+    "spuzzle": "پازل کشویی", "hangman": "حدس کلمه",
+    "typing": "تایپ سرعتی", "number_guess": "حدس عدد",
+    "gardone": "گردونه شانس",
+}
+
+
+# ═══════════════════════════════════════════════
+# منوی اصلی
+# ═══════════════════════════════════════════════
+
+def _main_kb(lang: str = "fa") -> "InlineKeyboardMarkup":
     return kb([
         [success(f"{E.CHART} {t('admin_stats', lang)}", "adm:stats")],
         [primary(f"{E.SEARCH} {t('admin_users', lang)}", "adm:users"),
-         primary(f"{E.BOX} {t('admin_defpacks', lang)}", "adm:defpacks")],
-        [primary(f"{E.BLOCK} {t('admin_filters', lang)}", "adm:filters"),
+         primary(f"{E.PARTY} مدیریت گروه‌ها", "adm:groups")],
+        [primary(f"{E.GAME} مدیریت بازی‌ها", "adm:games"),
          primary(f"{E.LOCK} {t('admin_locks', lang)}", "adm:locks")],
         [primary(f"{E.MEGA} {t('admin_bcast', lang)}", "adm:bcast"),
-         primary(f"{E.LINK} {t('admin_refs', lang)}", "adm:refs")],
-        [primary(f"{E.CAL} {t('admin_settings', lang)}", "adm:settings"),
-         danger(f"{E.CROWN} {t('admin_admins', lang)}", "adm:admins")],
-        [primary(f"{E.BOX} {t('admin_backup', lang)}", "adm:backup_menu")],
+         primary(f"{E.CAL} {t('admin_settings', lang)}", "adm:settings")],
+        [danger(f"{E.CROWN} {t('admin_admins', lang)}", "adm:admins")],
+        [primary(f"{E.BOX} {t('admin_backup', lang)}", "adm:backup")],
         [back_btn(lang, "menu")],
     ])
 
 
-def _admin_text(lang: str) -> str:
+def _main_text(lang: str) -> str:
     return (
         f"{E.CROWN}{E.PC} <b>{t('admin_panel', lang)}</b>\n\n"
-        f"{E.FLAME} مدیریت کامل ربات از اینجاست.\n"
-        f"{E.SPARK} یک بخش را انتخاب کن:"
+        f"{E.GAME} مدیریت کامل ربات بازی\n"
+        f"{E.SPARK} یک بخش انتخاب کن:"
     )
 
-
-# ─────────── ورودی‌ها
-async def open_panel(event: Union[Message, CallbackQuery], state: FSMContext = None):
-    uid = event.from_user.id
-    lang = get_user_lang(uid)
-
-    if not await _is_admin(uid):
-        if isinstance(event, CallbackQuery):
-            await event.answer(t("admin_only", lang), show_alert=True)
-        else:
-            await event.answer(f"{E.BLOCK} {t('admin_only', lang)}")
-        return
-
-    if state:
-        await state.clear()
-
-    text = _admin_text(lang)
-    markup = _admin_menu_kb(lang)
-
-    if isinstance(event, CallbackQuery):
-        await event.answer()
-        await event.message.edit_text(text, reply_markup=markup, parse_mode=ParseMode.HTML)
-    else:
-        await event.answer(text, reply_markup=markup, parse_mode=ParseMode.HTML)
-
-
-async def open_stats(event: Union[Message, CallbackQuery]):
-    uid = event.from_user.id
-    lang = get_user_lang(uid)
-    if not await _is_admin(uid):
-        return
-
-    # جمع‌آوری آمار
-    try:
-        total_users = await db.pool.fetchval("SELECT COUNT(*) FROM users") or 0
-        active_users = await db.pool.fetchval(
-            "SELECT COUNT(*) FROM users WHERE is_banned=FALSE AND subscription_end > NOW()"
-        ) or 0
-        banned_users = await db.pool.fetchval(
-            "SELECT COUNT(*) FROM users WHERE is_banned=TRUE"
-        ) or 0
-        total_groups = await db.pool.fetchval("SELECT COUNT(*) FROM groups") or 0
-        total_packs = await db.pool.fetchval("SELECT COUNT(*) FROM user_packs") or 0
-        def_packs = await db.pool.fetchval("SELECT COUNT(*) FROM default_packs") or 0
-    except Exception:
-        # ممکن است جدول‌ها وجود نداشته باشند
-        total_users = active_users = banned_users = total_groups = 0
-        total_packs = def_packs = 0
-
-    text = (
-        f"{E.CHART}{E.ROCKET} <b>{t('admin_stats', lang)}</b>\n\n"
-        f"{E.DISGUISE} کاربران کل: <b>{total_users:,}</b>\n"
-        f"{E.OK2} فعال: <b>{active_users:,}</b>\n"
-        f"{E.BLOCK} مسدود: <b>{banned_users:,}</b>\n"
-        f"{E.PARTY} گروه‌ها: <b>{total_groups:,}</b>\n"
-        f"{E.BOX} پک پیش‌فرض: <b>{def_packs:,}</b>\n"
-        f"{E.GEM} پک کاربر: <b>{total_packs:,}</b>"
-    )
-    markup = kb([[back_btn(lang, "adm:panel")]])
-
-    if isinstance(event, CallbackQuery):
-        await event.answer()
-        await event.message.edit_text(text, reply_markup=markup, parse_mode=ParseMode.HTML)
-    else:
-        await event.answer(text, reply_markup=markup, parse_mode=ParseMode.HTML)
-
-
-# ═══════════════════════════════════════════
-# ═══ CALLBACK HANDLERS
-# ═══════════════════════════════════════════
 
 @router.message(Command("admin"))
 async def cmd_admin(msg: Message, state: FSMContext):
-    await open_panel(msg, state)
+    uid = msg.from_user.id
+    lang = get_user_lang(uid)
+    if not await _is_admin(uid):
+        await msg.answer(f"{E.BLOCK} {t('admin_only', lang)}", parse_mode=ParseMode.HTML)
+        return
+    await state.clear()
+    await msg.answer(_main_text(lang), reply_markup=_main_kb(lang), parse_mode=ParseMode.HTML)
 
 
 @router.message(F.text.in_({"ادمین", "پنل ادمین", "مدیر"}))
 async def msg_admin(msg: Message, state: FSMContext):
-    await open_panel(msg, state)
+    await cmd_admin(msg, state)
 
 
 @router.callback_query(F.data == "adm:panel")
 async def cb_panel(cb: CallbackQuery, state: FSMContext):
-    await open_panel(cb, state)
+    uid = cb.from_user.id
+    lang = get_user_lang(uid)
+    if not await _is_admin(uid):
+        await cb.answer(t("admin_only", lang), show_alert=True)
+        return
+    await state.clear()
+    await cb.answer()
+    await cb.message.edit_text(_main_text(lang), reply_markup=_main_kb(lang), parse_mode=ParseMode.HTML)
+
+
+@router.callback_query(F.data == "adm:noop")
+async def cb_noop(cb: CallbackQuery):
+    await cb.answer()
+
+
+# ═══════════════════════════════════════════════
+# آمار
+# ═══════════════════════════════════════════════
+
+async def _gather_stats() -> dict:
+    try:
+        users = await db.pool.fetchval("SELECT COUNT(*) FROM users") or 0
+        banned = await db.pool.fetchval(
+            "SELECT COUNT(*) FROM users WHERE is_banned=TRUE"
+        ) or 0
+        groups = await db.pool.fetchval("SELECT COUNT(*) FROM groups") or 0
+        total_wins = await db.pool.fetchval(
+            "SELECT COALESCE(SUM(wins),0) FROM game_wins"
+        ) or 0
+        from games.state import active_games
+        active_now = sum(
+            len(g) for gtype in active_games for g in active_games[gtype].values()
+        )
+        top = await db.pool.fetch(
+            """SELECT game_type, SUM(wins) as total FROM game_wins
+               GROUP BY game_type ORDER BY total DESC LIMIT 5"""
+        )
+    except Exception:
+        users = banned = groups = total_wins = active_now = 0
+        top = []
+    return {
+        "users": users, "banned": banned, "active": users - banned,
+        "groups": groups, "wins": total_wins, "now": active_now, "top": top,
+    }
 
 
 @router.callback_query(F.data == "adm:stats")
 async def cb_stats(cb: CallbackQuery):
-    await open_stats(cb)
+    uid = cb.from_user.id
+    lang = get_user_lang(uid)
+    if not await _is_admin(uid):
+        await cb.answer(t("admin_only", lang), show_alert=True)
+        return
+    await cb.answer()
+
+    s = await _gather_stats()
+    top_txt = ""
+    for g in s["top"]:
+        name = GAME_NAMES.get(g["game_type"], g["game_type"])
+        top_txt += f"  • {name}: <b>{g['total']:,}</b>\n"
+    if not top_txt:
+        top_txt = "  —\n"
+
+    text = (
+        f"{E.CHART}{E.ROCKET} <b>آمار ربات</b>\n\n"
+        f"{E.DISGUISE} کاربران کل: <b>{s['users']:,}</b>\n"
+        f"{E.OK2} فعال: <b>{s['active']:,}</b>\n"
+        f"{E.BLOCK} مسدود: <b>{s['banned']:,}</b>\n"
+        f"{E.PARTY} گروه‌ها: <b>{s['groups']:,}</b>\n"
+        f"{E.GAME} بازی فعال الان: <b>{s['now']:,}</b>\n"
+        f"{E.TROPHY} مجموع بردها: <b>{s['wins']:,}</b>\n\n"
+        f"{E.SPARK} <b>پرطرفدارترین بازی‌ها:</b>\n{top_txt}"
+    )
+    await cb.message.edit_text(
+        text,
+        reply_markup=kb([
+            [primary(f"{E.REFRESH} بروزرسانی", "adm:stats")],
+            [back_btn(lang, "adm:panel")],
+        ]),
+        parse_mode=ParseMode.HTML,
+    )
 
 
-# ─────────── آمار (دستور /stats)
 @router.message(Command("stats"))
-async def cmd_stats(msg: Message):
-    await open_stats(msg)
-
-
 @router.message(F.text.in_({"آمار", "امار"}))
-async def msg_stats(msg: Message):
-    await open_stats(msg)
+async def cmd_stats(msg: Message):
+    uid = msg.from_user.id
+    if not await _is_admin(uid):
+        return
+    s = await _gather_stats()
+    await msg.answer(
+        f"{E.CHART} کاربران: <b>{s['users']:,}</b>\n"
+        f"{E.PARTY} گروه‌ها: <b>{s['groups']:,}</b>\n"
+        f"{E.GAME} بازی فعال: <b>{s['now']:,}</b>\n"
+        f"{E.TROPHY} مجموع بردها: <b>{s['wins']:,}</b>",
+        parse_mode=ParseMode.HTML,
+    )
 
 
-# ─────────── چک کاربر
+# ═══════════════════════════════════════════════
+# کاربران
+# ═══════════════════════════════════════════════
+
 @router.callback_query(F.data == "adm:users")
 async def cb_users(cb: CallbackQuery, state: FSMContext):
     uid = cb.from_user.id
@@ -177,17 +222,17 @@ async def cb_users(cb: CallbackQuery, state: FSMContext):
     if not await _is_admin(uid):
         await cb.answer(t("admin_only", lang), show_alert=True)
         return
-
-    await cb.answer()
     await state.clear()
-
-    text = f"{E.SEARCH} <b>{t('admin_users', lang)}</b>\n\n{E.INFO} یک گزینه انتخاب کنید:"
-    markup = kb([
-        [primary(f"{E.DISGUISE} لیست کاربران", "adm:ulist:0")],
-        [success(f"{E.SEARCH} جستجوی کاربر", "adm:usearch")],
-        [back_btn(lang, "adm:panel")],
-    ])
-    await cb.message.edit_text(text, reply_markup=markup, parse_mode=ParseMode.HTML)
+    await cb.answer()
+    await cb.message.edit_text(
+        f"{E.SEARCH} <b>{t('admin_users', lang)}</b>\n\n{E.INFO} یک گزینه:",
+        reply_markup=kb([
+            [primary(f"{E.DISGUISE} لیست کاربران", "adm:ulist:0")],
+            [success(f"{E.SEARCH} جستجو با آیدی", "adm:usearch")],
+            [back_btn(lang, "adm:panel")],
+        ]),
+        parse_mode=ParseMode.HTML,
+    )
 
 
 @router.callback_query(F.data.startswith("adm:ulist:"))
@@ -198,7 +243,6 @@ async def cb_ulist(cb: CallbackQuery):
         await cb.answer(t("admin_only", lang), show_alert=True)
         return
 
-    await cb.answer()
     try:
         page = int(cb.data.split(":")[2])
     except (IndexError, ValueError):
@@ -206,36 +250,35 @@ async def cb_ulist(cb: CallbackQuery):
 
     try:
         users = await db.pool.fetch(
-            "SELECT user_id, full_name, username, is_banned FROM users "
-            "ORDER BY created_at DESC LIMIT $1 OFFSET $2",
+            """SELECT user_id, first_name, is_banned FROM users
+               ORDER BY start_time DESC LIMIT $1 OFFSET $2""",
             USERS_PAGE, page * USERS_PAGE,
         )
         total = await db.pool.fetchval("SELECT COUNT(*) FROM users") or 0
     except Exception:
-        users = []
-        total = 0
+        users, total = [], 0
 
     pages = max(1, math.ceil(total / USERS_PAGE))
     rows = []
     for u in users:
         icon = E.BLOCK if u["is_banned"] else E.OK2
-        name = u["full_name"] or f"user_{u['user_id']}"
+        name = u["first_name"] or f"user_{u['user_id']}"
         rows.append([primary(f"{icon} {name}", f"adm:up:{u['user_id']}")])
 
     nav = []
     if page > 0:
-        nav.append(primary(f"◀️ قبلی", f"adm:ulist:{page-1}"))
-    nav.append(primary(f"{page+1}/{pages}", "noop"))
+        nav.append(primary("◀️", f"adm:ulist:{page-1}"))
+    nav.append(primary(f"{page+1}/{pages}", "adm:noop"))
     if page < pages - 1:
-        nav.append(primary(f"بعدی ▶️", f"adm:ulist:{page+1}"))
+        nav.append(primary("▶️", f"adm:ulist:{page+1}"))
     if nav:
         rows.append(nav)
-
     rows.append([back_btn(lang, "adm:users")])
+
+    await cb.answer()
     await cb.message.edit_text(
-        f"{E.DISGUISE} <b>لیست کاربران</b> ({total:,} نفر)",
-        reply_markup=kb(rows),
-        parse_mode=ParseMode.HTML,
+        f"{E.DISGUISE} <b>کاربران</b> ({total:,})",
+        reply_markup=kb(rows), parse_mode=ParseMode.HTML,
     )
 
 
@@ -246,58 +289,69 @@ async def cb_usearch(cb: CallbackQuery, state: FSMContext):
     if not await _is_admin(uid):
         await cb.answer(t("admin_only", lang), show_alert=True)
         return
-
-    await cb.answer()
     await state.clear()
-    await state.set_state(AdminStates.search_user)
+    await cb.answer()
+    await state.set_state(A.search_user)
     await cb.message.edit_text(
-        f"{E.SEARCH} <b>جستجوی کاربر</b>\n\n{E.INFO} آیدی عددی را بفرستید:",
+        f"{E.SEARCH} <b>جستجوی کاربر</b>\n\n{E.INFO} آیدی عددی:",
         reply_markup=kb([[cancel_btn(lang, "adm:users")]]),
         parse_mode=ParseMode.HTML,
     )
 
 
-@router.message(AdminStates.search_user, F.text)
+@router.message(A.search_user, F.text)
 async def msg_search_user(msg: Message, state: FSMContext):
-    lang = get_user_lang(msg.from_user.id)
     try:
-        target = int(msg.text.strip().replace("۰", "0").replace("۱", "1").replace("۲", "2")
-                     .replace("۳", "3").replace("۴", "4").replace("۵", "5").replace("۶", "6")
-                     .replace("۷", "7").replace("۸", "8").replace("۹", "9"))
+        target = int(_fa_digits(msg.text.strip()))
     except ValueError:
-        await msg.answer(f"{E.WARN} آیدی نامعتبر.", parse_mode=ParseMode.HTML)
+        await msg.answer(f"{E.WARN} آیدی نامعتبر.")
         return
-
     await state.clear()
-    user = await db.pool.fetchrow("SELECT * FROM users WHERE user_id = $1", target)
+    await _show_user(msg, target)
+
+
+async def _show_user(event, target_uid: int):
+    user = await db.pool.fetchrow(
+        "SELECT user_id, first_name, username, is_banned, start_time FROM users WHERE user_id=$1",
+        target_uid,
+    )
     if not user:
-        await msg.answer(f"{E.CROSS} کاربر یافت نشد.", parse_mode=ParseMode.HTML)
+        msg = f"{E.CROSS} کاربر یافت نشد."
+        if isinstance(event, CallbackQuery):
+            await event.answer(msg, show_alert=True)
+        else:
+            await event.answer(msg)
         return
 
-    await _show_user_panel(msg, target)
+    try:
+        wins = await db.pool.fetch(
+            "SELECT game_type, wins FROM game_wins WHERE user_id=$1 ORDER BY wins DESC",
+            target_uid,
+        )
+    except Exception:
+        wins = []
+    total = sum(w["wins"] for w in wins)
 
+    top_txt = ""
+    for w in wins[:3]:
+        name = GAME_NAMES.get(w["game_type"], w["game_type"])
+        top_txt += f"    • {name}: {w['wins']}\n"
+    top_txt = top_txt or "    —\n"
 
-async def _show_user_panel(msg_or_cb, target_uid: int):
-    """نمایش پنل یک کاربر"""
-    user = await db.pool.fetchrow("SELECT * FROM users WHERE user_id = $1", target_uid)
-    if not user:
-        return
+    status_icon = E.BLOCK if user["is_banned"] else E.OK2
+    status_txt = "مسدود" if user["is_banned"] else "فعال"
 
-    from datetime import datetime, timezone
-    end = user["subscription_end"]
-    if end and end.tzinfo is None:
-        end = end.replace(tzinfo=timezone.utc)
-    days = max(0, (end - datetime.now(timezone.utc)).days) if end else 0
-
-    status_icon = E.OK2 if not user["is_banned"] else E.BLOCK
+    join_date = user["start_time"].strftime("%Y-%m-%d") if user["start_time"] else "—"
 
     text = (
         f"{E.CROWN} <b>پنل کاربر</b>\n\n"
-        f"{E.DISGUISE} نام: <b>{user['full_name'] or '—'}</b>\n"
+        f"{E.DISGUISE} نام: <b>{user['first_name'] or '—'}</b>\n"
         f"{E.PIN} یوزرنیم: @{user['username'] or '—'}\n"
         f"{E.INFO} آیدی: <code>{target_uid}</code>\n"
-        f"{status_icon} وضعیت: {'فعال' if not user['is_banned'] else 'مسدود'}\n"
-        f"{E.CAL} اشتراک: {days} روز"
+        f"{status_icon} وضعیت: {status_txt}\n"
+        f"{E.CAL} عضویت: {join_date}\n\n"
+        f"{E.TROPHY} مجموع بردها: <b>{total}</b>\n"
+        f"{E.CHART} <b>برترین بازی‌ها:</b>\n{top_txt}"
     )
 
     if user["is_banned"]:
@@ -307,17 +361,15 @@ async def _show_user_panel(msg_or_cb, target_uid: int):
 
     rows = [
         [ban_btn],
-        [primary(f"{E.MONEY} شارژ دستی", f"adm:ucharge:{target_uid}")],
-        [primary(f"{E.BOX} پک‌های کاربر", f"adm:upacks:{target_uid}")],
-        [primary(f"{E.LINK} زیرمجموعه‌ها", f"adm:urefs:{target_uid}")],
-        [back_btn(get_user_lang(target_uid), "adm:users")],
+        [primary(f"{E.REFRESH} ریست آمار بازی‌ها", f"adm:ureset:{target_uid}")],
+        [back_btn(get_user_lang(event.from_user.id), "adm:users")],
     ]
 
-    if isinstance(msg_or_cb, CallbackQuery):
-        await msg_or_cb.answer()
-        await msg_or_cb.message.edit_text(text, reply_markup=kb(rows), parse_mode=ParseMode.HTML)
+    if isinstance(event, CallbackQuery):
+        await event.answer()
+        await event.message.edit_text(text, reply_markup=kb(rows), parse_mode=ParseMode.HTML)
     else:
-        await msg_or_cb.answer(text, reply_markup=kb(rows), parse_mode=ParseMode.HTML)
+        await event.answer(text, reply_markup=kb(rows), parse_mode=ParseMode.HTML)
 
 
 @router.callback_query(F.data.startswith("adm:up:"))
@@ -327,7 +379,7 @@ async def cb_up(cb: CallbackQuery):
     except (IndexError, ValueError):
         await cb.answer("❌")
         return
-    await _show_user_panel(cb, target)
+    await _show_user(cb, target)
 
 
 @router.callback_query(F.data.startswith("adm:ban:"))
@@ -338,9 +390,9 @@ async def cb_ban(cb: CallbackQuery):
         await cb.answer("❌")
         return
     await db.pool.execute("UPDATE users SET is_banned=TRUE WHERE user_id=$1", target)
-    await db.log_admin(cb.from_user.id, "ban", target)
-    await cb.answer("مسدود شد", show_alert=True)
-    await _show_user_panel(cb, target)
+    await db.log_admin(cb.from_user.id, "ban_user", target)
+    await cb.answer("مسدود شد ✅", show_alert=True)
+    await _show_user(cb, target)
 
 
 @router.callback_query(F.data.startswith("adm:unban:"))
@@ -351,319 +403,433 @@ async def cb_unban(cb: CallbackQuery):
         await cb.answer("❌")
         return
     await db.pool.execute("UPDATE users SET is_banned=FALSE WHERE user_id=$1", target)
-    await db.log_admin(cb.from_user.id, "unban", target)
-    await cb.answer("رفع مسدودی شد", show_alert=True)
-    await _show_user_panel(cb, target)
+    await db.log_admin(cb.from_user.id, "unban_user", target)
+    await cb.answer("رفع مسدودی شد ✅", show_alert=True)
+    await _show_user(cb, target)
 
 
-@router.callback_query(F.data.startswith("adm:ucharge:"))
-async def cb_ucharge(cb: CallbackQuery, state: FSMContext):
+@router.callback_query(F.data.startswith("adm:ureset:"))
+async def cb_ureset(cb: CallbackQuery):
     try:
         target = int(cb.data.split(":")[2])
     except (IndexError, ValueError):
         await cb.answer("❌")
         return
-    await cb.answer()
-    await state.clear()
-    await state.set_state(AdminStates.charge_days)
-    await state.update_data(charge_uid=target)
-    lang = get_user_lang(cb.from_user.id)
-    await cb.message.edit_text(
-        f"{E.MONEY} <b>شارژ دستی</b>\n\n{E.INFO} چند روز شارژ شود؟ (عدد بفرستید)",
-        reply_markup=kb([[cancel_btn(lang, f"adm:up:{target}")]]),
-        parse_mode=ParseMode.HTML,
-    )
-
-
-@router.message(AdminStates.charge_days, F.text)
-async def msg_charge_days(msg: Message, state: FSMContext):
-    data = await state.get_data()
-    target = data.get("charge_uid")
-    if not target:
-        await state.clear()
-        return
-
     try:
-        days = int(msg.text.strip().replace("۰", "0").replace("۱", "1").replace("۲", "2")
-                   .replace("۳", "3").replace("۴", "4").replace("۵", "5").replace("۶", "6")
-                   .replace("۷", "7").replace("۸", "8").replace("۹", "9"))
-    except ValueError:
-        await msg.answer(f"{E.WARN} عدد بفرستید.", parse_mode=ParseMode.HTML)
-        return
-
-    await state.clear()
-
-    from datetime import datetime, timezone, timedelta
-    new_end = datetime.now(timezone.utc) + timedelta(days=days)
-    await db.pool.execute(
-        "UPDATE users SET subscription_end=$2 WHERE user_id=$1", target, new_end
-    )
-    await db.log_admin(msg.from_user.id, "charge", target, str(days))
-
-    await msg.answer(
-        f"{E.OK2} کاربر <code>{target}</code> به مدت <b>{days}</b> روز شارژ شد.",
-        parse_mode=ParseMode.HTML,
-    )
-
-    # اطلاع به کاربر
-    try:
-        await msg.bot.send_message(
-            target,
-            f"{E.PARTY}{E.MONEY} حساب شما به مدت <b>{days} روز</b> شارژ شد!",
-            parse_mode=ParseMode.HTML,
-        )
+        await db.pool.execute("DELETE FROM game_wins WHERE user_id=$1", target)
     except Exception:
         pass
+    await cb.answer("آمار پاک شد ✅", show_alert=True)
+    await _show_user(cb, target)
 
 
-@router.callback_query(F.data.startswith("adm:upacks:"))
-async def cb_upacks(cb: CallbackQuery):
-    try:
-        target = int(cb.data.split(":")[2])
-    except (IndexError, ValueError):
-        await cb.answer("❌")
+# ═══════════════════════════════════════════════
+# گروه‌ها
+# ═══════════════════════════════════════════════
+
+@router.callback_query(F.data == "adm:groups")
+async def cb_groups(cb: CallbackQuery):
+    uid = cb.from_user.id
+    lang = get_user_lang(uid)
+    if not await _is_admin(uid):
+        await cb.answer(t("admin_only", lang), show_alert=True)
         return
     await cb.answer()
-
-    try:
-        packs = await db.pool.fetch(
-            "SELECT pack_title FROM user_packs WHERE user_id=$1", target
-        )
-    except Exception:
-        packs = []
-
-    text = f"{E.BOX} <b>پک‌های {target}</b>\n\n"
-    if packs:
-        text += "\n".join(f"• {p['pack_title']}" for p in packs)
-    else:
-        text += "هیچ پکی ندارد."
-
     await cb.message.edit_text(
-        text,
-        reply_markup=kb([[back_btn(get_user_lang(cb.from_user.id), f"adm:up:{target}")]]),
-        parse_mode=ParseMode.HTML,
-    )
-
-
-@router.callback_query(F.data.startswith("adm:urefs:"))
-async def cb_urefs(cb: CallbackQuery):
-    try:
-        target = int(cb.data.split(":")[2])
-    except (IndexError, ValueError):
-        await cb.answer("❌")
-        return
-    await cb.answer()
-
-    try:
-        refs = await db.pool.fetch(
-            "SELECT user_id, full_name, username FROM users WHERE referred_by=$1", target
-        )
-    except Exception:
-        refs = []
-
-    text = f"{E.LINK} <b>زیرمجموعه‌های {target}</b> ({len(refs)} نفر)\n\n"
-    for r in refs[:20]:
-        text += f"• {r['full_name'] or '—'} (<code>{r['user_id']}</code>)\n"
-
-    await cb.message.edit_text(
-        text,
-        reply_markup=kb([[back_btn(get_user_lang(cb.from_user.id), f"adm:up:{target}")]]),
-        parse_mode=ParseMode.HTML,
-    )
-
-
-# ─────────── پک‌های پیش‌فرض
-@router.callback_query(F.data == "adm:defpacks")
-async def cb_defpacks(cb: CallbackQuery):
-    lang = get_user_lang(cb.from_user.id)
-    await cb.answer()
-    await cb.message.edit_text(
-        f"{E.BOX} <b>{t('admin_defpacks', lang)}</b>\n\n{E.INFO} یک گزینه:",
+        f"{E.PARTY} <b>مدیریت گروه‌ها</b>",
         reply_markup=kb([
-            [success(f"{E.PLUS} افزودن پک", "adm:defadd")],
-            [primary(f"{E.EYES} لیست پک‌ها", "adm:deflist")],
+            [primary(f"{E.EYES} لیست گروه‌ها", "adm:glist:0")],
             [back_btn(lang, "adm:panel")],
         ]),
         parse_mode=ParseMode.HTML,
     )
 
 
-@router.callback_query(F.data == "adm:deflist")
-async def cb_deflist(cb: CallbackQuery):
-    lang = get_user_lang(cb.from_user.id)
-    await cb.answer()
-    try:
-        packs = await db.pool.fetch("SELECT * FROM default_packs ORDER BY created_at DESC")
-    except Exception:
-        packs = []
+@router.callback_query(F.data.startswith("adm:glist:"))
+async def cb_glist(cb: CallbackQuery):
+    uid = cb.from_user.id
+    lang = get_user_lang(uid)
+    if not await _is_admin(uid):
+        await cb.answer(t("admin_only", lang), show_alert=True)
+        return
 
+    try:
+        page = int(cb.data.split(":")[2])
+    except (IndexError, ValueError):
+        page = 0
+
+    try:
+        groups = await db.pool.fetch(
+            """SELECT group_id, title, member_count FROM groups
+               ORDER BY added_time DESC LIMIT $1 OFFSET $2""",
+            GROUPS_PAGE, page * GROUPS_PAGE,
+        )
+        total = await db.pool.fetchval("SELECT COUNT(*) FROM groups") or 0
+    except Exception:
+        groups, total = [], 0
+
+    pages = max(1, math.ceil(total / GROUPS_PAGE))
     rows = []
-    for p in packs:
-        icon = E.OK2 if p["is_active"] else E.CROSS
-        rows.append([primary(f"{icon} {p['pack_title']}", f"adm:deftog:{p['id']}")])
-    rows.append([back_btn(lang, "adm:defpacks")])
+    for g in groups:
+        title = g["title"] or f"گروه {g['group_id']}"
+        rows.append([primary(f"{E.PARTY} {title}", f"adm:gp:{g['group_id']}")])
 
+    nav = []
+    if page > 0:
+        nav.append(primary("◀️", f"adm:glist:{page-1}"))
+    nav.append(primary(f"{page+1}/{pages}", "adm:noop"))
+    if page < pages - 1:
+        nav.append(primary("▶️", f"adm:glist:{page+1}"))
+    if nav:
+        rows.append(nav)
+    rows.append([back_btn(lang, "adm:groups")])
+
+    await cb.answer()
     await cb.message.edit_text(
-        f"{E.BOX} <b>پک‌های پیش‌فرض</b> ({len(packs)})",
-        reply_markup=kb(rows) if packs else kb([[back_btn(lang, "adm:defpacks")]]),
-        parse_mode=ParseMode.HTML,
+        f"{E.PARTY} <b>گروه‌ها</b> ({total:,})",
+        reply_markup=kb(rows), parse_mode=ParseMode.HTML,
     )
 
 
-@router.callback_query(F.data.startswith("adm:deftog:"))
-async def cb_deftog(cb: CallbackQuery):
+@router.callback_query(F.data.startswith("adm:gp:"))
+async def cb_gp(cb: CallbackQuery):
+    uid = cb.from_user.id
+    lang = get_user_lang(uid)
+    if not await _is_admin(uid):
+        await cb.answer(t("admin_only", lang), show_alert=True)
+        return
+
     try:
-        pid = int(cb.data.split(":")[2])
+        gid = int(cb.data.split(":")[2])
     except (IndexError, ValueError):
         await cb.answer("❌")
         return
-    await db.pool.execute(
-        "UPDATE default_packs SET is_active = NOT is_active WHERE id=$1", pid
-    )
-    await cb.answer("وضعیت تغییر کرد")
-    await cb_deflist(cb)
 
+    g = await db.pool.fetchrow("SELECT * FROM groups WHERE group_id=$1", gid)
+    if not g:
+        await cb.answer("گروه یافت نشد", show_alert=True)
+        return
 
-@router.callback_query(F.data == "adm:defadd")
-async def cb_defadd(cb: CallbackQuery, state: FSMContext):
-    lang = get_user_lang(cb.from_user.id)
-    await cb.answer()
-    await state.clear()
-    await cb.message.edit_text(
-        f"{E.PLUS} <b>افزودن پک پیش‌فرض</b>\n\n"
-        f"{E.LINK} لینک پک را بفرستید:\n"
-        f"<code>https://t.me/addemoji/PackName</code>\n\n"
-        f"{E.CROSS} برای لغو: /cancel",
-        parse_mode=ParseMode.HTML,
-    )
+    added = g["added_time"].strftime("%Y-%m-%d") if g["added_time"] else "—"
 
-
-# ─────────── فیلترها
-@router.callback_query(F.data == "adm:filters")
-async def cb_filters(cb: CallbackQuery):
-    lang = get_user_lang(cb.from_user.id)
     await cb.answer()
     await cb.message.edit_text(
-        f"{E.BLOCK} <b>{t('admin_filters', lang)}</b>",
+        f"{E.PARTY} <b>اطلاعات گروه</b>\n\n"
+        f"{E.DISGUISE} نام: <b>{g['title'] or '—'}</b>\n"
+        f"{E.INFO} آیدی: <code>{gid}</code>\n"
+        f"{E.CROWN} اعضا: <b>{g['member_count'] or 0:,}</b>\n"
+        f"{E.CAL} افزوده: {added}",
         reply_markup=kb([
-            [success(f"{E.SEARCH} مشاهده فیلترها", "adm:flist")],
-            [primary(f"{E.PLUS} فیلتر پک", "adm:fpack")],
-            [primary(f"{E.REFRESH} رفع فیلتر", "adm:ufilter")],
-            [back_btn(lang, "adm:panel")],
+            [danger(f"{E.TRASH} اخراج ربات", f"adm:gleave:{gid}")],
+            [back_btn(lang, "adm:groups")],
         ]),
         parse_mode=ParseMode.HTML,
     )
 
 
-@router.callback_query(F.data == "adm:flist")
-async def cb_flist(cb: CallbackQuery):
-    lang = get_user_lang(cb.from_user.id)
+@router.callback_query(F.data.startswith("adm:gleave:"))
+async def cb_gleave(cb: CallbackQuery):
+    uid = cb.from_user.id
+    lang = get_user_lang(uid)
+    if not await _is_admin(uid):
+        await cb.answer(t("admin_only", lang), show_alert=True)
+        return
+
+    try:
+        gid = int(cb.data.split(":")[2])
+    except (IndexError, ValueError):
+        await cb.answer("❌")
+        return
+
+    try:
+        await cb.bot.leave_chat(gid)
+        await db.pool.execute("DELETE FROM groups WHERE group_id=$1", gid)
+        await cb.answer("اخراج شد ✅", show_alert=True)
+    except Exception as e:
+        await cb.answer(f"خطا: {e}", show_alert=True)
+
+    cb.data = "adm:glist:0"
+    await cb_glist(cb)
+
+
+# ═══════════════════════════════════════════════
+# مدیریت بازی‌ها (روشن/خاموش)
+# ═══════════════════════════════════════════════
+
+ALL_GAMES = [
+    ("hokm", "🃏 حکم"),
+    ("dooz", "❌ دوز ۲ نفره"),
+    ("doz4p", "🔴 دوز ۴ نفره"),
+    ("connect4", "🔴 چهار در ردیف"),
+    ("rps", "🪨 سنگ کاغذ قیچی"),
+    ("memory", "🧠 حافظه"),
+    ("2048", "🔢 2048"),
+    ("samegame", "✨ جفت‌ها"),
+    ("spuzzle", "🧩 پازل کشویی"),
+    ("hangman", "🎯 حدس کلمه"),
+    ("typing", "⌨️ تایپ سرعتی"),
+    ("number_guess", "🔢 حدس عدد"),
+    ("gardone", "🎡 گردونه شانس"),
+]
+
+
+@router.callback_query(F.data == "adm:games")
+async def cb_games(cb: CallbackQuery):
+    uid = cb.from_user.id
+    lang = get_user_lang(uid)
+    if not await _is_admin(uid):
+        await cb.answer(t("admin_only", lang), show_alert=True)
+        return
     await cb.answer()
 
     try:
-        emojis = await db.pool.fetch("SELECT emoji_id FROM filtered_emojis LIMIT 20")
-        packs = await db.pool.fetch("SELECT pack_name FROM filtered_packs LIMIT 20")
+        rows = await db.pool.fetch("SELECT game_type, is_enabled FROM game_settings")
+        state = {r["game_type"]: r["is_enabled"] for r in rows}
     except Exception:
-        emojis, packs = [], []
+        state = {}
 
-    text = f"{E.CHART} <b>فیلترها</b>\n\n"
-    text += f"{E.BLOCK} <b>پک‌های فیلتر:</b> {len(packs)}\n"
-    for p in packs:
-        text += f"  • {p['pack_name']}\n"
-    text += f"\n{E.BLOCK} <b>ایموجی‌های فیلتر:</b> {len(emojis)}\n"
-    for e in emojis:
-        text += f"  • <code>{e['emoji_id']}</code>\n"
+    rows_kb = []
+    for gtype, gname in ALL_GAMES:
+        is_on = state.get(gtype, True)
+        icon = E.OK2 if is_on else E.CROSS
+        style = "success" if is_on else "danger"
+        rows_kb.append([btn(f"{icon} {gname}", f"adm:gtog:{gtype}", style=style)])
+    rows_kb.append([back_btn(lang, "adm:panel")])
 
     await cb.message.edit_text(
-        text,
-        reply_markup=kb([[back_btn(lang, "adm:filters")]]),
+        f"{E.GAME} <b>مدیریت بازی‌ها</b>\n\n"
+        f"{E.INFO} روی هر بازی کلیک کن تا روشن/خاموش شود.\n"
+        f"{E.CHECK} سبز = فعال | {E.CROSS} قرمز = غیرفعال",
+        reply_markup=kb(rows_kb),
         parse_mode=ParseMode.HTML,
     )
 
 
-# ─────────── قفل‌ها / اسپانسری
+@router.callback_query(F.data.startswith("adm:gtog:"))
+async def cb_gtoggle(cb: CallbackQuery):
+    uid = cb.from_user.id
+    lang = get_user_lang(uid)
+    if not await _is_admin(uid):
+        await cb.answer(t("admin_only", lang), show_alert=True)
+        return
+
+    gtype = cb.data.split(":")[2]
+    try:
+        current = await db.pool.fetchval(
+            "SELECT is_enabled FROM game_settings WHERE game_type=$1", gtype
+        )
+        new_state = False if current else True
+        await db.pool.execute(
+            """INSERT INTO game_settings (game_type, is_enabled) VALUES ($1, $2)
+               ON CONFLICT (game_type) DO UPDATE
+               SET is_enabled=$2, updated_at=NOW()""",
+            gtype, new_state,
+        )
+        await db.log_admin(uid, "toggle_game", detail=f"{gtype}={new_state}")
+        await cb.answer("✅ ذخیره شد")
+    except Exception as e:
+        await cb.answer(f"خطا: {e}", show_alert=True)
+
+    cb.data = "adm:games"
+    await cb_games(cb)
+
+
+# ═══════════════════════════════════════════════
+# اسپانسری (کانال اجباری)
+# ═══════════════════════════════════════════════
+
 @router.callback_query(F.data == "adm:locks")
 async def cb_locks(cb: CallbackQuery):
-    lang = get_user_lang(cb.from_user.id)
+    uid = cb.from_user.id
+    lang = get_user_lang(uid)
+    if not await _is_admin(uid):
+        await cb.answer(t("admin_only", lang), show_alert=True)
+        return
     await cb.answer()
     await cb.message.edit_text(
         f"{E.LOCK} <b>{t('admin_locks', lang)}</b>",
         reply_markup=kb([
-            [primary(f"{E.PLUS} افزودن کانال اجباری", "adm:addchannel")],
-            [primary(f"{E.EYES} لیست کانال‌ها", "adm:listchannels")],
+            [primary(f"{E.EYES} لیست کانال‌ها", "adm:chlst")],
+            [success(f"{E.PLUS} افزودن کانال", "adm:chadd")],
             [back_btn(lang, "adm:panel")],
         ]),
         parse_mode=ParseMode.HTML,
     )
 
 
-@router.callback_query(F.data == "adm:listchannels")
-async def cb_listchannels(cb: CallbackQuery):
-    lang = get_user_lang(cb.from_user.id)
+@router.callback_query(F.data == "adm:chlst")
+async def cb_chlist(cb: CallbackQuery):
+    uid = cb.from_user.id
+    lang = get_user_lang(uid)
+    if not await _is_admin(uid):
+        await cb.answer(t("admin_only", lang), show_alert=True)
+        return
     await cb.answer()
+
     try:
         chans = await db.pool.fetch("SELECT * FROM forced_channels")
     except Exception:
         chans = []
 
-    text = f"{E.LOCK} <b>کانال‌های اجباری</b> ({len(chans)})\n\n"
+    rows = []
     for c in chans:
-        text += f"• {c['title'] or c['chat_id']}\n  <code>{c['chat_id']}</code>\n\n"
+        title = c["title"] or c["chat_id"]
+        rows.append([danger(f"{E.TRASH} {title}", f"adm:chdel:{c['id']}")])
+    rows.append([back_btn(lang, "adm:locks")])
 
+    text = f"{E.LOCK} <b>کانال‌های اجباری</b> ({len(chans)})\n\n"
+    text += "برای حذف روی کانال بزن." if chans else "هیچ کانالی وجود ندارد."
+
+    await cb.message.edit_text(text, reply_markup=kb(rows), parse_mode=ParseMode.HTML)
+
+
+@router.callback_query(F.data == "adm:chadd")
+async def cb_chadd(cb: CallbackQuery, state: FSMContext):
+    uid = cb.from_user.id
+    lang = get_user_lang(uid)
+    if not await _is_admin(uid):
+        await cb.answer(t("admin_only", lang), show_alert=True)
+        return
+    await state.clear()
+    await cb.answer()
+    await state.set_state(A.add_channel)
     await cb.message.edit_text(
-        text or "هیچ کانالی ثبت نشده.",
-        reply_markup=kb([[back_btn(lang, "adm:locks")]]),
+        f"{E.PLUS} <b>افزودن کانال اجباری</b>\n\n"
+        f"{E.INFO} یوزرنیم یا لینک کانال:\n"
+        f"مثال: <code>@MyChannel</code>\n\n"
+        f"{E.WARN} ربات باید ادمین کانال باشد.",
+        reply_markup=kb([[cancel_btn(lang, "adm:locks")]]),
         parse_mode=ParseMode.HTML,
     )
 
 
-# ─────────── ارسال همگانی
+@router.message(A.add_channel, F.text)
+async def msg_chadd(msg: Message, state: FSMContext):
+    text = msg.text.strip()
+    try:
+        if text.startswith("https://t.me/"):
+            text = "@" + text.split("/")[-1]
+        elif not text.startswith("@"):
+            text = "@" + text
+
+        chat = await msg.bot.get_chat(text)
+        await db.pool.execute(
+            """INSERT INTO forced_channels (chat_id, username, title)
+               VALUES ($1, $2, $3)
+               ON CONFLICT (chat_id) DO UPDATE SET title=$3, username=$2""",
+            str(chat.id), chat.username or "", chat.title or "",
+        )
+        await state.clear()
+        await msg.answer(f"{E.OK2} کانال <b>{chat.title}</b> اضافه شد.", parse_mode=ParseMode.HTML)
+    except Exception as e:
+        await msg.answer(f"{E.WARN} خطا: {e}", parse_mode=ParseMode.HTML)
+
+
+@router.callback_query(F.data.startswith("adm:chdel:"))
+async def cb_chdel(cb: CallbackQuery):
+    uid = cb.from_user.id
+    lang = get_user_lang(uid)
+    if not await _is_admin(uid):
+        await cb.answer(t("admin_only", lang), show_alert=True)
+        return
+    try:
+        cid = int(cb.data.split(":")[2])
+        await db.pool.execute("DELETE FROM forced_channels WHERE id=$1", cid)
+        await cb.answer("حذف شد ✅", show_alert=True)
+    except Exception:
+        await cb.answer("خطا", show_alert=True)
+    cb.data = "adm:chlst"
+    await cb_chlist(cb)
+
+
+# ═══════════════════════════════════════════════
+# ارسال همگانی
+# ═══════════════════════════════════════════════
+
 @router.callback_query(F.data == "adm:bcast")
-async def cb_bcast(cb: CallbackQuery, state: FSMContext):
-    lang = get_user_lang(cb.from_user.id)
+async def cb_bcast(cb: CallbackQuery):
+    uid = cb.from_user.id
+    lang = get_user_lang(uid)
+    if not await _is_admin(uid):
+        await cb.answer(t("admin_only", lang), show_alert=True)
+        return
     await cb.answer()
-    await state.clear()
-    await state.set_state(AdminStates.broadcast)
     await cb.message.edit_text(
         f"{E.MEGA} <b>{t('admin_bcast', lang)}</b>\n\n"
-        f"{E.INFO} پیام خود را بفرستید (متن، عکس، ویدیو...):\n"
-        f"{E.CROSS} برای لغو: /cancel",
+        f"{E.INFO} مقصد را انتخاب کن:",
+        reply_markup=kb([
+            [success(f"{E.DISGUISE} کاربران", "adm:bcu")],
+            [primary(f"{E.PARTY} گروه‌ها", "adm:bcg")],
+            [back_btn(lang, "adm:panel")],
+        ]),
         parse_mode=ParseMode.HTML,
     )
 
 
-@router.message(AdminStates.broadcast)
-async def msg_broadcast(msg: Message, state: FSMContext):
+@router.callback_query(F.data == "adm:bcu")
+async def cb_bcu(cb: CallbackQuery, state: FSMContext):
+    uid = cb.from_user.id
+    lang = get_user_lang(uid)
+    if not await _is_admin(uid):
+        await cb.answer(t("admin_only", lang), show_alert=True)
+        return
     await state.clear()
-    lang = get_user_lang(msg.from_user.id)
+    await cb.answer()
+    await state.set_state(A.broadcast_users)
+    await cb.message.edit_text(
+        f"{E.MEGA} <b>ارسال به کاربران</b>\n\n"
+        f"{E.INFO} پیام خود را بفرست (متن/عکس/ویدیو/...):\n"
+        f"{E.WARN} فقط کاربران غیرمسدود.",
+        reply_markup=kb([[cancel_btn(lang, "adm:bcast")]]),
+        parse_mode=ParseMode.HTML,
+    )
 
-    status = await msg.answer(f"{E.HOURGLASS} در حال ارسال...")
 
+@router.callback_query(F.data == "adm:bcg")
+async def cb_bcg(cb: CallbackQuery, state: FSMContext):
+    uid = cb.from_user.id
+    lang = get_user_lang(uid)
+    if not await _is_admin(uid):
+        await cb.answer(t("admin_only", lang), show_alert=True)
+        return
+    await state.clear()
+    await cb.answer()
+    await state.set_state(A.broadcast_groups)
+    await cb.message.edit_text(
+        f"{E.MEGA} <b>ارسال به گروه‌ها</b>\n\n"
+        f"{E.INFO} پیام خود را بفرست:",
+        reply_markup=kb([[cancel_btn(lang, "adm:bcast")]]),
+        parse_mode=ParseMode.HTML,
+    )
+
+
+async def _do_broadcast(msg: Message, target_type: str):
+    status = await msg.answer(f"{E.HOURGLASS} در حال ارسال...", parse_mode=ParseMode.HTML)
     try:
-        users = await db.pool.fetch("SELECT user_id FROM users WHERE is_banned=FALSE")
+        if target_type == "users":
+            rows = await db.pool.fetch("SELECT user_id FROM users WHERE is_banned=FALSE")
+            key = "user_id"
+        else:
+            rows = await db.pool.fetch("SELECT group_id FROM groups")
+            key = "group_id"
     except Exception:
-        users = []
+        rows = []
+        key = "user_id"
 
     sent = failed = 0
-    import asyncio
-    for i, u in enumerate(users):
+    for i, r in enumerate(rows):
         try:
-            await msg.copy_to(u["user_id"])
+            await msg.copy_to(r[key])
             sent += 1
         except Exception:
             failed += 1
-
-        # rate limit
         if i % 25 == 0:
             await asyncio.sleep(0.05)
-
-        # آپدیت وضعیت
-        if i % 50 == 0:
+        if i % 100 == 0 and i > 0:
             try:
                 await status.edit_text(
                     f"{E.HOURGLASS} در حال ارسال...\n"
-                    f"{E.CHECK} موفق: {sent}\n"
-                    f"{E.CROSS} ناموفق: {failed}",
+                    f"{E.OK2} موفق: {sent}\n{E.CROSS} ناموفق: {failed}",
                     parse_mode=ParseMode.HTML,
                 )
             except Exception:
@@ -671,133 +837,108 @@ async def msg_broadcast(msg: Message, state: FSMContext):
 
     await status.edit_text(
         f"{E.PARTY}{E.OK2} <b>ارسال کامل شد!</b>\n\n"
-        f"{E.CHECK} موفق: {sent}\n"
-        f"{E.CROSS} ناموفق: {failed}",
+        f"{E.OK2} موفق: {sent:,}\n{E.CROSS} ناموفق: {failed:,}",
         parse_mode=ParseMode.HTML,
     )
 
 
-# ─────────── زیرمجموعه‌ها
-@router.callback_query(F.data == "adm:refs")
-async def cb_refs(cb: CallbackQuery):
-    lang = get_user_lang(cb.from_user.id)
-    await cb.answer()
-
-    try:
-        top = await db.pool.fetch(
-            """SELECT referred_by, COUNT(*) as cnt FROM users
-               WHERE referred_by IS NOT NULL
-               GROUP BY referred_by ORDER BY cnt DESC LIMIT 10"""
-        )
-    except Exception:
-        top = []
-
-    text = f"{E.CROWN} <b>برترین معرف‌ها</b>\n\n"
-    for i, r in enumerate(top, 1):
-        text += f"{i}. <code>{r['referred_by']}</code> — {r['cnt']} نفر\n"
-
-    if not top:
-        text += "هیچ زیرمجموعه‌ای یافت نشد."
-
-    await cb.message.edit_text(
-        text,
-        reply_markup=kb([[back_btn(lang, "adm:panel")]]),
-        parse_mode=ParseMode.HTML,
-    )
+@router.message(A.broadcast_users)
+async def msg_bcast_users(msg: Message, state: FSMContext):
+    await state.clear()
+    await _do_broadcast(msg, "users")
 
 
-# ─────────── تنظیمات
+@router.message(A.broadcast_groups)
+async def msg_bcast_groups(msg: Message, state: FSMContext):
+    await state.clear()
+    await _do_broadcast(msg, "groups")
+
+
+# ═══════════════════════════════════════════════
+# تنظیمات
+# ═══════════════════════════════════════════════
+
 @router.callback_query(F.data == "adm:settings")
 async def cb_settings(cb: CallbackQuery):
-    lang = get_user_lang(cb.from_user.id)
+    uid = cb.from_user.id
+    lang = get_user_lang(uid)
+    if not await _is_admin(uid):
+        await cb.answer(t("admin_only", lang), show_alert=True)
+        return
     await cb.answer()
 
     try:
-        trial = await db.pool.fetchval(
-            "SELECT value FROM bot_settings WHERE key='trial_days'"
-        ) or "2"
-        price = await db.pool.fetchval(
-            "SELECT value FROM bot_settings WHERE key='subscription_price'"
-        ) or "100000"
+        lives = await db.pool.fetchval(
+            "SELECT config->>'initial_lives' FROM game_settings WHERE game_type='hangman'"
+        ) or "10"
     except Exception:
-        trial, price = "2", "100000"
+        lives = "10"
 
     await cb.message.edit_text(
         f"{E.CAL} <b>{t('admin_settings', lang)}</b>\n\n"
-        f"{E.GIFT} مدت تست: <b>{trial}</b> روز\n"
-        f"{E.MONEY} نرخ اشتراک: <b>{price:,}</b> تومان",
+        f"{E.HEART} جان اولیه در حدس کلمه: <b>{lives}</b>",
         reply_markup=kb([
-            [primary(f"{E.CAL} تغییر مدت تست", "adm:set_trial")],
-            [primary(f"{E.CASH} تغییر نرخ", "adm:set_price")],
+            [primary(f"{E.HEART} تغییر جان حدس کلمه", "adm:set_lives")],
             [back_btn(lang, "adm:panel")],
         ]),
         parse_mode=ParseMode.HTML,
     )
 
 
-@router.callback_query(F.data == "adm:set_trial")
-async def cb_set_trial(cb: CallbackQuery, state: FSMContext):
-    lang = get_user_lang(cb.from_user.id)
-    await cb.answer()
+@router.callback_query(F.data == "adm:set_lives")
+async def cb_set_lives(cb: CallbackQuery, state: FSMContext):
+    uid = cb.from_user.id
+    lang = get_user_lang(uid)
+    if not await _is_admin(uid):
+        await cb.answer(t("admin_only", lang), show_alert=True)
+        return
     await state.clear()
-    await state.set_state(AdminStates.set_trial)
+    await cb.answer()
+    await state.set_state(A.set_hangman_lives)
     await cb.message.edit_text(
-        f"{E.CAL} <b>مدت تست جدید (روز):</b>",
+        f"{E.HEART} <b>جان اولیه جدید (بین ۱ تا ۲۰):</b>",
         reply_markup=kb([[cancel_btn(lang, "adm:settings")]]),
         parse_mode=ParseMode.HTML,
     )
 
 
-@router.message(AdminStates.set_trial, F.text)
-async def msg_set_trial(msg: Message, state: FSMContext):
+@router.message(A.set_hangman_lives, F.text)
+async def msg_set_lives(msg: Message, state: FSMContext):
     try:
-        days = int(msg.text.strip())
+        lives = int(_fa_digits(msg.text.strip()))
+        if not (1 <= lives <= 20):
+            raise ValueError
+    except ValueError:
+        await msg.answer(f"{E.WARN} عدد بین ۱ تا ۲۰ بفرست.")
+        return
+
+    try:
         await db.pool.execute(
-            """INSERT INTO bot_settings (key, value) VALUES ('trial_days', $1)
-               ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value""",
-            str(days),
+            """INSERT INTO game_settings (game_type, config) VALUES ('hangman', $1::jsonb)
+               ON CONFLICT (game_type) DO UPDATE
+               SET config = jsonb_set(
+                   COALESCE(game_settings.config, '{}'::jsonb),
+                   '{initial_lives}', to_jsonb($2::int)
+               )""",
+            f'{{"initial_lives": {lives}}}', lives,
         )
         await state.clear()
-        await msg.answer(f"{E.OK2} مدت تست = <b>{days}</b> روز", parse_mode=ParseMode.HTML)
-    except ValueError:
-        await msg.answer(f"{E.WARN} عدد بفرستید.", parse_mode=ParseMode.HTML)
+        await msg.answer(f"{E.OK2} جان اولیه = <b>{lives}</b>", parse_mode=ParseMode.HTML)
+    except Exception as e:
+        await msg.answer(f"{E.WARN} خطا: {e}")
 
 
-@router.callback_query(F.data == "adm:set_price")
-async def cb_set_price(cb: CallbackQuery, state: FSMContext):
-    lang = get_user_lang(cb.from_user.id)
-    await cb.answer()
-    await state.clear()
-    await state.set_state(AdminStates.set_price)
-    await cb.message.edit_text(
-        f"{E.CASH} <b>نرخ جدید اشتراک (تومان):</b>",
-        reply_markup=kb([[cancel_btn(lang, "adm:settings")]]),
-        parse_mode=ParseMode.HTML,
-    )
+# ═══════════════════════════════════════════════
+# ادمین‌ها
+# ═══════════════════════════════════════════════
 
-
-@router.message(AdminStates.set_price, F.text)
-async def msg_set_price(msg: Message, state: FSMContext):
-    try:
-        price = int(msg.text.strip())
-        await db.pool.execute(
-            """INSERT INTO bot_settings (key, value) VALUES ('subscription_price', $1)
-               ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value""",
-            str(price),
-        )
-        await state.clear()
-        await msg.answer(f"{E.OK2} نرخ = <b>{price:,}</b> تومان", parse_mode=ParseMode.HTML)
-    except ValueError:
-        await msg.answer(f"{E.WARN} عدد بفرستید.", parse_mode=ParseMode.HTML)
-
-
-# ─────────── مدیریت ادمین‌ها
 @router.callback_query(F.data == "adm:admins")
 async def cb_admins(cb: CallbackQuery):
-    if not await _is_owner(cb.from_user.id):
+    uid = cb.from_user.id
+    lang = get_user_lang(uid)
+    if not await _is_owner(uid):
         await cb.answer("فقط مالک", show_alert=True)
         return
-    lang = get_user_lang(cb.from_user.id)
     await cb.answer()
 
     try:
@@ -811,27 +952,26 @@ async def cb_admins(cb: CallbackQuery):
         text += f"  • <code>{oid}</code>\n"
     text += f"\n{E.SHIELD} ادمین‌ها ({len(admins)}):\n"
     for a in admins:
-        text += f"  • <code>{a['user_id']}</code> — {a['level']}\n"
+        text += f"  • <code>{a['user_id']}</code>\n"
 
-    await cb.message.edit_text(
-        text,
-        reply_markup=kb([
-            [success(f"{E.PLUS} افزودن", "adm:aadd")],
-            [back_btn(lang, "adm:panel")],
-        ]),
-        parse_mode=ParseMode.HTML,
-    )
+    rows = [[success(f"{E.PLUS} افزودن ادمین", "adm:aadd")]]
+    for a in admins:
+        rows.append([danger(f"{E.TRASH} حذف {a['user_id']}", f"adm:adel:{a['user_id']}")])
+    rows.append([back_btn(lang, "adm:panel")])
+
+    await cb.message.edit_text(text, reply_markup=kb(rows), parse_mode=ParseMode.HTML)
 
 
 @router.callback_query(F.data == "adm:aadd")
 async def cb_aadd(cb: CallbackQuery, state: FSMContext):
-    if not await _is_owner(cb.from_user.id):
+    uid = cb.from_user.id
+    lang = get_user_lang(uid)
+    if not await _is_owner(uid):
         await cb.answer("فقط مالک", show_alert=True)
         return
-    lang = get_user_lang(cb.from_user.id)
-    await cb.answer()
     await state.clear()
-    await state.set_state(AdminStates.add_admin)
+    await cb.answer()
+    await state.set_state(A.add_admin)
     await cb.message.edit_text(
         f"{E.PLUS} <b>آیدی ادمین جدید:</b>",
         reply_markup=kb([[cancel_btn(lang, "adm:admins")]]),
@@ -839,18 +979,17 @@ async def cb_aadd(cb: CallbackQuery, state: FSMContext):
     )
 
 
-@router.message(AdminStates.add_admin, F.text)
+@router.message(A.add_admin, F.text)
 async def msg_add_admin(msg: Message, state: FSMContext):
     try:
-        target = int(msg.text.strip())
+        target = int(_fa_digits(msg.text.strip()))
     except ValueError:
-        await msg.answer(f"{E.WARN} آیدی نامعتبر.", parse_mode=ParseMode.HTML)
+        await msg.answer(f"{E.WARN} آیدی نامعتبر.")
         return
 
     try:
         await db.pool.execute(
-            """INSERT INTO admins (user_id, level) VALUES ($1, 'full')
-               ON CONFLICT (user_id) DO UPDATE SET level = 'full'""",
+            "INSERT INTO admins (user_id) VALUES ($1) ON CONFLICT DO NOTHING",
             target,
         )
         await state.clear()
@@ -862,18 +1001,36 @@ async def msg_add_admin(msg: Message, state: FSMContext):
         await msg.answer(f"{E.WARN} خطا: {e}")
 
 
-# ─────────── بکاپ
-@router.callback_query(F.data == "adm:backup_menu")
-async def cb_backup_menu(cb: CallbackQuery):
+@router.callback_query(F.data.startswith("adm:adel:"))
+async def cb_adel(cb: CallbackQuery):
     if not await _is_owner(cb.from_user.id):
         await cb.answer("فقط مالک", show_alert=True)
         return
-    lang = get_user_lang(cb.from_user.id)
-    await cb.answer()
+    try:
+        target = int(cb.data.split(":")[2])
+        await db.pool.execute("DELETE FROM admins WHERE user_id=$1", target)
+        await cb.answer("حذف شد ✅", show_alert=True)
+    except Exception:
+        await cb.answer("خطا", show_alert=True)
+    cb.data = "adm:admins"
+    await cb_admins(cb)
 
+
+# ═══════════════════════════════════════════════
+# بکاپ — دکمه‌های منو
+# ═══════════════════════════════════════════════
+
+@router.callback_query(F.data == "adm:backup")
+async def cb_backup(cb: CallbackQuery):
+    uid = cb.from_user.id
+    lang = get_user_lang(uid)
+    if not await _is_owner(uid):
+        await cb.answer("فقط مالک", show_alert=True)
+        return
+    await cb.answer()
     await cb.message.edit_text(
         f"{E.BOX} <b>{t('admin_backup', lang)}</b>\n\n"
-        f"{E.INFO} عملیات مورد نظر:",
+        f"{E.INFO} عملیات:",
         reply_markup=kb([
             [success(f"{E.DOWN} بکاپ فوری", "adm:do_backup")],
             [primary(f"{E.REFRESH} بازسازی تامب‌ها", "adm:rebuild")],
@@ -888,16 +1045,15 @@ async def cb_do_backup(cb: CallbackQuery):
     if not await _is_owner(cb.from_user.id):
         await cb.answer("فقط مالک", show_alert=True)
         return
-    await cb.answer("شروع شد", show_alert=False)
-
-    try:
-        from admin.backup import create_and_send_backup
-        await create_and_send_backup(cb.from_user.id, "manual")
-    except Exception as e:
-        await cb.message.answer(f"{E.CROSS} خطا در بکاپ: {e}")
+    await cb.answer("شروع شد ✅")
+    from admin.backup import create_and_send_backup
+    await create_and_send_backup(cb.from_user.id, "manual")
 
 
-# ─────────── noop
-@router.callback_query(F.data == "noop")
-async def cb_noop(cb: CallbackQuery):
-    await cb.answer()
+@router.message(Command("backup"))
+@router.message(F.text.in_({"بکاپ", "backup"}))
+async def cmd_backup(msg: Message):
+    if not await _is_owner(msg.from_user.id):
+        return
+    from admin.backup import create_and_send_backup
+    await create_and_send_backup(msg.from_user.id, "manual")
