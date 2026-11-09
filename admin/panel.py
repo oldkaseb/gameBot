@@ -1,10 +1,8 @@
 # -*- coding: utf-8 -*-
 """پنل ادمین استایل‌دار — نسخه بازی"""
 
-from __future__ import annotations
 import asyncio
 import math
-from datetime import datetime, timezone
 from typing import Union
 
 from aiogram import Router, F
@@ -37,10 +35,6 @@ class A(StatesGroup):
     set_hangman_lives = State()
 
 
-# ═══════════════════════════════════════════════
-# کمکی‌ها
-# ═══════════════════════════════════════════════
-
 async def _is_admin(uid: int) -> bool:
     if uid in OWNER_IDS:
         return True
@@ -67,11 +61,7 @@ GAME_NAMES = {
 }
 
 
-# ═══════════════════════════════════════════════
-# منوی اصلی
-# ═══════════════════════════════════════════════
-
-def _main_kb(lang: str = "fa") -> "InlineKeyboardMarkup":
+def _main_kb(lang: str = "fa"):
     return kb([
         [success(f"{E.CHART} {t('admin_stats', lang)}", "adm:stats")],
         [primary(f"{E.SEARCH} {t('admin_users', lang)}", "adm:users"),
@@ -126,10 +116,6 @@ async def cb_panel(cb: CallbackQuery, state: FSMContext):
 async def cb_noop(cb: CallbackQuery):
     await cb.answer()
 
-
-# ═══════════════════════════════════════════════
-# آمار
-# ═══════════════════════════════════════════════
 
 async def _gather_stats() -> dict:
     try:
@@ -210,10 +196,6 @@ async def cmd_stats(msg: Message):
         parse_mode=ParseMode.HTML,
     )
 
-
-# ═══════════════════════════════════════════════
-# کاربران
-# ═══════════════════════════════════════════════
 
 @router.callback_query(F.data == "adm:users")
 async def cb_users(cb: CallbackQuery, state: FSMContext):
@@ -340,7 +322,6 @@ async def _show_user(event, target_uid: int):
 
     status_icon = E.BLOCK if user["is_banned"] else E.OK2
     status_txt = "مسدود" if user["is_banned"] else "فعال"
-
     join_date = user["start_time"].strftime("%Y-%m-%d") if user["start_time"] else "—"
 
     text = (
@@ -422,10 +403,6 @@ async def cb_ureset(cb: CallbackQuery):
     await cb.answer("آمار پاک شد ✅", show_alert=True)
     await _show_user(cb, target)
 
-
-# ═══════════════════════════════════════════════
-# گروه‌ها
-# ═══════════════════════════════════════════════
 
 @router.callback_query(F.data == "adm:groups")
 async def cb_groups(cb: CallbackQuery):
@@ -552,10 +529,6 @@ async def cb_gleave(cb: CallbackQuery):
     await cb_glist(cb)
 
 
-# ═══════════════════════════════════════════════
-# مدیریت بازی‌ها (روشن/خاموش)
-# ═══════════════════════════════════════════════
-
 ALL_GAMES = [
     ("hokm", "🃏 حکم"),
     ("dooz", "❌ دوز ۲ نفره"),
@@ -584,13 +557,13 @@ async def cb_games(cb: CallbackQuery):
 
     try:
         rows = await db.pool.fetch("SELECT game_type, is_enabled FROM game_settings")
-        state = {r["game_type"]: r["is_enabled"] for r in rows}
+        state_map = {r["game_type"]: r["is_enabled"] for r in rows}
     except Exception:
-        state = {}
+        state_map = {}
 
     rows_kb = []
     for gtype, gname in ALL_GAMES:
-        is_on = state.get(gtype, True)
+        is_on = state_map.get(gtype, True)
         icon = E.OK2 if is_on else E.CROSS
         style = "success" if is_on else "danger"
         rows_kb.append([btn(f"{icon} {gname}", f"adm:gtog:{gtype}", style=style)])
@@ -633,10 +606,6 @@ async def cb_gtoggle(cb: CallbackQuery):
     cb.data = "adm:games"
     await cb_games(cb)
 
-
-# ═══════════════════════════════════════════════
-# اسپانسری (کانال اجباری)
-# ═══════════════════════════════════════════════
 
 @router.callback_query(F.data == "adm:locks")
 async def cb_locks(cb: CallbackQuery):
@@ -741,10 +710,6 @@ async def cb_chdel(cb: CallbackQuery):
     cb.data = "adm:chlst"
     await cb_chlist(cb)
 
-
-# ═══════════════════════════════════════════════
-# ارسال همگانی
-# ═══════════════════════════════════════════════
 
 @router.callback_query(F.data == "adm:bcast")
 async def cb_bcast(cb: CallbackQuery):
@@ -854,10 +819,6 @@ async def msg_bcast_groups(msg: Message, state: FSMContext):
     await _do_broadcast(msg, "groups")
 
 
-# ═══════════════════════════════════════════════
-# تنظیمات
-# ═══════════════════════════════════════════════
-
 @router.callback_query(F.data == "adm:settings")
 async def cb_settings(cb: CallbackQuery):
     uid = cb.from_user.id
@@ -927,10 +888,6 @@ async def msg_set_lives(msg: Message, state: FSMContext):
     except Exception as e:
         await msg.answer(f"{E.WARN} خطا: {e}")
 
-
-# ═══════════════════════════════════════════════
-# ادمین‌ها
-# ═══════════════════════════════════════════════
 
 @router.callback_query(F.data == "adm:admins")
 async def cb_admins(cb: CallbackQuery):
@@ -1016,10 +973,6 @@ async def cb_adel(cb: CallbackQuery):
     await cb_admins(cb)
 
 
-# ═══════════════════════════════════════════════
-# بکاپ — دکمه‌های منو
-# ═══════════════════════════════════════════════
-
 @router.callback_query(F.data == "adm:backup")
 async def cb_backup(cb: CallbackQuery):
     uid = cb.from_user.id
@@ -1033,7 +986,6 @@ async def cb_backup(cb: CallbackQuery):
         f"{E.INFO} عملیات:",
         reply_markup=kb([
             [success(f"{E.DOWN} بکاپ فوری", "adm:do_backup")],
-            [primary(f"{E.REFRESH} بازسازی تامب‌ها", "adm:rebuild")],
             [back_btn(lang, "adm:panel")],
         ]),
         parse_mode=ParseMode.HTML,
@@ -1047,7 +999,7 @@ async def cb_do_backup(cb: CallbackQuery):
         return
     await cb.answer("شروع شد ✅")
     from admin.backup import create_and_send_backup
-    await create_and_send_backup(cb.from_user.id, "manual")
+    await create_and_send_backup(cb.from_user.id, cb.bot, "manual")
 
 
 @router.message(Command("backup"))
@@ -1056,4 +1008,4 @@ async def cmd_backup(msg: Message):
     if not await _is_owner(msg.from_user.id):
         return
     from admin.backup import create_and_send_backup
-    await create_and_send_backup(msg.from_user.id, "manual")
+    await create_and_send_backup(msg.from_user.id, msg.bot, "manual")
