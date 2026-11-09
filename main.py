@@ -22,6 +22,7 @@ from games import register_all_games
 from games.state import cleanup_loop
 from games.stop import router as stop_router
 from games.anon import router as anon_router
+from games.leaderboard import router as lb_router
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("rhino")
@@ -126,6 +127,23 @@ class GameGuard(BaseMiddleware):
                     break
         return await handler(event, data)
 
+async def _build_main_menu(uid: int, name: str):
+    lang = get_user_lang(uid)
+    text = (
+        f"{E.PARTY}{E.SPARK} <b>{t('welcome', lang, name=name)}</b>\n\n"
+        f"{E.GAME} {t('game_panel', lang)}"
+    )
+    rows = [
+        [success(f"{E.TROPHY} {t('btn_group', lang)}",  f"rsgame_cat_board_{uid}"),
+         primary(f"{E.TARGET} {t('btn_single', lang)}", f"rsgame_cat_single_{uid}")],
+        [primary(f"{E.MIC} {t('btn_typing', lang)}",    f"rsgame_cat_typing_{uid}"),
+         danger(f"{E.GHOST} {t('btn_anon', lang)}",     f"rsgame_cat_anon_{uid}")],
+        [success(f"{E.TROPHY} 🏆 برترین‌ها", "lb_menu")],  # ← این خط جدید
+        [danger(f"{E.CROSS} {t('btn_close', lang)}",    f"rsgame_close_{uid}")],
+    ]
+    if uid in OWNER_IDS:
+        rows.append([success(f"{E.CROWN} {t('admin_panel', lang)}", "adm:panel")])
+    return text, kb(rows)
 
 async def main():
     bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
@@ -138,6 +156,13 @@ async def main():
     register_all_games(dp)
     dp.include_router(anon_router)
     dp.include_router(stop_router)
+    dp.include_router(persian_cmd_router)
+    # بعد از ساخت dp:
+    dp.callback_query.outer_middleware(GameGuard())
+
+    # در main() بعد از register_all_games(dp):
+    dp.include_router(lb_router)
+    dp.include_router(admin_router)        # ← قبلاً هم گفتم
     dp.include_router(persian_cmd_router)
 
     # هندلرهای اصلی
