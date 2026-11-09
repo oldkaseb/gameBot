@@ -145,26 +145,45 @@ async def _build_main_menu(uid: int, name: str):
     return text, kb(rows)
 
 async def main():
-    bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
+    if not BOT_TOKEN:
+        log.error("❌ BOT_TOKEN not set!")
+        return
+
+    bot = Bot(
+        token=BOT_TOKEN,
+        default=DefaultBotProperties(parse_mode=ParseMode.HTML),
+    )
     dp = Dispatcher(storage=MemoryStorage())
 
     await db.connect()
     await db.init()
 
-    # ثبت همه بازی‌ها
+    # ═══════════════════════════════════════════
+    # ثبت Routerها — ترتیب مهم است!
+    # ═══════════════════════════════════════════
+    #
+    # ۱. پنل + همه بازی‌ها
     register_all_games(dp)
+
+    # ۲. بازی‌های ناشناس (deep link) — باید قبل از CommandStart باشد
     dp.include_router(anon_router)
+
+    # ۳. سایر routerهای بازی
     dp.include_router(stop_router)
+    dp.include_router(lb_router)
+
+    # ۴. پنل ادمین
+    dp.include_router(admin_router)
+
+    # ۵. دستورات فارسی (آخر — catch-all)
     dp.include_router(persian_cmd_router)
-    # بعد از ساخت dp:
+
+    # ═══════════════════════════════════════════
+
+    # Middleware محافظ بازی‌های خاموش
     dp.callback_query.outer_middleware(GameGuard())
 
-    # در main() بعد از register_all_games(dp):
-    dp.include_router(lb_router)
-    dp.include_router(admin_router)        # ← قبلاً هم گفتم
-    dp.include_router(persian_cmd_router)
-
-    # هندلرهای اصلی
+    # هندلر اصلی /start
     @dp.message(CommandStart())
     async def _start(msg: Message, command=None):
         await cmd_start(msg, command)
@@ -181,12 +200,18 @@ async def main():
     async def _setlang(cb: CallbackQuery):
         await set_lang_cb(cb)
 
-    # حلقه پاکسازی بازی‌ها
+    # Background tasks
     asyncio.create_task(cleanup_loop(bot))
 
-    log.info("Bot starting…")
-    await dp.start_polling(bot)
+    # health server برای Coolify
+    health_runner = await _start_health_server(int(os.getenv("PORT", "8080")))
 
-
-if __name__ == "__main__":
-    asyncio.run(main())
+    log.info("🚀 Bot starting…")
+    try:
+        await bot.delete_webhook(drop_pending_updates=True)
+        await dp.start_polling(bot)
+    finally:
+        if health_runner:
+            await health_runner.cleanup()
+        await db.close()
+        await bot.session.close()
