@@ -63,15 +63,22 @@ GAME_NAMES = {
 
 def _main_kb(lang: str = "fa"):
     return kb([
+        # ردیف سبز: آمار (مهم‌ترین)
         [success(f"{E.CHART} {t('admin_stats', lang)}", "adm:stats")],
+        # ردیف آبی: کاربران + گروه‌ها
         [primary(f"{E.SEARCH} {t('admin_users', lang)}", "adm:users"),
          primary(f"{E.PARTY} مدیریت گروه‌ها", "adm:groups")],
+        # ردیف آبی: بازی‌ها + قفل‌ها
         [primary(f"{E.GAME} مدیریت بازی‌ها", "adm:games"),
          primary(f"{E.LOCK} {t('admin_locks', lang)}", "adm:locks")],
+        # ردیف آبی: ارسال + تنظیمات
         [primary(f"{E.MEGA} {t('admin_bcast', lang)}", "adm:bcast"),
          primary(f"{E.CAL} {t('admin_settings', lang)}", "adm:settings")],
+        # ردیف قرمز: مدیریت ادمین‌ها (حساس)
         [danger(f"{E.CROWN} {t('admin_admins', lang)}", "adm:admins")],
+        # ردیف آبی: بکاپ
         [primary(f"{E.BOX} {t('admin_backup', lang)}", "adm:backup")],
+        # ردیف آبی: بازگشت
         [back_btn(lang, "menu")],
     ])
 
