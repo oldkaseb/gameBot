@@ -9,7 +9,7 @@ from aiogram import BaseMiddleware, Bot, Dispatcher, F
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from aiogram.exceptions import TelegramBadRequest
-from aiogram.filters import CommandStart
+from aiogram.filters import CommandStart, StateFilter
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
@@ -22,6 +22,7 @@ from langs import LANGS, t, get_user_lang, set_user_lang
 from utils.premium import btn, success, primary, danger, kb
 from utils.commands import router as persian_cmd_router
 from database import db
+from runtime import check_forced_join, get_bot_username, set_bot_username
 from games import register_all_games
 from games.state import cleanup_loop
 from games.stop import router as stop_router
@@ -36,21 +37,12 @@ log = logging.getLogger("rhino")
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "")
 OWNER_IDS = {7662192190, 6041119040}
 
-# BOT_USERNAME سراسری — در main() ست می‌شود
-_bot_username = "bot"
-
-
-def get_bot_username() -> str:
-    return _bot_username
-
 
 # ═══════════════════════════════════════════════
-# Bot با پارسر خودکار ایموجی پریمیوم
+# Bot با پارسر خودکار
 # ═══════════════════════════════════════════════
 
 class EmojiBot(Bot):
-    """Bot که همه متن/caption ها را خودکار به <tg-emoji> تبدیل می‌کند"""
-
     async def __call__(self, method, request_timeout=None):
         for attr in ("text", "caption"):
             val = getattr(method, attr, None)
@@ -63,37 +55,13 @@ class EmojiBot(Bot):
 
 
 # ═══════════════════════════════════════════════
-# Forced Join
+# Forced Join UI
 # ═══════════════════════════════════════════════
-
-async def _check_forced_join(bot: Bot, user_id: int):
-    """برگرداندن لیست کانال‌هایی که کاربر هنوز عضو نشده"""
-    try:
-        if await db.is_admin(user_id):
-            return []
-    except Exception:
-        pass
-
-    missing = []
-    try:
-        channels = await db.list_channels()
-    except Exception:
-        return []
-    for ch in channels:
-        try:
-            member = await bot.get_chat_member(ch["chat_id"], user_id)
-            if member.status in ("left", "kicked"):
-                missing.append(ch)
-        except Exception:
-            # اگر نتوانست چک کند، از این کانال رد شو (fail-open)
-            continue
-    return missing
-
 
 def _join_kb(channels, lang: str = "fa"):
     rows = []
     for ch in channels:
-        label = f"{E.LIKE} {t('force_join_btn', lang)} — {ch['title'] or ch['chat_id']}"
+        label = f"{E.LINK} {t('force_join_btn', lang)} — {ch['title'] or ch['chat_id']}"
         if ch["username"]:
             url = f"https://t.me/{ch['username'].lstrip('@')}"
             rows.append([btn(label, url=url, style="success")])
@@ -104,8 +72,6 @@ def _join_kb(channels, lang: str = "fa"):
 
 
 class ForcedJoinMiddleware(BaseMiddleware):
-    """چک عضویت اجباری — بجز /start، انتخاب زبان، donate و check_join"""
-
     EXEMPT_CALLBACK_PREFIXES = (
         "check_join", "set_lang:", "lang_menu",
         "donate", "menu",
@@ -121,7 +87,6 @@ class ForcedJoinMiddleware(BaseMiddleware):
         if not from_user:
             return await handler(event, data)
 
-        # معافیت‌های مشخص
         if isinstance(event, CallbackQuery) and event.data:
             for p in self.EXEMPT_CALLBACK_PREFIXES:
                 if event.data.startswith(p):
@@ -134,16 +99,14 @@ class ForcedJoinMiddleware(BaseMiddleware):
             if txt in self.EXEMPT_TEXTS:
                 return await handler(event, data)
 
-        # چک عضویت
         try:
-            missing = await _check_forced_join(self.bot, from_user.id)
+            missing = await check_forced_join(self.bot, from_user.id)
         except Exception:
-            return await handler(event, data)  # fail-open
+            return await handler(event, data)
 
         if not missing:
             return await handler(event, data)
 
-        # کاربر عضو نیست → هشدار
         lang = get_user_lang(from_user.id)
         if isinstance(event, CallbackQuery):
             try:
@@ -196,22 +159,17 @@ class GameGuard(BaseMiddleware):
 # ═══════════════════════════════════════════════
 
 async def _build_main_menu(uid: int, name: str):
-    """منوی بازی‌ها — فقط در گروه"""
     lang = get_user_lang(uid)
     text = (
         f"{E.PARTY}{E.SPARK} <b>{t('welcome', lang, name=name)}</b>\n\n"
         f"{E.GAME} {t('game_panel', lang)}"
     )
     rows = [
-        # ردیف سبز: ورودی‌های اصلی بازی
         [success(f"{E.TROPHY} {t('btn_group', lang)}",  f"rsgame_cat_board_{uid}"),
          success(f"{E.TARGET} {t('btn_single', lang)}", f"rsgame_cat_single_{uid}")],
-        # ردیف آبی: دسته‌بندی‌های دیگر
         [primary(f"{E.MIC} {t('btn_typing', lang)}",    f"rsgame_cat_typing_{uid}"),
          primary(f"{E.GHOST} {t('btn_anon', lang)}",    f"rsgame_cat_anon_{uid}")],
-        # ردیف سبز: برترین‌ها
         [success(f"{E.TROPHY} 🏆 برترین‌ها", "lb_menu")],
-        # ردیف قرمز: بستن
         [danger(f"{E.CROSS} {t('btn_close', lang)}",    f"rsgame_close_{uid}")],
     ]
     if uid in OWNER_IDS:
@@ -220,7 +178,6 @@ async def _build_main_menu(uid: int, name: str):
 
 
 async def _build_pm_welcome(uid: int, name: str):
-    """منوی PV — خوشامد + افزودن به گروه + donate"""
     lang = get_user_lang(uid)
     bot_username = get_bot_username()
 
@@ -229,7 +186,6 @@ async def _build_pm_welcome(uid: int, name: str):
         f"{E.GAME} {t('pm_welcome_body', lang)}\n\n"
         f"{E.HEART} برای حمایت از ما می‌توانید از دکمه زیر استفاده کنید."
     )
-
     rows = [
         [success(
             f"{E.PLUS} {t('btn_add_to_group', lang)}",
@@ -245,19 +201,25 @@ async def _build_pm_welcome(uid: int, name: str):
 
 async def _show_pm_welcome(cb_or_msg, uid: int, name: str, edit: bool = True):
     text, markup = await _build_pm_welcome(uid, name)
+    is_cb = isinstance(cb_or_msg, CallbackQuery)
+    target_msg = cb_or_msg.message if is_cb else cb_or_msg
+
+    if edit:
+        try:
+            await target_msg.edit_text(
+                text, reply_markup=markup, parse_mode=ParseMode.HTML
+            )
+            return
+        except TelegramBadRequest as e:
+            if "not modified" in str(e).lower():
+                return
+        except Exception:
+            pass
+
     try:
-        if edit and isinstance(cb_or_msg, CallbackQuery):
-            await cb_or_msg.message.edit_text(text, reply_markup=markup, parse_mode=ParseMode.HTML)
-        elif edit and isinstance(cb_or_msg, Message):
-            await cb_or_msg.edit_text(text, reply_markup=markup, parse_mode=ParseMode.HTML)
-        else:
-            msg = cb_or_msg.message if isinstance(cb_or_msg, CallbackQuery) else cb_or_msg
-            await msg.answer(text, reply_markup=markup, parse_mode=ParseMode.HTML)
-    except TelegramBadRequest as e:
-        if "not modified" not in str(e).lower():
-            log.debug(f"show_pm_welcome: {e}")
-        if isinstance(cb_or_msg, CallbackQuery):
-            await cb_or_msg.message.answer(text, reply_markup=markup, parse_mode=ParseMode.HTML)
+        await target_msg.answer(text, reply_markup=markup, parse_mode=ParseMode.HTML)
+    except Exception as e:
+        log.debug(f"_show_pm_welcome: {e}")
 
 
 # ═══════════════════════════════════════════════
@@ -269,14 +231,8 @@ async def cmd_start(message: Message, command=None):
     is_pm = message.chat.type == "private"
     payload = (command.args if command else "") or ""
 
-    # دیپ‌لینک ناشناس → anon_router
     if payload.startswith("gharch_") or payload.startswith("eteraf_"):
         return
-
-    # دیپ‌لینک بازی از inline
-    game_payload = None
-    if payload.startswith("game_"):
-        game_payload = payload[5:]  # hokm, dooz, ...
 
     user = await db.get_user(uid)
     is_new = user is None
@@ -291,8 +247,8 @@ async def cmd_start(message: Message, command=None):
     if user_lang:
         set_user_lang(uid, user_lang)
 
-    # اگر کاربر جدید یا زبان ندارد → انتخاب زبان
-    if is_new or not user_lang:
+    # انتخاب زبان فقط در PV
+    if is_pm and (is_new or not user_lang):
         rows = [[btn(v, f"set_lang:{k}")] for k, v in LANGS.items()]
         await message.answer(
             f"{E.WAVE}{E.SPARK} {t('choose_lang', 'fa')}",
@@ -301,7 +257,6 @@ async def cmd_start(message: Message, command=None):
         )
         return
 
-    # پیام خوشامد در PV یا منوی بازی در گروه
     if is_pm:
         await _show_pm_welcome(message, uid, message.from_user.first_name or "دوست", edit=False)
     else:
@@ -342,7 +297,7 @@ async def cmd_lang(message: Message):
 
 
 # ═══════════════════════════════════════════════
-# Donate با Stars
+# Donate Stars
 # ═══════════════════════════════════════════════
 
 DONATE_PRESETS = [50, 100, 250, 500, 1000]
@@ -419,8 +374,6 @@ async def _start_health_server(port: int = 8080):
 # ═══════════════════════════════════════════════
 
 async def main():
-    global _bot_username
-
     if not BOT_TOKEN:
         log.error("❌ BOT_TOKEN not set!")
         return
@@ -435,10 +388,10 @@ async def main():
     await db.init()
 
     me = await bot.get_me()
-    _bot_username = me.username or "bot"
-    log.info(f"Bot: @{_bot_username}")
+    set_bot_username(me.username or "bot")
+    log.info(f"Bot: @{get_bot_username()}")
 
-    # ───── ثبت Routerها
+    # ───── Routerها
     register_all_games(dp)
     dp.include_router(anon_router)
     dp.include_router(stop_router)
@@ -447,14 +400,14 @@ async def main():
     dp.include_router(admin_router)
     dp.include_router(persian_cmd_router)
 
-    # ───── Middlewares (به ترتیب)
+    # ───── Middlewares
     forced = ForcedJoinMiddleware(bot)
     dp.message.outer_middleware(forced)
     dp.callback_query.outer_middleware(forced)
 
     dp.callback_query.outer_middleware(GameGuard())
 
-    # ───── هندلرهای اصلی
+    # ───── هندلرها
     @dp.message(CommandStart())
     async def _start(msg: Message, command=None):
         await cmd_start(msg, command)
@@ -489,12 +442,16 @@ async def main():
     @dp.callback_query(F.data == "lang_menu")
     async def _lang_menu(cb: CallbackQuery):
         await cb.answer()
+        lang = get_user_lang(cb.from_user.id)
         rows = [[btn(v, f"set_lang:{k}")] for k, v in LANGS.items()]
-        rows.append([primary(f"{E.ARROW} {t('btn_back', get_user_lang(cb.from_user.id))}", "menu")])
-        await cb.message.edit_text(
-            t("choose_lang", get_user_lang(cb.from_user.id)),
-            reply_markup=kb(rows), parse_mode=ParseMode.HTML,
-        )
+        rows.append([primary(f"{E.ARROW} {t('btn_back', lang)}", "menu")])
+        try:
+            await cb.message.edit_text(
+                t("choose_lang", lang),
+                reply_markup=kb(rows), parse_mode=ParseMode.HTML,
+            )
+        except Exception:
+            pass
 
     # ───── Donate
     @dp.callback_query(F.data == "donate")
@@ -533,9 +490,10 @@ async def main():
         except Exception:
             pass
 
-    @dp.message(DonateStates.custom_amount, F.text)
+    @dp.message(StateFilter(DonateStates.custom_amount), F.text)
     async def _donate_custom_amount(msg: Message, state: FSMContext):
-        if (msg.text or "").strip().lower() in ("/cancel", "لغو"):
+        txt = (msg.text or "").strip().lower()
+        if txt in ("/cancel", "لغو"):
             await state.clear()
             await msg.answer("✅ لغو شد.")
             return
