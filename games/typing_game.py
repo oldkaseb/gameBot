@@ -1,8 +1,11 @@
-"""تایپ سرعتی — با ایموجی پریمیوم و ۷ زبان"""
+"""تایپ سرعتی — با فونت فارسی، ایموجی پریمیوم و ۷ زبان"""
 
 import io
+import os
 import random
 from datetime import datetime
+from pathlib import Path
+
 from aiogram import Router, F
 from aiogram.types import CallbackQuery, Message, BufferedInputFile
 from aiogram.enums import ParseMode
@@ -15,11 +18,119 @@ from emojis import E
 from langs import t, get_user_lang
 from utils.premium import success, danger, kb
 from . import state
+from database import db
 
 router = Router(name="typing_game")
 log = logging.getLogger("typing")
 
-# ─────────── جملات (فارسی + انگلیسی)
+
+# ═══════════════════════════════════════════════
+# فونت — مسیرهای جستجو با fallback
+# ═══════════════════════════════════════════════
+
+FONT_CANDIDATES = [
+    os.getenv("FONT_PATH"),                                    # از env (Docker)
+    "/app/fonts/Vazir.ttf",                                    # مسیر Docker
+    "/app/fonts/Vazirmatn-Regular.ttf",                        # مسیر Docker (جایگزین)
+    "fonts/Vazir.ttf",                                         # مسیر local
+    "fonts/Vazirmatn-Regular.ttf",
+    "Vazirmatn-SemiBold.ttf",                                               # مسیر legacy
+    "/usr/share/fonts/truetype/vazir/Vazir.ttf",               # سیستم
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",         # fallback سیستم
+]
+
+FONT_NAMES = ["Vazir", "Vazirmatn-SemiBold", "DejaVu Sans"]
+
+# کش فونت (به ازای هر سایز یک بار لود می‌شود)
+_font_cache: dict[int, ImageFont.FreeTypeFont] = {}
+
+
+def _load_font(size: int = 28) -> ImageFont.FreeTypeFont:
+    """فونت را با اولویت مسیرها لود می‌کند؛ در نهایت به default fallback می‌کند."""
+    if size in _font_cache:
+        return _font_cache[size]
+
+    # ۱. تلاش با مسیرهای فایل
+    for path in FONT_CANDIDATES:
+        if not path:
+            continue
+        try:
+            if Path(path).is_file():
+                font = ImageFont.truetype(path, size)
+                log.info(f"✅ Font loaded: {path}")
+                _font_cache[size] = font
+                return font
+        except (IOError, OSError) as e:
+            log.debug(f"Font path failed ({path}): {e}")
+            continue
+
+    # ۲. تلاش با نام فونت (ممکن است در font cache سیستم باشد)
+    for name in FONT_NAMES:
+        try:
+            font = ImageFont.truetype(name, size)
+            log.info(f"✅ Font loaded by name: {name}")
+            _font_cache[size] = font
+            return font
+        except (IOError, OSError):
+            continue
+
+    # ۳. آخرین راه — فونت پیش‌فرض PIL (خیلی زشت، اما ربات کرش نمی‌کند)
+    log.warning(
+        "⚠️ هیچ فونت فارسی پیدا نشد! "
+        "مسیرهای جستجو: " + ", ".join(p for p in FONT_CANDIDATES if p)
+    )
+    font = ImageFont.load_default()
+    _font_cache[size] = font
+    return font
+
+
+def _render_image(text: str, lang: str) -> io.BytesIO:
+    """تصویر جمله را با فونت صحیح و وسط‌چین می‌سازد."""
+    display = text
+    if lang in ("fa", "ar"):
+        reshaped = arabic_reshaper.reshape(text)
+        display = get_display(reshaped)
+
+    font = _load_font(28)
+
+    # اندازه‌گیری دقیق با textbbox
+    dummy = Image.new("RGB", (1, 1))
+    draw = ImageDraw.Draw(dummy)
+    try:
+        bbox = draw.textbbox((0, 0), display, font=font)
+        text_w = bbox[2] - bbox[0]
+        text_h = bbox[3] - bbox[1]
+        offset_y = -bbox[1]   # برای جبران descender حروف فارسی (ی، ج، ...)
+    except Exception:
+        # PIL قدیمی — fallback به textlength
+        text_w = draw.textlength(display, font=font)
+        text_h = 30
+        offset_y = 0
+
+    padding = 30
+    img_w = max(text_w + padding * 2, 400)
+    img_h = max(text_h + padding * 2, 120)
+
+    img = Image.new("RGB", (img_w, img_h), color=(30, 30, 46))
+    draw = ImageDraw.Draw(img)
+    draw.text(
+        (padding, padding + offset_y),
+        display,
+        fill=(255, 255, 255),
+        font=font,
+    )
+
+    buf = io.BytesIO()
+    buf.name = "typing.jpeg"
+    img.save(buf, "JPEG", quality=92)
+    buf.seek(0)
+    return buf
+
+
+# ═══════════════════════════════════════════════
+# جملات (فارسی + انگلیسی + عربی + ترکی + روسی + آلمانی + چینی)
+# ═══════════════════════════════════════════════
+
 SENTENCES = {
     "fa": [
         "آب از سرچشمه گل آلود است",
@@ -110,39 +221,21 @@ def _pick_sentence(lang: str) -> str:
     return random.choice(pool)
 
 
-def _render_image(text: str, lang: str) -> io.BytesIO:
-    """تصویر جملات فارسی/عربی را به درستی می‌چیند"""
-    display = text
-    if lang in ("fa", "ar"):
-        reshaped = arabic_reshaper.reshape(text)
-        display = get_display(reshaped)
-
-    # فونت
-    try:
-        font = ImageFont.truetype("Vazir.ttf", 28)
-    except IOError:
-        log.warning("Vazir.ttf not found, using default")
-        font = ImageFont.load_default()
-
-    # اندازه
-    dummy = Image.new("RGB", (1, 1))
-    draw = ImageDraw.Draw(dummy)
-    bbox = draw.textbbox((0, 0), display, font=font)
-    w = bbox[2] - bbox[0] + 60
-    h = bbox[3] - bbox[1] + 60
-
-    img = Image.new("RGB", (max(w, 400), max(h, 120)), color=(30, 30, 46))
-    draw = ImageDraw.Draw(img)
-    draw.text((30, 30), display, fill=(255, 255, 255), font=font)
-
-    buf = io.BytesIO()
-    buf.name = "typing.jpeg"
-    img.save(buf, "JPEG", quality=92)
-    buf.seek(0)
-    return buf
+def _normalize(s: str) -> str:
+    """یکسان‌سازی ی/ك عربی، حذف فاصله اضافی."""
+    return (
+        s.replace("ي", "ی")
+         .replace("ك", "ک")
+         .replace("ۀ", "ه")
+         .replace("\u200c", " ")    # نیم‌فاصله → فاصله
+         .strip()
+    )
 
 
-# ─────────── شروع
+# ═══════════════════════════════════════════════
+# شروع بازی
+# ═══════════════════════════════════════════════
+
 @router.callback_query(F.data.startswith("type_start_"))
 async def start(cb: CallbackQuery):
     uid = cb.from_user.id
@@ -154,6 +247,7 @@ async def start(cb: CallbackQuery):
     except (ValueError, IndexError):
         await cb.answer("❌", show_alert=True)
         return
+
     if uid != target:
         await cb.answer(t("not_your_panel", lang), show_alert=True)
         return
@@ -163,6 +257,8 @@ async def start(cb: CallbackQuery):
         return
 
     await cb.answer()
+
+    # ─── انتخاب جمله بر اساس زبان کاربر
     sentence = _pick_sentence(lang)
 
     game = {
@@ -172,21 +268,40 @@ async def start(cb: CallbackQuery):
     }
     state.register("typing", chat_id, cb.message.message_id, game)
 
-    await cb.message.edit_text(f"{E.HOURGLASS} 3… 2… 1…", parse_mode=ParseMode.HTML)
+    # ─── شمارش معکوس
+    try:
+        await cb.message.edit_text(
+            f"{E.HOURGLASS} 3… 2… 1…",
+            parse_mode=ParseMode.HTML,
+        )
+    except Exception:
+        pass  # اگر پیام ویرایش نشد، ادامه بده
 
-    image = _render_image(sentence, lang)
-    await cb.bot.send_photo(
-        chat_id,
-        BufferedInputFile(image.read(), filename="typing.jpg"),
-        caption=(
-            f"{E.MIC}{E.SPARK} <b>{t('typing_games_title', lang)}</b>\n\n"
-            f"{E.ZAP} {t('guess_one_letter', lang).replace('حرف', 'جمله').replace('letter', 'sentence')}"
-        ),
-        parse_mode=ParseMode.HTML,
-    )
+    # ─── رندر و ارسال تصویر
+    try:
+        image = _render_image(sentence, lang)
+        await cb.bot.send_photo(
+            chat_id,
+            BufferedInputFile(image.read(), filename="typing.jpg"),
+            caption=(
+                f"{E.MIC}{E.SPARK} <b>{t('typing_games_title', lang)}</b>\n\n"
+                f"{E.ZAP} {t('typing_prompt', lang) if 'typing_prompt' in dir(__import__('langs')) else 'جمله را سریع و درست تایپ کنید!'}"
+            ),
+            parse_mode=ParseMode.HTML,
+        )
+    except Exception as e:
+        log.error(f"Failed to render/send typing image: {e}")
+        await cb.bot.send_message(
+            chat_id,
+            f"{E.WARN} خطا در ساخت تصویر. جمله:\n<code>{sentence}</code>",
+            parse_mode=ParseMode.HTML,
+        )
 
 
-# ─────────── بررسی تایپ
+# ═══════════════════════════════════════════════
+# بررسی پاسخ
+# ═══════════════════════════════════════════════
+
 @router.message(F.chat.type.in_({"group", "supergroup"}), F.text)
 async def on_typing(message: Message):
     chat_id = message.chat.id
@@ -201,14 +316,10 @@ async def on_typing(message: Message):
     user_input = (message.text or "").strip()
     expected = game["sentence"].strip()
 
-    # نرمال‌سازی: تبدیل ی/ك عربی، حذف فاصله‌های اضافی
-    def norm(s: str) -> str:
-        return s.replace("ي", "ی").replace("ك", "ک").strip()
-
-    if norm(user_input) != norm(expected):
+    if _normalize(user_input) != _normalize(expected):
         return
 
-    # ─── برنده
+    # ─── برنده!
     duration = (datetime.now() - game["start_time"]).total_seconds()
     uid = message.from_user.id
     lang = get_user_lang(uid)
@@ -219,20 +330,12 @@ async def on_typing(message: Message):
         parse_mode=ParseMode.HTML,
     )
 
-    # ذخیره در leaderboard
+    # ─── ثبت در leaderboard
     try:
-        from database import db
-        await db.pool.execute(
-            """INSERT INTO game_wins (user_id, game_type, wins, best_time)
-               VALUES ($1, 'typing', 1, $2)
-               ON CONFLICT (user_id, game_type) DO UPDATE
-               SET wins = game_wins.wins + 1,
-                   best_time = LEAST(COALESCE(game_wins.best_time, 999999), EXCLUDED.best_time)""",
-            uid, duration,
-        )
+        await db.add_win(uid, "typing", best_time=duration)
     except Exception as e:
         log.debug(f"leaderboard save failed: {e}")
 
-    # پاک‌سازی
+    # ─── پاک‌سازی بازی
     gid = next(iter(games.keys()))
     state.unregister("typing", chat_id, gid)
