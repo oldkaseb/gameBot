@@ -9,8 +9,7 @@ from aiogram.types import (
 
 from emojis import E, render_emojis
 from langs import t, get_user_lang
-from database import db
-from main import _check_forced_join, get_bot_username
+from runtime import get_bot_username, check_forced_join
 
 router = Router(name="inline_games")
 
@@ -37,7 +36,7 @@ async def inline_games(query: InlineQuery):
     q = (query.query or "").strip().lower()
 
     # چک عضویت اجباری
-    missing = await _check_forced_join(query.bot, uid)
+    missing = await check_forced_join(query.bot, uid)
     if missing:
         await query.answer(
             [],
@@ -79,8 +78,4 @@ async def inline_games(query: InlineQuery):
             reply_markup=kb_inline,
         ))
 
-    await query.answer(
-        results,
-        cache_time=1,
-        is_personal=True,
-    )
+    await query.answer(results, cache_time=1, is_personal=True)
