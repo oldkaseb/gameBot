@@ -54,10 +54,6 @@ COMMANDS = {
     # بکاپ
     "بکاپ": "backup",
     "backup": "backup",
-    # اشتراک
-    "اشتراک": "subscription",
-    "عضویت": "subscription",
-    "subscription": "subscription",
 }
 
 
