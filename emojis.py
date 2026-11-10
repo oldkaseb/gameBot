@@ -3,6 +3,7 @@
 import re
 
 EMOJI_ID_RE = re.compile(r"\[(\d{5,25})\]")
+TG_EMOJI_TAG_RE = re.compile(r'<tg-emoji emoji-id="(\d+)">([^<]*)</tg-emoji>')
 
 
 class E:
@@ -116,6 +117,23 @@ def render_emojis(text: str) -> str:
         return f'<tg-emoji emoji-id="{eid}">{base}</tg-emoji>'
 
     return EMOJI_ID_RE.sub(repl, text)
+
+
+def strip_custom_emoji_tags(text: str) -> str:
+    """
+    حذف تگ‌های <tg-emoji> و نگه‌داشتن ایموجی پایه (fallback).
+    زمانی که تلگرام خطای DOCUMENT_INVALID می‌دهد استفاده می‌شود.
+    """
+    if not text or "<tg-emoji" not in text:
+        return text
+    return TG_EMOJI_TAG_RE.sub(lambda m: m.group(2) or "⭐", text)
+
+
+def extract_emoji_ids(text: str) -> list[str]:
+    """استخراج همه IDهای ایموجی پریمیوم از یک متن (برای دیباگ)."""
+    if not text or "<tg-emoji" not in text:
+        return []
+    return TG_EMOJI_TAG_RE.findall(text)
 
 
 def strip_emoji_id(text: str):
