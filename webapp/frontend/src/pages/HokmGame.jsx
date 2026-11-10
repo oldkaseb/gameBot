@@ -4,8 +4,12 @@ export default function HokmGame({ session, uid }) {
   const [state, setState] = useState(null);
 
   useEffect(() => {
-    // اتصال به وب‌سوکت بک‌اند
-    const ws = new WebSocket(`wss://games.rhinokaseb.abrdns.com/ws/hokm/${session}/${uid}`);
+    // ✅ استخراج اطلاعات امنیتی تلگرام
+    const initData = window.Telegram?.WebApp?.initData || "";
+    // ⚠️ آدرس بک‌اند خود را اینجا تنظیم کنید (بدون / در انتها)
+    const wsUrl = `wss://games.rhinokaseb.abrdns.com/ws/hokm/${session}/${uid}?init_data=${encodeURIComponent(initData)}`;
+    
+    const ws = new WebSocket(wsUrl);
     
     ws.onmessage = (e) => {
       setState(JSON.parse(e.data));
@@ -18,10 +22,8 @@ export default function HokmGame({ session, uid }) {
 
   return (
     <div className="h-screen flex flex-col justify-between p-4 relative overflow-hidden">
-      {/* میز وسط */}
       <div className="absolute inset-0 flex items-center justify-center">
         <div className="glass-panel w-64 h-64 rounded-full flex items-center justify-center">
-          {/* کارت‌های روی میز */}
           <div className="flex gap-2">
              {state.trick?.map((card, i) => (
                 <div key={i} className="w-12 h-16 bg-white text-black rounded flex flex-col items-center justify-center shadow-lg">
@@ -33,14 +35,12 @@ export default function HokmGame({ session, uid }) {
         </div>
       </div>
 
-      {/* حریف بالا */}
       <div className="flex justify-center mt-4">
          <div className="glass-panel px-4 py-2 rounded-full text-sm">
             حریف بالا ({state.hands_count || 0} کارت)
          </div>
       </div>
 
-      {/* دست بازیکن (پایین) */}
       <div className="flex justify-center gap-2 mb-4 z-10">
         {state.my_hand?.map((card, i) => (
           <div 
