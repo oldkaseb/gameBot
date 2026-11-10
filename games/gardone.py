@@ -77,31 +77,74 @@ async def start(cb: CallbackQuery):
 
 @router.callback_query(F.data.startswith("gardone_setup_"))
 async def setup(cb: CallbackQuery):
-    parts = cb.data.split("_")
+    import logging
+    log = logging.getLogger("gardone")
+    
     try:
-        uid_target = int(parts[2])
-        count = int(parts[3])
-    except (ValueError, IndexError):
-        await cb.answer("❌", show_alert=True); return
-    uid = cb.from_user.id
-    lang = get_user_lang(uid)
-    chat_id = cb.message.chat.id
-    if uid != uid_target:
-        await cb.answer(t("not_your_panel", lang), show_alert=True); return
-    if not (1 <= count <= 10):
-        await cb.answer("❌", show_alert=True); return
-    if state.active_games["gardone"].get(chat_id):
-        await cb.answer(t("game_already_running", lang), show_alert=True); return
-
-    await cb.answer()
-    gid = cb.message.message_id
-    game = {
-        "game_id": gid, "starter_admin_id": uid,
-        "participants": [], "winner_count": count,
-    }
-    state.register("gardone", chat_id, gid, game)
-    text, markup = _render(game, lang)
-    await cb.message.edit_text(text, reply_markup=markup, parse_mode=ParseMode.HTML)
+        if not cb.message or not getattr(cb.message, "chat", None):
+            await cb.answer("❌ پیام نامعتبر", show_alert=True)
+            return
+        
+        parts = cb.data.split("_")
+        try:
+            uid_target = int(parts[2])
+            count = int(parts[3])
+        except (ValueError, IndexError):
+            await cb.answer("❌", show_alert=True)
+            return
+        
+        uid = cb.from_user.id
+        lang = get_user_lang(uid)
+        chat_id = cb.message.chat.id
+        
+        log.info(f"🎡 gardone_setup: user={uid} target={uid_target} count={count} chat={chat_id}")
+        
+        if uid != uid_target:
+            await cb.answer(t("not_your_panel", lang), show_alert=True)
+            return
+        if not (1 <= count <= 10):
+            await cb.answer("❌", show_alert=True)
+            return
+        if state.active_games["gardone"].get(chat_id):
+            log.warning(f"gardone already running: chat={chat_id}")
+            await cb.answer(t("game_already_running", lang), show_alert=True)
+            return
+        
+        await cb.answer()
+        gid = cb.message.message_id
+        game = {
+            "game_id": gid, "starter_admin_id": uid,
+            "participants": [], "winner_count": count,
+        }
+        state.register("gardone", chat_id, gid, game)
+        log.info(f"✅ gardone registered: chat={chat_id} gid={gid} count={count}")
+        
+        try:
+            text, markup = _render(game, lang)
+        except Exception as e:
+            log.exception(f"gardone render fail: {e}")
+            await cb.message.answer(f"⚠️ خطای رندر: {e}")
+            state.unregister("gardone", chat_id, gid)
+            return
+        
+        try:
+            await cb.message.edit_text(text, reply_markup=markup, parse_mode=ParseMode.HTML)
+            log.info(f"✅ gardone setup edited: gid={gid}")
+        except Exception as e:
+            log.warning(f"edit_text failed: {e} — trying answer")
+            try:
+                await cb.message.answer(text, reply_markup=markup, parse_mode=ParseMode.HTML)
+                log.info(f"✅ gardone setup answered: gid={gid}")
+            except Exception as e2:
+                log.error(f"❌ both failed: {e2}")
+                await cb.answer(f"⚠️ {e2}", show_alert=True)
+    
+    except Exception as e:
+        log.exception(f"❌ gardone setup crash: {e}")
+        try:
+            await cb.answer(f"⚠️ {e}", show_alert=True)
+        except Exception:
+            pass
 
 
 @router.callback_query(F.data.startswith("gardone_join_"))
