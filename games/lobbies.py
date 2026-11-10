@@ -1,5 +1,7 @@
-"""لابی چندنفره — استارت بازی با DM چون web_app در گروه مجاز نیست"""
+# -*- coding: utf-8 -*-
+"""لابی چندنفره — استارت تمام بازی‌ها در مینی‌اپ با حفظ استایل primary / success / danger و کاستوم ایموجی"""
 
+import os
 import uuid
 from aiogram import Router, F
 from aiogram.types import CallbackQuery
@@ -8,19 +10,20 @@ from aiogram.enums import ParseMode
 from emojis import E
 from langs import t, get_user_lang
 from utils.premium import success, primary, danger, kb
+from runtime import get_bot_username
 
 router = Router(name="lobbies")
-MINI_APP_URL = "https://games.rhinokaseb.abrdns.com"
+MINI_APP_URL = os.environ.get("MINI_APP_URL", "https://games.rhinokaseb.abrdns.com").rstrip("/")
 
 active_lobbies = {}
 
 GAME_CONFIG = {
-    "dooz":     {"max": 2, "name_key": "game_dooz",     "icon": "❌"},
-    "doz4p":    {"max": 4, "name_key": "game_doz4p",    "icon": "🔴"},
-    "connect4": {"max": 2, "name_key": "game_connect4", "icon": "🔴"},
-    "hokm":     {"max": 4, "name_key": "game_hokm_4p",  "icon": "🃏"},
-    "rps":      {"max": 2, "name_key": "game_rps",      "icon": "🪨"},
-    "memory":   {"max": 2, "name_key": "game_memory",   "icon": "🧠"},
+    "dooz":     {"max": 2, "name_key": "game_dooz",     "icon": E.TARGET},
+    "doz4p":    {"max": 4, "name_key": "game_doz4p",    "icon": E.TARGET},
+    "connect4": {"max": 2, "name_key": "game_connect4", "icon": E.GAME},
+    "hokm":     {"max": 4, "name_key": "game_hokm_4p",  "icon": E.CARD},
+    "rps":      {"max": 2, "name_key": "game_rps",      "icon": E.PUZZLE},
+    "memory":   {"max": 2, "name_key": "game_memory",   "icon": E.BRAIN},
 }
 
 
@@ -31,7 +34,7 @@ async def create_lobby(cb: CallbackQuery):
         game_type = parts[1]
         host_id = int(parts[2])
     except (IndexError, ValueError):
-        await cb.answer("❌", show_alert=True)
+        await cb.answer(t("error", "fa"), show_alert=True)
         return
 
     uid = cb.from_user.id
@@ -69,15 +72,17 @@ async def _update_lobby_message(bot, lobby_id: str, lang: str):
     game_name = t(config["name_key"], lang)
     current_p = len(lobby["players"])
     max_p = lobby["max_players"]
-    players_list = "\n".join(f"👤 {p['name']}" for p in lobby["players"])
+    players_list = "\n".join(f"{E.USER} {p['name']}" for p in lobby["players"])
 
     text = (
-        f"{E.GAME} <b>{t('lobby_title', lang, game=game_name)}</b>\n\n"
+        f"{config['icon']} <b>{t('lobby_title', lang, game=game_name)}</b>\n\n"
         f"{E.PEOPLE} {t('lobby_players', lang, cur=current_p, max=max_p)}:\n{players_list}\n\n"
         f"{E.HOURGLASS} {t('waiting_players', lang)}"
     )
-    rows = [[success(f"{E.PLUS} {t('join_game', lang)}", f"join_lobby_{lobby_id}")]]
-    rows.append([danger(f"{E.CROSS} {t('btn_cancel', lang)}", f"cancel_lobby_{lobby_id}")])
+    rows = [
+        [success(f"{E.PLUS} {t('join_game', lang)}", f"join_lobby_{lobby_id}")],
+        [danger(f"{E.CROSS} {t('btn_cancel', lang)}", f"cancel_lobby_{lobby_id}")],
+    ]
 
     try:
         await bot.edit_message_text(
@@ -109,7 +114,7 @@ async def join_lobby(cb: CallbackQuery):
 
     lobby["players"].append({
         "id": cb.from_user.id,
-        "name": cb.from_user.first_name or "P2",
+        "name": cb.from_user.first_name or f"P{len(lobby['players']) + 1}",
     })
     await cb.answer(t("lobby_joined", lang))
 
@@ -120,44 +125,46 @@ async def join_lobby(cb: CallbackQuery):
 
 
 async def _start_via_dm(bot, lobby_id: str):
-    """ارسال لینک بازی به پیوی همه بازیکنان — چون web_app در گروه مجاز نیست"""
+    """ارسال لینک مینی‌اپ بازی به پیوی بازیکنان"""
     lobby = active_lobbies[lobby_id]
-    game_url = f"{MINI_APP_URL}/?game={lobby['game_type']}&session={lobby_id}"
+    bot_name = get_bot_username()
 
     for player in lobby["players"]:
         plang = get_user_lang(player["id"])
+        game_url = f"{MINI_APP_URL}/?game={lobby['game_type']}&session={lobby_id}&uid={player['id']}&lang={plang}"
         try:
             await bot.send_message(
                 player["id"],
                 f"{E.PARTY} <b>{t('lobby_full_title', plang)}</b>\n\n"
                 f"{E.INFO} {t('enter_game_table', plang)}",
                 reply_markup=kb([[
-                    primary(f"{E.GAME} {t('enter_game_table', plang)}", web_app_url=game_url)
+                    success(f"{E.GAME} {t('enter_game_table', plang)}", web_app_url=game_url)
                 ]]),
                 parse_mode=ParseMode.HTML,
             )
         except Exception:
-            # بازیکن ربات را PM استارت نکرده — لینک دیپ در گروه
             try:
-                bot_name = (await bot.get_me()).username
                 await bot.send_message(
                     lobby["chat_id"],
                     f"{E.WARN} {t('start_pm_first_msg', plang)}",
                     reply_markup=kb([[
-                        primary(f"{E.BOT} {t('open_bot_btn', plang)}",
-                                url=f"https://t.me/{bot_name}?start=game_{lobby['game_type']}")
+                        primary(
+                            f"{E.BOT} {t('open_bot_btn', plang)}",
+                            url=f"https://t.me/{bot_name}?start=game_{lobby['game_type']}",
+                        )
                     ]]),
                     parse_mode=ParseMode.HTML,
                 )
             except Exception:
                 pass
 
-    # پیام گروه
     lang = get_user_lang(lobby["host_id"])
     try:
         await bot.edit_message_text(
-            text=f"{E.PARTY} <b>{t('lobby_full_title', lang)}</b>\n\n"
-                 f"{E.INFO} {t('check_pm_for_game', lang)}",
+            text=(
+                f"{E.PARTY} <b>{t('lobby_full_title', lang)}</b>\n\n"
+                f"{E.INFO} {t('check_pm_for_game', lang)}"
+            ),
             chat_id=lobby["chat_id"],
             message_id=lobby["msg_id"],
             reply_markup=None,
