@@ -1,11 +1,9 @@
-"""گردونه شانس — چند برنده، رتبه‌بندی، مستقل از پنل"""
+"""گردونه شانس — انتخاب تعداد برنده با دکمه inline (بدون FSM)"""
 
 import random
 from aiogram import Router, F
 from aiogram.types import CallbackQuery
 from aiogram.enums import ParseMode
-from aiogram.fsm.context import FSMContext
-from aiogram.fsm.state import State, StatesGroup
 
 from emojis import E
 from langs import t, get_user_lang
@@ -15,11 +13,17 @@ from . import state
 router = Router(name="gardone")
 
 
-class GardoneStates(StatesGroup):
-    waiting_count = State()
+def _counts_kb(uid: int):
+    rows = []
+    for base in (1, 6):
+        rows.append([
+            primary(str(n), f"gardone_setup_{uid}_{n}")
+            for n in range(base, base + 5)
+        ])
+    return kb(rows)
 
 
-async def _render(game, lang):
+def _render(game, lang):
     gid = game["game_id"]
     starter = game["starter_admin_id"]
     parts = game["participants"]
@@ -40,12 +44,14 @@ async def _render(game, lang):
 
 
 @router.callback_query(F.data.startswith("gardone_start_"))
-async def start(cb: CallbackQuery, state_fsm: FSMContext):
+async def start(cb: CallbackQuery):
     uid = cb.from_user.id
     lang = get_user_lang(uid)
     chat_id = cb.message.chat.id
-    try: target = int(cb.data.rsplit("_", 1)[1])
-    except: await cb.answer("❌"); return
+    try:
+        target = int(cb.data.rsplit("_", 1)[1])
+    except (ValueError, IndexError):
+        await cb.answer("❌", show_alert=True); return
     if uid != target:
         await cb.answer(t("not_your_panel", lang), show_alert=True); return
 
@@ -57,58 +63,53 @@ async def start(cb: CallbackQuery, state_fsm: FSMContext):
     if not is_admin:
         await cb.answer(t("admin_only", lang), show_alert=True); return
 
-    if chat_id in state.active_games["gardone"]:
+    if state.active_games["gardone"].get(chat_id):
         await cb.answer(t("game_already_running", lang), show_alert=True); return
 
     await cb.answer()
-    await state_fsm.clear()
-    await state_fsm.update_data(chat_id=chat_id, starter=uid, setup_msg=cb.message.message_id)
-    await state_fsm.set_state(GardoneStates.waiting_count)
-
     await cb.message.edit_text(
         f"{E.TARGET}{E.PARTY} <b>{t('gardone_title', lang)}</b>\n\n"
         f"{E.INFO} {t('gardone_ask_count', lang)}",
+        reply_markup=_counts_kb(uid),
         parse_mode=ParseMode.HTML,
     )
 
 
-@router.message(GardoneStates.waiting_count, F.text)
-async def receive_count(msg, state_fsm: FSMContext):
-    data = await state_fsm.get_data()
-    if msg.from_user.id != data.get("starter"):
-        return
-    lang = get_user_lang(msg.from_user.id)
+@router.callback_query(F.data.startswith("gardone_setup_"))
+async def setup(cb: CallbackQuery):
+    parts = cb.data.split("_")
     try:
-        n = int(msg.text.strip().translate(str.maketrans("۰۱۲۳۴۵۶۷۸۹", "0123456789")))
-        if not (1 <= n <= 10):
-            raise ValueError
-    except ValueError:
-        await msg.reply(f"{E.WARN} {t('gardone_invalid_count', lang)}")
-        return
+        uid_target = int(parts[2])
+        count = int(parts[3])
+    except (ValueError, IndexError):
+        await cb.answer("❌", show_alert=True); return
+    uid = cb.from_user.id
+    lang = get_user_lang(uid)
+    chat_id = cb.message.chat.id
+    if uid != uid_target:
+        await cb.answer(t("not_your_panel", lang), show_alert=True); return
+    if not (1 <= count <= 10):
+        await cb.answer("❌", show_alert=True); return
+    if state.active_games["gardone"].get(chat_id):
+        await cb.answer(t("game_already_running", lang), show_alert=True); return
 
-    chat_id = data["chat_id"]
-    gid = msg.message_id
+    await cb.answer()
+    gid = cb.message.message_id
     game = {
-        "game_id": gid, "starter_admin_id": data["starter"],
-        "participants": [], "winner_count": n,
+        "game_id": gid, "starter_admin_id": uid,
+        "participants": [], "winner_count": count,
     }
     state.register("gardone", chat_id, gid, game)
-    await state_fsm.clear()
-
-    text, markup = await _render(game, lang)
-    try:
-        await msg.bot.edit_message_text(
-            text, chat_id=chat_id, message_id=data["setup_msg"],
-            reply_markup=markup, parse_mode=ParseMode.HTML,
-        )
-    except Exception:
-        await msg.answer(text, reply_markup=markup, parse_mode=ParseMode.HTML)
+    text, markup = _render(game, lang)
+    await cb.message.edit_text(text, reply_markup=markup, parse_mode=ParseMode.HTML)
 
 
 @router.callback_query(F.data.startswith("gardone_join_"))
 async def join(cb: CallbackQuery):
-    try: gid = int(cb.data.split("_")[2])
-    except: await cb.answer("❌"); return
+    try:
+        gid = int(cb.data.split("_")[2])
+    except (ValueError, IndexError):
+        await cb.answer("❌"); return
     chat_id, uid = cb.message.chat.id, cb.from_user.id
     lang = get_user_lang(uid)
     game = state.get("gardone", chat_id, gid)
@@ -118,15 +119,17 @@ async def join(cb: CallbackQuery):
         await cb.answer(t("gardone_already_joined", lang), show_alert=True); return
     game["participants"].append({"id": uid, "name": cb.from_user.first_name})
     await cb.answer(t("gardone_joined", lang))
-    text, markup = await _render(game, lang)
+    text, markup = _render(game, lang)
     await cb.message.edit_text(text, reply_markup=markup, parse_mode=ParseMode.HTML)
 
 
 @router.callback_query(F.data.startswith("gardone_spin_"))
 async def spin(cb: CallbackQuery):
     parts = cb.data.split("_")
-    try: gid, starter = int(parts[2]), int(parts[3])
-    except: await cb.answer("❌"); return
+    try:
+        gid, starter = int(parts[2]), int(parts[3])
+    except (ValueError, IndexError):
+        await cb.answer("❌"); return
     chat_id, uid = cb.message.chat.id, cb.from_user.id
     lang = get_user_lang(uid)
     game = state.get("gardone", chat_id, gid)
@@ -160,8 +163,10 @@ async def spin(cb: CallbackQuery):
 @router.callback_query(F.data.startswith("gardone_cancel_"))
 async def cancel(cb: CallbackQuery):
     parts = cb.data.split("_")
-    try: gid, starter = int(parts[2]), int(parts[3])
-    except: await cb.answer("❌"); return
+    try:
+        gid, starter = int(parts[2]), int(parts[3])
+    except (ValueError, IndexError):
+        await cb.answer("❌"); return
     chat_id, uid = cb.message.chat.id, cb.from_user.id
     lang = get_user_lang(uid)
     game = state.get("gardone", chat_id, gid)
