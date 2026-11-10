@@ -117,7 +117,12 @@ class EmojiBot(Bot):
                 return await super().__call__(method, request_timeout)
 
             if "BUTTON_TYPE_INVALID" in err:
-                log.warning("⚠️ BUTTON_TYPE_INVALID — حذف آیکون‌های دکمه")
+                log.warning("⚠️ BUTTON_TYPE_INVALID — disabling button premium globally")
+                try:
+                    from utils.premium import disable_button_premium
+                    disable_button_premium()
+                except Exception:
+                    pass
                 try:
                     rm = getattr(method, "reply_markup", None)
                     if rm is not None:
@@ -239,32 +244,30 @@ class GameGuard(BaseMiddleware):
 def webapp_btn(text: str, game: str, uid: int) -> InlineKeyboardButton:
     params = urlencode({"game": game, "uid": uid})
     url = f"{MINI_APP_URL}/?{params}"
-    return InlineKeyboardButton(text=_clean_btn_text(text), web_app=WebAppInfo(url=url))
+    from utils.premium import primary
+    return primary(text, web_app_url=url)
 
 
 async def _build_main_menu(uid: int, name: str):
     lang = get_user_lang(uid)
     text = (
         f"{E.PARTY}{E.SPARK} <b>{t('welcome', lang, name=name)}</b>\n\n"
-        f"{E.GAME} {t('game_panel', lang)}\n\n👇 یک بازی انتخاب کنید:"
+        f"{E.GAME} {t('game_panel', lang)}\n\n{t('choose_game_hint', lang)}"
     )
     rows = [
-        [webapp_btn(f"{E.PUZZLE} 2048", "2048", uid),
-         webapp_btn(f"{E.PUZZLE} پازل کششی", "spuzzle", uid)],
-        [webapp_btn(f"{E.SPARK} جفت‌ها", "samegame", uid)],
-
-        [primary(f"{E.TARGET} دوز ۲ نفره", f"lobby_dooz_{uid}"),
-         primary(f"{E.TARGET} دوز ۴ نفره", f"lobby_doz4p_{uid}")],
-        [success(f"{E.GAME} چهار در ردیف", f"lobby_connect4_{uid}"),
-         success(f"{E.CARD} حکم ۴ نفره", f"lobby_hokm_{uid}")],
-        [primary("🪨 سنگ کاغذ قیچی", f"lobby_rps_{uid}"),
-         primary(f"{E.BRAIN} حافظه", f"lobby_memory_{uid}")],
-
-        [webapp_btn(f"{E.MIC} تایپ سرعتی", "typing", uid),
-         webapp_btn(f"{E.BRAIN} حدس کلمه", "hangman", uid)],
-        [webapp_btn(f"{E.TARGET} حدس عدد", "guess", uid)],
-
-        [success(f"{E.TARGET} گردونه شانس", f"gardone_start_{uid}")],
+        [webapp_btn(f"{E.PUZZLE} {t('game_2048_title', lang)}", "2048", uid),
+         webapp_btn(f"{E.PUZZLE} {t('game_spuzzle', lang)}", "spuzzle", uid)],
+        [webapp_btn(f"{E.SPARK} {t('game_samegame', lang)}", "samegame", uid)],
+        [primary(f"{E.TARGET} {t('game_dooz', lang)}", f"lobby_dooz_{uid}"),
+         primary(f"{E.TARGET} {t('game_doz4p', lang)}", f"lobby_doz4p_{uid}")],
+        [success(f"{E.GAME} {t('game_connect4', lang)}", f"lobby_connect4_{uid}"),
+         success(f"{E.CARD} {t('game_hokm_4p', lang)}", f"lobby_hokm_{uid}")],
+        [primary(f"🪨 {t('game_rps', lang)}", f"lobby_rps_{uid}"),
+         primary(f"{E.BRAIN} {t('game_memory', lang)}", f"lobby_memory_{uid}")],
+        [webapp_btn(f"{E.MIC} {t('game_typing', lang)}", "typing", uid),
+         webapp_btn(f"{E.BRAIN} {t('game_hangman', lang)}", "hangman", uid)],
+        [webapp_btn(f"{E.TARGET} {t('game_guess_num', lang)}", "guess", uid)],
+        [success(f"{E.TARGET} {t('game_gardone', lang)}", f"gardone_start_{uid}")],
         [danger(f"{E.CROSS} {t('btn_close', lang)}", f"rsgame_close_{uid}")],
     ]
     if uid in OWNER_IDS:
