@@ -15,6 +15,7 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import (
     CallbackQuery, InlineKeyboardMarkup, LabeledPrice, Message, PreCheckoutQuery,
+    WebAppInfo, InlineKeyboardButton,
 )
 
 from emojis import E, render_emojis, strip_custom_emoji_tags, extract_emoji_ids
@@ -35,6 +36,7 @@ log = logging.getLogger("rhino")
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "")
 OWNER_IDS = {7662192190, 6041119040}
+MINI_APP_URL = "https://games.rhinokaseb.abrdns.com"
 
 
 # ═══════════════════════════════════════════════
@@ -42,7 +44,6 @@ OWNER_IDS = {7662192190, 6041119040}
 # ═══════════════════════════════════════════════
 
 def _lang_flag(lang: str) -> str:
-    """استخراج پرچم از LANGS (مثل 🇮🇷 از '🇮🇷 فارسی')"""
     entry = LANGS.get(lang, "🌐")
     parts = entry.split()
     return parts[0] if parts else "🌐"
@@ -52,7 +53,7 @@ def _strip_btn_icons(markup):
         return markup
     try:
         new_rows = [
-            [b.model_copy(update={"icon_custom__id": None}) for b in row]
+            [b.model_copy(update={"icon_custom_emoji_id": None}) for b in row]
             for row in markup.inline_keyboard
         ]
         return InlineKeyboardMarkup(inline_keyboard=new_rows)
@@ -210,19 +211,38 @@ class GameGuard(BaseMiddleware):
 # منوها
 # ═══════════════════════════════════════════════
 
+def webapp_btn(text: str, game: str, uid: int) -> InlineKeyboardButton:
+    url = f"{MINI_APP_URL}/?game={game}&uid={uid}"
+    return InlineKeyboardButton(text=text, web_app=WebAppInfo(url=url))
+
 async def _build_main_menu(uid: int, name: str):
     lang = get_user_lang(uid)
     text = (
         f"{E.PARTY}{E.SPARK} <b>{t('welcome', lang, name=name)}</b>\n\n"
-        f"{E.GAME} {t('game_panel', lang)}"
+        f"{E.GAME} {t('game_panel', lang)}\n\n👇 یک بازی انتخاب کنید:"
     )
     rows = [
-        [success(f"{E.TROPHY} {t('btn_group', lang)}",   f"rsgame_cat_board_{uid}"),
-         success(f"{E.TARGET} {t('btn_single', lang)}",  f"rsgame_cat_single_{uid}")],
-        [primary(f"{E.MIC} {t('btn_typing', lang)}",     f"rsgame_cat_typing_{uid}"),
-         primary(f"{E.GHOST} {t('btn_anon', lang)}",     f"rsgame_cat_anon_{uid}")],
-        [success(f"{E.TARGET} {t('game_gardone', lang)}", f"gardone_start_{uid}")],
-        [danger(f"{E.CROSS} {t('btn_close', lang)}",     f"rsgame_close_{uid}")],
+        # ── بازی‌های تک‌نفره (ورود مستقیم به مینی‌اپ)
+        [webapp_btn(f"{E.PUZZLE} 2048", "2048", uid),
+         webapp_btn(f"{E.PUZZLE} پازل کششی", "spuzzle", uid)],
+        [webapp_btn(f"{E.SPARK} جفت‌ها", "samegame", uid)],
+        
+        # ── بازی‌های چندنفره (ورود به لابی ربات)
+        [primary(f"{E.TARGET} دوز ۲ نفره", f"lobby_dooz_{uid}"),
+         primary(f"{E.TARGET} دوز ۴ نفره", f"lobby_doz4p_{uid}")],
+        [success(f"{E.GAME} چهار در ردیف", f"lobby_connect4_{uid}"),
+         success(f"{E.CARD} حکم ۴ نفره", f"lobby_hokm_{uid}")],
+        [primary("🪨 سنگ کاغذ قیچی", f"lobby_rps_{uid}"),
+         primary(f"{E.BRAIN} حافظه", f"lobby_memory_{uid}")],
+        
+        # ── بازی‌های چت‌محور (ورود مستقیم به مینی‌اپ چت)
+        [webapp_btn(f"{E.MIC} تایپ سرعتی", "typing", uid),
+         webapp_btn(f"{E.BRAIN} حدس کلمه", "hangman", uid)],
+        [webapp_btn(f"{E.TARGET} حدس عدد", "guess", uid)],
+        
+        # ── سایر
+        [success(f"{E.TARGET} گردونه شانس", f"gardone_start_{uid}")],
+        [danger(f"{E.CROSS} {t('btn_close', lang)}", f"rsgame_close_{uid}")],
     ]
     if uid in OWNER_IDS:
         rows.append([success(f"{E.CROWN} {t('admin_panel', lang)}", "adm:panel")])
