@@ -683,12 +683,19 @@ async def main():
     log.info("🚀 Bot starting…")
     try:
         await bot.delete_webhook(drop_pending_updates=True)
-        await dp.start_polling(bot)
+        await dp.start_polling(
+            bot,
+            allowed_updates=[
+                "message", "edited_message", "callback_query",
+                "inline_query", "chosen_inline_result",
+                "pre_checkout_query", "successful_payment",
+            ],
+        )
     finally:
         if health_runner:
             await health_runner.cleanup()
-        await db.close()
-        await bot.session.close()
+            await db.close()
+            await bot.session.close()
 
 
 if __name__ == "__main__":
