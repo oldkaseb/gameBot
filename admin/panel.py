@@ -1,9 +1,8 @@
 # -*- coding: utf-8 -*-
-"""پنل ادمین استایل‌دار — نسخه بازی"""
+"""پنل ادمین استایل‌دار — نسخه کامل با کاستوم ایموجی پریمیوم و استایل‌های primary / success / danger"""
 
 import asyncio
 import math
-from typing import Union
 
 from aiogram import Router, F
 from aiogram.types import CallbackQuery, Message
@@ -36,11 +35,7 @@ class A(StatesGroup):
 
 
 async def _is_admin(uid: int) -> bool:
-    if uid in OWNER_IDS:
-        return True
-    return await db.pool.fetchval(
-        "SELECT 1 FROM admins WHERE user_id=$1", uid
-    ) is not None
+    return await db.is_admin(uid)
 
 
 async def _is_owner(uid: int) -> bool:
@@ -63,22 +58,15 @@ GAME_NAMES = {
 
 def _main_kb(lang: str = "fa"):
     return kb([
-        # ردیف سبز: آمار (مهم‌ترین)
         [success(f"{E.CHART} {t('admin_stats', lang)}", "adm:stats")],
-        # ردیف آبی: کاربران + گروه‌ها
         [primary(f"{E.SEARCH} {t('admin_users', lang)}", "adm:users"),
          primary(f"{E.PARTY} مدیریت گروه‌ها", "adm:groups")],
-        # ردیف آبی: بازی‌ها + قفل‌ها
         [primary(f"{E.GAME} مدیریت بازی‌ها", "adm:games"),
          primary(f"{E.LOCK} {t('admin_locks', lang)}", "adm:locks")],
-        # ردیف آبی: ارسال + تنظیمات
         [primary(f"{E.MEGA} {t('admin_bcast', lang)}", "adm:bcast"),
          primary(f"{E.CAL} {t('admin_settings', lang)}", "adm:settings")],
-        # ردیف قرمز: مدیریت ادمین‌ها (حساس)
         [danger(f"{E.CROWN} {t('admin_admins', lang)}", "adm:admins")],
-        # ردیف آبی: بکاپ
         [primary(f"{E.BOX} {t('admin_backup', lang)}", "adm:backup")],
-        # ردیف آبی: بازگشت
         [back_btn(lang, "menu")],
     ])
 
@@ -126,6 +114,7 @@ async def cb_noop(cb: CallbackQuery):
 
 async def _gather_stats() -> dict:
     try:
+        await db.ensure_pool()
         users = await db.pool.fetchval("SELECT COUNT(*) FROM users") or 0
         banned = await db.pool.fetchval(
             "SELECT COUNT(*) FROM users WHERE is_banned=TRUE"
@@ -238,6 +227,7 @@ async def cb_ulist(cb: CallbackQuery):
         page = 0
 
     try:
+        await db.ensure_pool()
         users = await db.pool.fetch(
             """SELECT user_id, first_name, is_banned FROM users
                ORDER BY start_time DESC LIMIT $1 OFFSET $2""",
@@ -252,14 +242,15 @@ async def cb_ulist(cb: CallbackQuery):
     for u in users:
         icon = E.BLOCK if u["is_banned"] else E.OK2
         name = u["first_name"] or f"user_{u['user_id']}"
-        rows.append([primary(f"{icon} {name}", f"adm:up:{u['user_id']}")])
+        style_fn = danger if u["is_banned"] else primary
+        rows.append([style_fn(f"{icon} {name}", f"adm:up:{u['user_id']}")])
 
     nav = []
     if page > 0:
-        nav.append(primary("◀️", f"adm:ulist:{page-1}"))
-    nav.append(primary(f"{page+1}/{pages}", "adm:noop"))
+        nav.append(primary(f"{E.LEFT} قبلی", f"adm:ulist:{page-1}"))
+    nav.append(primary(f"{E.INFO} {page+1}/{pages}", "adm:noop"))
     if page < pages - 1:
-        nav.append(primary("▶️", f"adm:ulist:{page+1}"))
+        nav.append(primary(f"{E.RIGHT} بعدی", f"adm:ulist:{page+1}"))
     if nav:
         rows.append(nav)
     rows.append([back_btn(lang, "adm:users")])
@@ -300,6 +291,7 @@ async def msg_search_user(msg: Message, state: FSMContext):
 
 
 async def _show_user(event, target_uid: int):
+    await db.ensure_pool()
     user = await db.pool.fetchrow(
         "SELECT user_id, first_name, username, is_banned, start_time FROM users WHERE user_id=$1",
         target_uid,
@@ -365,7 +357,7 @@ async def cb_up(cb: CallbackQuery):
     try:
         target = int(cb.data.split(":")[2])
     except (IndexError, ValueError):
-        await cb.answer("❌")
+        await cb.answer("خطا")
         return
     await _show_user(cb, target)
 
@@ -375,11 +367,12 @@ async def cb_ban(cb: CallbackQuery):
     try:
         target = int(cb.data.split(":")[2])
     except (IndexError, ValueError):
-        await cb.answer("❌")
+        await cb.answer("خطا")
         return
+    await db.ensure_pool()
     await db.pool.execute("UPDATE users SET is_banned=TRUE WHERE user_id=$1", target)
     await db.log_admin(cb.from_user.id, "ban_user", target)
-    await cb.answer("مسدود شد ✅", show_alert=True)
+    await cb.answer("مسدود شد", show_alert=True)
     await _show_user(cb, target)
 
 
@@ -388,11 +381,12 @@ async def cb_unban(cb: CallbackQuery):
     try:
         target = int(cb.data.split(":")[2])
     except (IndexError, ValueError):
-        await cb.answer("❌")
+        await cb.answer("خطا")
         return
+    await db.ensure_pool()
     await db.pool.execute("UPDATE users SET is_banned=FALSE WHERE user_id=$1", target)
     await db.log_admin(cb.from_user.id, "unban_user", target)
-    await cb.answer("رفع مسدودی شد ✅", show_alert=True)
+    await cb.answer("رفع مسدودی شد", show_alert=True)
     await _show_user(cb, target)
 
 
@@ -401,13 +395,14 @@ async def cb_ureset(cb: CallbackQuery):
     try:
         target = int(cb.data.split(":")[2])
     except (IndexError, ValueError):
-        await cb.answer("❌")
+        await cb.answer("خطا")
         return
     try:
+        await db.ensure_pool()
         await db.pool.execute("DELETE FROM game_wins WHERE user_id=$1", target)
     except Exception:
         pass
-    await cb.answer("آمار پاک شد ✅", show_alert=True)
+    await cb.answer("آمار پاک شد", show_alert=True)
     await _show_user(cb, target)
 
 
@@ -443,6 +438,7 @@ async def cb_glist(cb: CallbackQuery):
         page = 0
 
     try:
+        await db.ensure_pool()
         groups = await db.pool.fetch(
             """SELECT group_id, title, member_count FROM groups
                ORDER BY added_time DESC LIMIT $1 OFFSET $2""",
@@ -460,10 +456,10 @@ async def cb_glist(cb: CallbackQuery):
 
     nav = []
     if page > 0:
-        nav.append(primary("◀️", f"adm:glist:{page-1}"))
-    nav.append(primary(f"{page+1}/{pages}", "adm:noop"))
+        nav.append(primary(f"{E.LEFT} قبلی", f"adm:glist:{page-1}"))
+    nav.append(primary(f"{E.INFO} {page+1}/{pages}", "adm:noop"))
     if page < pages - 1:
-        nav.append(primary("▶️", f"adm:glist:{page+1}"))
+        nav.append(primary(f"{E.RIGHT} بعدی", f"adm:glist:{page+1}"))
     if nav:
         rows.append(nav)
     rows.append([back_btn(lang, "adm:groups")])
@@ -486,9 +482,10 @@ async def cb_gp(cb: CallbackQuery):
     try:
         gid = int(cb.data.split(":")[2])
     except (IndexError, ValueError):
-        await cb.answer("❌")
+        await cb.answer("خطا")
         return
 
+    await db.ensure_pool()
     g = await db.pool.fetchrow("SELECT * FROM groups WHERE group_id=$1", gid)
     if not g:
         await cb.answer("گروه یافت نشد", show_alert=True)
@@ -522,13 +519,14 @@ async def cb_gleave(cb: CallbackQuery):
     try:
         gid = int(cb.data.split(":")[2])
     except (IndexError, ValueError):
-        await cb.answer("❌")
+        await cb.answer("خطا")
         return
 
     try:
         await cb.bot.leave_chat(gid)
+        await db.ensure_pool()
         await db.pool.execute("DELETE FROM groups WHERE group_id=$1", gid)
-        await cb.answer("اخراج شد ✅", show_alert=True)
+        await cb.answer("اخراج شد", show_alert=True)
     except Exception as e:
         await cb.answer(f"خطا: {e}", show_alert=True)
 
@@ -537,19 +535,19 @@ async def cb_gleave(cb: CallbackQuery):
 
 
 ALL_GAMES = [
-    ("hokm", "🃏 حکم"),
-    ("dooz", "❌ دوز ۲ نفره"),
-    ("doz4p", "🔴 دوز ۴ نفره"),
-    ("connect4", "🔴 چهار در ردیف"),
-    ("rps", "🪨 سنگ کاغذ قیچی"),
-    ("memory", "🧠 حافظه"),
-    ("2048", "🔢 2048"),
-    ("samegame", "✨ جفت‌ها"),
-    ("spuzzle", "🧩 پازل کشویی"),
-    ("hangman", "🎯 حدس کلمه"),
-    ("typing", "⌨️ تایپ سرعتی"),
-    ("number_guess", "🔢 حدس عدد"),
-    ("gardone", "🎡 گردونه شانس"),
+    ("hokm", "حکم"),
+    ("dooz", "دوز ۲ نفره"),
+    ("doz4p", "دوز ۴ نفره"),
+    ("connect4", "چهار در ردیف"),
+    ("rps", "سنگ کاغذ قیچی"),
+    ("memory", "حافظه"),
+    ("2048", "2048"),
+    ("samegame", "جفت‌ها"),
+    ("spuzzle", "پازل کشویی"),
+    ("hangman", "حدس کلمه"),
+    ("typing", "تایپ سرعتی"),
+    ("number_guess", "حدس عدد"),
+    ("gardone", "گردونه شانس"),
 ]
 
 
@@ -563,6 +561,7 @@ async def cb_games(cb: CallbackQuery):
     await cb.answer()
 
     try:
+        await db.ensure_pool()
         rows = await db.pool.fetch("SELECT game_type, is_enabled FROM game_settings")
         state_map = {r["game_type"]: r["is_enabled"] for r in rows}
     except Exception:
@@ -595,6 +594,7 @@ async def cb_gtoggle(cb: CallbackQuery):
 
     gtype = cb.data.split(":")[2]
     try:
+        await db.ensure_pool()
         current = await db.pool.fetchval(
             "SELECT is_enabled FROM game_settings WHERE game_type=$1", gtype
         )
@@ -606,7 +606,7 @@ async def cb_gtoggle(cb: CallbackQuery):
             gtype, new_state,
         )
         await db.log_admin(uid, "toggle_game", detail=f"{gtype}={new_state}")
-        await cb.answer("✅ ذخیره شد")
+        await cb.answer("ذخیره شد")
     except Exception as e:
         await cb.answer(f"خطا: {e}", show_alert=True)
 
@@ -643,6 +643,7 @@ async def cb_chlist(cb: CallbackQuery):
     await cb.answer()
 
     try:
+        await db.ensure_pool()
         chans = await db.pool.fetch("SELECT * FROM forced_channels")
     except Exception:
         chans = []
@@ -689,6 +690,7 @@ async def msg_chadd(msg: Message, state: FSMContext):
             text = "@" + text
 
         chat = await msg.bot.get_chat(text)
+        await db.ensure_pool()
         await db.pool.execute(
             """INSERT INTO forced_channels (chat_id, username, title)
                VALUES ($1, $2, $3)
@@ -710,8 +712,9 @@ async def cb_chdel(cb: CallbackQuery):
         return
     try:
         cid = int(cb.data.split(":")[2])
+        await db.ensure_pool()
         await db.pool.execute("DELETE FROM forced_channels WHERE id=$1", cid)
-        await cb.answer("حذف شد ✅", show_alert=True)
+        await cb.answer("حذف شد", show_alert=True)
     except Exception:
         await cb.answer("خطا", show_alert=True)
     cb.data = "adm:chlst"
@@ -778,6 +781,7 @@ async def cb_bcg(cb: CallbackQuery, state: FSMContext):
 async def _do_broadcast(msg: Message, target_type: str):
     status = await msg.answer(f"{E.HOURGLASS} در حال ارسال...", parse_mode=ParseMode.HTML)
     try:
+        await db.ensure_pool()
         if target_type == "users":
             rows = await db.pool.fetch("SELECT user_id FROM users WHERE is_banned=FALSE")
             key = "user_id"
@@ -836,6 +840,7 @@ async def cb_settings(cb: CallbackQuery):
     await cb.answer()
 
     try:
+        await db.ensure_pool()
         lives = await db.pool.fetchval(
             "SELECT config->>'initial_lives' FROM game_settings WHERE game_type='hangman'"
         ) or "10"
@@ -881,6 +886,7 @@ async def msg_set_lives(msg: Message, state: FSMContext):
         return
 
     try:
+        await db.ensure_pool()
         await db.pool.execute(
             """INSERT INTO game_settings (game_type, config) VALUES ('hangman', $1::jsonb)
                ON CONFLICT (game_type) DO UPDATE
@@ -906,6 +912,7 @@ async def cb_admins(cb: CallbackQuery):
     await cb.answer()
 
     try:
+        await db.ensure_pool()
         admins = await db.pool.fetch("SELECT * FROM admins ORDER BY created_at")
     except Exception:
         admins = []
@@ -952,6 +959,7 @@ async def msg_add_admin(msg: Message, state: FSMContext):
         return
 
     try:
+        await db.ensure_pool()
         await db.pool.execute(
             "INSERT INTO admins (user_id) VALUES ($1) ON CONFLICT DO NOTHING",
             target,
@@ -972,8 +980,9 @@ async def cb_adel(cb: CallbackQuery):
         return
     try:
         target = int(cb.data.split(":")[2])
+        await db.ensure_pool()
         await db.pool.execute("DELETE FROM admins WHERE user_id=$1", target)
-        await cb.answer("حذف شد ✅", show_alert=True)
+        await cb.answer("حذف شد", show_alert=True)
     except Exception:
         await cb.answer("خطا", show_alert=True)
     cb.data = "adm:admins"
@@ -1004,7 +1013,7 @@ async def cb_do_backup(cb: CallbackQuery):
     if not await _is_owner(cb.from_user.id):
         await cb.answer("فقط مالک", show_alert=True)
         return
-    await cb.answer("شروع شد ✅")
+    await cb.answer("شروع شد")
     from admin.backup import create_and_send_backup
     await create_and_send_backup(cb.from_user.id, cb.bot, "manual")
 
