@@ -41,6 +41,12 @@ OWNER_IDS = {7662192190, 6041119040}
 # Bot — ایموجی پریمیوم + Fallback هوشمند
 # ═══════════════════════════════════════════════
 
+def _lang_flag(lang: str) -> str:
+    """استخراج پرچم از LANGS (مثل 🇮🇷 از '🇮🇷 فارسی')"""
+    entry = LANGS.get(lang, "🌐")
+    parts = entry.split()
+    return parts[0] if parts else "🌐"
+
 def _strip_btn_icons(markup):
     if not isinstance(markup, InlineKeyboardMarkup):
         return markup
