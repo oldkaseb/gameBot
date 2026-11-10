@@ -4,6 +4,7 @@
 import asyncio
 import logging
 import os
+from urllib.parse import urlencode
 
 from aiogram import BaseMiddleware, Bot, Dispatcher, F
 from aiogram.client.default import DefaultBotProperties
@@ -18,7 +19,10 @@ from aiogram.types import (
     WebAppInfo, InlineKeyboardButton,
 )
 
-from emojis import E, render_emojis, strip_custom_emoji_tags, extract_emoji_ids
+from emojis import (
+    E, render_emojis, strip_custom_emoji_tags, extract_emoji_ids,
+    BASE_MAP, EMOJI_ID_RE,
+)
 from langs import LANGS, t, get_user_lang, set_user_lang
 from utils.premium import btn, success, primary, danger, kb
 from utils.commands import router as persian_cmd_router
@@ -40,7 +44,7 @@ MINI_APP_URL = "https://games.rhinokaseb.abrdns.com"
 
 
 # ═══════════════════════════════════════════════
-# Bot — ایموجی پریمیوم + Fallback هوشمند
+# Helpers
 # ═══════════════════════════════════════════════
 
 def _lang_flag(lang: str) -> str:
@@ -48,14 +52,31 @@ def _lang_flag(lang: str) -> str:
     parts = entry.split()
     return parts[0] if parts else "🌐"
 
+
+def _clean_btn_text(text: str) -> str:
+    if not text:
+        return "·"
+    return EMOJI_ID_RE.sub(lambda m: BASE_MAP.get(m.group(1), "⭐"), text).strip() or "·"
+
+
 def _strip_btn_icons(markup):
+    """حذف آیکون‌های غیرمجاز از دکمه‌ها (برای fallback خطاهای تلگرام)"""
     if not isinstance(markup, InlineKeyboardMarkup):
         return markup
     try:
-        new_rows = [
-            [b.model_copy(update={"icon_custom_emoji_id": None}) for b in row]
-            for row in markup.inline_keyboard
-        ]
+        new_rows = []
+        for row in markup.inline_keyboard:
+            new_row = []
+            for b in row:
+                data = b.model_dump(exclude_none=True)
+                data.pop("icon_custom_emoji_id", None)
+                data.pop("style", None)
+                new_row.append(InlineKeyboardButton(**{
+                    k: v for k, v in data.items()
+                    if k in ("text", "url", "callback_data", "web_app",
+                             "switch_inline_query", "switch_inline_query_current_chat")
+                }))
+            new_rows.append(new_row)
         return InlineKeyboardMarkup(inline_keyboard=new_rows)
     except Exception:
         return markup
@@ -76,36 +97,37 @@ class EmojiBot(Bot):
         try:
             return await super().__call__(method, request_timeout)
         except TelegramBadRequest as e:
-            if "DOCUMENT_INVALID" not in str(e) or not rendered:
-                raise
-            
-            log.warning(f"⚠️ DOCUMENT_INVALID — fallback به یونیکد خام")
-            
-            for attr in ("text", "caption"):
-                val = getattr(method, attr, None)
-                if isinstance(val, str) and "<tg-emoji" in val:
-                    try:
-                        setattr(method, attr, strip_custom_emoji_tags(val))
-                    except Exception:
-                        pass
-                        
-            try:
-                rm = getattr(method, "reply_markup", None)
-                if rm is not None:
-                    setattr(method, "reply_markup", _strip_btn_icons(rm))
-            except Exception:
-                pass
-                
-            try:
-                return await super().__call__(method, request_timeout)
-            except Exception as e2:
-                log.error(f"Fallback 1 failed: {e2}")
+            err = str(e)
+
+            if "DOCUMENT_INVALID" in err and rendered:
+                log.warning("⚠️ DOCUMENT_INVALID — fallback به یونیکد خام")
+                for attr in ("text", "caption"):
+                    val = getattr(method, attr, None)
+                    if isinstance(val, str) and "<tg-emoji" in val:
+                        try:
+                            setattr(method, attr, strip_custom_emoji_tags(val))
+                        except Exception:
+                            pass
                 try:
-                    setattr(method, "reply_markup", None)
+                    rm = getattr(method, "reply_markup", None)
+                    if rm is not None:
+                        setattr(method, "reply_markup", _strip_btn_icons(rm))
+                except Exception:
+                    pass
+                return await super().__call__(method, request_timeout)
+
+            if "BUTTON_TYPE_INVALID" in err:
+                log.warning("⚠️ BUTTON_TYPE_INVALID — حذف آیکون‌های دکمه")
+                try:
+                    rm = getattr(method, "reply_markup", None)
+                    if rm is not None:
+                        setattr(method, "reply_markup", _strip_btn_icons(rm))
                     return await super().__call__(method, request_timeout)
-                except Exception as e3:
-                    log.error(f"Fallback 2 failed: {e3}")
-                    raise e3
+                except Exception as e2:
+                    log.error(f"Buttons fallback failed: {e2}")
+                    raise
+
+            raise
 
 
 # ═══════════════════════════════════════════════
@@ -118,7 +140,7 @@ def _join_kb(channels, lang: str = "fa"):
         label = f"{E.LINK} {t('force_join_btn', lang)} — {ch['title'] or ch['chat_id']}"
         if ch["username"]:
             url = f"https://t.me/{ch['username'].lstrip('@')}"
-            rows.append([btn(label, url=url, style="success")])
+            rows.append([btn(label, url=url)])
         else:
             rows.append([success(label, "check_join")])
     rows.append([primary(f"{E.REFRESH} {t('force_join_check', lang)}", "check_join")])
@@ -188,12 +210,15 @@ class GameGuard(BaseMiddleware):
         "type_start_": "typing", "hads_addad_start_": "number_guess",
         "gardone_start_": "gardone", "gharch_start_": "gharch",
         "eteraf_start_": "eteraf",
+        "lobby_": "__lobby__",
     }
 
     async def __call__(self, handler, event, data):
         if isinstance(event, CallbackQuery) and event.data:
             for prefix, gtype in self.PREFIXES.items():
                 if event.data.startswith(prefix):
+                    if gtype == "__lobby__":
+                        break
                     try:
                         if not await db.is_game_enabled(gtype):
                             await event.answer(
@@ -208,12 +233,14 @@ class GameGuard(BaseMiddleware):
 
 
 # ═══════════════════════════════════════════════
-# منوها
+# منوی اصلی
 # ═══════════════════════════════════════════════
 
 def webapp_btn(text: str, game: str, uid: int) -> InlineKeyboardButton:
-    url = f"{MINI_APP_URL}/?game={game}&uid={uid}"
-    return InlineKeyboardButton(text=text, web_app=WebAppInfo(url=url))
+    params = urlencode({"game": game, "uid": uid})
+    url = f"{MINI_APP_URL}/?{params}"
+    return InlineKeyboardButton(text=_clean_btn_text(text), web_app=WebAppInfo(url=url))
+
 
 async def _build_main_menu(uid: int, name: str):
     lang = get_user_lang(uid)
@@ -222,25 +249,21 @@ async def _build_main_menu(uid: int, name: str):
         f"{E.GAME} {t('game_panel', lang)}\n\n👇 یک بازی انتخاب کنید:"
     )
     rows = [
-        # ── بازی‌های تک‌نفره (ورود مستقیم به مینی‌اپ)
         [webapp_btn(f"{E.PUZZLE} 2048", "2048", uid),
          webapp_btn(f"{E.PUZZLE} پازل کششی", "spuzzle", uid)],
         [webapp_btn(f"{E.SPARK} جفت‌ها", "samegame", uid)],
-        
-        # ── بازی‌های چندنفره (ورود به لابی ربات)
+
         [primary(f"{E.TARGET} دوز ۲ نفره", f"lobby_dooz_{uid}"),
          primary(f"{E.TARGET} دوز ۴ نفره", f"lobby_doz4p_{uid}")],
         [success(f"{E.GAME} چهار در ردیف", f"lobby_connect4_{uid}"),
          success(f"{E.CARD} حکم ۴ نفره", f"lobby_hokm_{uid}")],
         [primary("🪨 سنگ کاغذ قیچی", f"lobby_rps_{uid}"),
          primary(f"{E.BRAIN} حافظه", f"lobby_memory_{uid}")],
-        
-        # ── بازی‌های چت‌محور (ورود مستقیم به مینی‌اپ چت)
+
         [webapp_btn(f"{E.MIC} تایپ سرعتی", "typing", uid),
          webapp_btn(f"{E.BRAIN} حدس کلمه", "hangman", uid)],
         [webapp_btn(f"{E.TARGET} حدس عدد", "guess", uid)],
-        
-        # ── سایر
+
         [success(f"{E.TARGET} گردونه شانس", f"gardone_start_{uid}")],
         [danger(f"{E.CROSS} {t('btn_close', lang)}", f"rsgame_close_{uid}")],
     ]
@@ -278,9 +301,7 @@ async def _show_pm_welcome(cb_or_msg, uid: int, name: str, edit: bool = True):
 
     if edit:
         try:
-            await target_msg.edit_text(
-                text, reply_markup=markup, parse_mode=ParseMode.HTML
-            )
+            await target_msg.edit_text(text, reply_markup=markup, parse_mode=ParseMode.HTML)
             return
         except TelegramBadRequest as e:
             if "not modified" in str(e).lower():
@@ -343,13 +364,9 @@ async def cmd_start(message: Message, command=None):
         return
 
     if is_pm:
-        await _show_pm_welcome(
-            message, uid, message.from_user.first_name or "دوست", edit=False
-        )
+        await _show_pm_welcome(message, uid, message.from_user.first_name or "دوست", edit=False)
     else:
-        text, markup = await _build_main_menu(
-            uid, message.from_user.first_name or "دوست"
-        )
+        text, markup = await _build_main_menu(uid, message.from_user.first_name or "دوست")
         await message.answer(text, reply_markup=markup, parse_mode=ParseMode.HTML)
 
 
@@ -369,13 +386,9 @@ async def set_lang_cb(cb: CallbackQuery):
     if is_pm:
         await _show_pm_welcome(cb, cb.from_user.id, cb.from_user.first_name or "دوست")
     else:
-        text, markup = await _build_main_menu(
-            cb.from_user.id, cb.from_user.first_name or "دوست"
-        )
+        text, markup = await _build_main_menu(cb.from_user.id, cb.from_user.first_name or "دوست")
         try:
-            await cb.message.edit_text(
-                text, reply_markup=markup, parse_mode=ParseMode.HTML
-            )
+            await cb.message.edit_text(text, reply_markup=markup, parse_mode=ParseMode.HTML)
         except Exception:
             pass
 
@@ -415,13 +428,9 @@ async def _show_donate_menu(cb: CallbackQuery, edit: bool = True):
     text = t("donate_title", lang)
     try:
         if edit:
-            await cb.message.edit_text(
-                text, reply_markup=kb(rows), parse_mode=ParseMode.HTML
-            )
+            await cb.message.edit_text(text, reply_markup=kb(rows), parse_mode=ParseMode.HTML)
         else:
-            await cb.message.answer(
-                text, reply_markup=kb(rows), parse_mode=ParseMode.HTML
-            )
+            await cb.message.answer(text, reply_markup=kb(rows), parse_mode=ParseMode.HTML)
     except TelegramBadRequest as e:
         if "not modified" not in str(e).lower():
             log.debug(f"donate: {e}")
@@ -488,7 +497,6 @@ async def main():
     set_bot_username(me.username or "bot")
     log.info(f"Bot: @{get_bot_username()}")
 
-    # ───── Routerها (بدون leaderboard - لابی در register_all_games ثبت شده)
     register_all_games(dp)
     dp.include_router(anon_router)
     dp.include_router(stop_router)
@@ -496,13 +504,11 @@ async def main():
     dp.include_router(admin_router)
     dp.include_router(persian_cmd_router)
 
-    # ───── Middlewares
     forced = ForcedJoinMiddleware(bot)
     dp.message.outer_middleware(forced)
     dp.callback_query.outer_middleware(forced)
     dp.callback_query.outer_middleware(GameGuard())
 
-    # ───── هندلرها
     @dp.message(CommandStart())
     async def _start(msg: Message, command=None):
         await cmd_start(msg, command)
@@ -548,17 +554,11 @@ async def main():
             )
 
         if cb.message.chat.type == "private":
-            await _show_pm_welcome(
-                cb, cb.from_user.id, cb.from_user.first_name or "دوست"
-            )
+            await _show_pm_welcome(cb, cb.from_user.id, cb.from_user.first_name or "دوست")
         else:
-            text, markup = await _build_main_menu(
-                cb.from_user.id, cb.from_user.first_name or "دوست"
-            )
+            text, markup = await _build_main_menu(cb.from_user.id, cb.from_user.first_name or "دوست")
             try:
-                await cb.message.edit_text(
-                    text, reply_markup=markup, parse_mode=ParseMode.HTML
-                )
+                await cb.message.edit_text(text, reply_markup=markup, parse_mode=ParseMode.HTML)
             except Exception:
                 pass
 
@@ -572,9 +572,7 @@ async def main():
         else:
             text, markup = await _build_main_menu(uid, name)
             try:
-                await cb.message.edit_text(
-                    text, reply_markup=markup, parse_mode=ParseMode.HTML
-                )
+                await cb.message.edit_text(text, reply_markup=markup, parse_mode=ParseMode.HTML)
             except TelegramBadRequest as e:
                 if "not modified" not in str(e).lower():
                     log.debug(f"menu: {e}")
@@ -593,7 +591,6 @@ async def main():
         except Exception:
             pass
 
-    # ───── Donate
     @dp.callback_query(F.data == "donate")
     async def _donate(cb: CallbackQuery):
         await cb.answer()
@@ -610,9 +607,7 @@ async def main():
             return
         await cb.answer()
         try:
-            await _send_stars_invoice(
-                cb.bot, cb.from_user.id, amount, cb.from_user.id
-            )
+            await _send_stars_invoice(cb.bot, cb.from_user.id, amount, cb.from_user.id)
         except Exception as e:
             log.error(f"invoice: {e}")
             lang = get_user_lang(cb.from_user.id)
@@ -627,9 +622,7 @@ async def main():
         try:
             await cb.message.edit_text(
                 t("donate_custom_prompt", lang),
-                reply_markup=kb(
-                    [[danger(f"{E.CROSS} {t('btn_cancel', lang)}", "menu")]]
-                ),
+                reply_markup=kb([[danger(f"{E.CROSS} {t('btn_cancel', lang)}", "menu")]]),
                 parse_mode=ParseMode.HTML,
             )
         except Exception:
@@ -652,9 +645,7 @@ async def main():
             return
         await state.clear()
         try:
-            await _send_stars_invoice(
-                msg.bot, msg.from_user.id, amount, msg.from_user.id
-            )
+            await _send_stars_invoice(msg.bot, msg.from_user.id, amount, msg.from_user.id)
         except Exception as e:
             log.error(f"custom invoice: {e}")
             await msg.answer(t("donate_invoice_error", lang))
@@ -670,25 +661,19 @@ async def main():
     async def _payment_ok(msg: Message):
         amount = msg.successful_payment.total_amount
         lang = get_user_lang(msg.from_user.id)
-        await msg.answer(
-            t("donate_thanks", lang, n=amount), parse_mode=ParseMode.HTML
-        )
+        await msg.answer(t("donate_thanks", lang, n=amount), parse_mode=ParseMode.HTML)
         for oid in OWNER_IDS:
             try:
                 await msg.bot.send_message(
                     oid,
-                    t(
-                        "donate_owner_notify", "fa",
-                        name=msg.from_user.first_name or "—",
-                        uid=msg.from_user.id,
-                        n=amount,
-                    ),
+                    t("donate_owner_notify", "fa",
+                      name=msg.from_user.first_name or "—",
+                      uid=msg.from_user.id, n=amount),
                     parse_mode=ParseMode.HTML,
                 )
             except Exception:
                 pass
 
-    # ───── Background tasks
     asyncio.create_task(cleanup_loop(bot))
     health_runner = await _start_health_server(int(os.getenv("PORT", "8080")))
 
@@ -706,8 +691,8 @@ async def main():
     finally:
         if health_runner:
             await health_runner.cleanup()
-            await db.close()
-            await bot.session.close()
+        await db.close()
+        await bot.session.close()
 
 
 if __name__ == "__main__":
