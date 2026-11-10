@@ -315,6 +315,16 @@ T = {
 "inline_open_bot":      {"fa": "باز کن بریم", "en": "Open & Play", "ar": "افتح والعب", "tr": "Aç & Oyna", "ru": "Открыть и играть", "de": "Öffnen & Spielen", "zh": "打开开玩"},
 "inline_game_open_btn": {"fa": "🎮 باز کن", "en": "🎮 Open", "ar": "🎮 افتح", "tr": "🎮 Aç", "ru": "🎮 Открыть", "de": "🎮 Öffnen", "zh": "🎮 打开"},
 
+"choose_game_hint": {
+    "fa": "👇 یک بازی انتخاب کنید:",
+    "en": "👇 Pick a game:",
+    "ar": "👇 اختر لعبة:",
+    "tr": "👇 Bir oyun seç:",
+    "ru": "👇 Выбери игру:",
+    "de": "👇 Wähl ein Spiel:",
+    "zh": "👇 选个游戏：",
+},
+
 # ═══════════════════ Typing
 "typing_prompt": {"fa": "جمله رو سریع و درست تایپ کن!", "en": "Type the sentence fast and correct!", "ar": "اكتب الجملة بسرعة وصح!", "tr": "Cümleyi hızlı ve doğru yaz!", "ru": "Напечатай предложение быстро и точно!", "de": "Tippe den Satz schnell und richtig!", "zh": "快速准确地打出这句话！"},
 }
