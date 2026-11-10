@@ -1,9 +1,9 @@
-"""بازی‌های کامل اینلاین — با رندر صحیح ایموجی پریمیوم"""
+"""بازی‌های اینلاین — با دکمه fallback برای شروع مطمئن"""
 
 import asyncio
+import logging
 import random
 import time
-import logging
 
 from aiogram import Router, F
 from aiogram.types import (
@@ -20,20 +20,14 @@ from runtime import check_forced_join
 router = Router(name="inline_games")
 log = logging.getLogger("inline_games")
 
-# ═══════════════ State ═══════════════
-inline_games: dict[str, dict] = {}  # inline_message_id → game
-INLINE_TTL = 60 * 60  # 1 ساعت
+inline_games: dict[str, dict] = {}
+INLINE_TTL = 60 * 60
 
 
-def _cleanup():
-    now = time.time()
-    for mid, g in list(inline_games.items()):
-        if now - g.get("_created", now) > INLINE_TTL:
-            inline_games.pop(mid, None)
-
-
-async def _edit(bot, mid, text, markup=None, retries=3):
-    """ادیت پیام اینلاین با retry برای رندر ایموجی پریمیوم"""
+async def _edit(bot, mid, text, markup=None, retries=4):
+    if not mid:
+        log.error("_edit called with mid=None")
+        return False
     for attempt in range(retries):
         try:
             await bot.edit_message_text(
@@ -44,26 +38,23 @@ async def _edit(bot, mid, text, markup=None, retries=3):
             )
             return True
         except Exception as e:
-            err = str(e).lower()
-            if "not modified" in err:
+            err = str(e)
+            if "not modified" in err.lower():
                 return True
+            log.warning(f"_edit attempt {attempt+1} failed: {err[:120]}")
             if attempt < retries - 1:
-                await asyncio.sleep(0.15)
-                continue
-            log.debug(f"_edit inline failed: {e}")
-            return False
+                await asyncio.sleep(0.35 * (attempt + 1))
+    return False
 
-
-# ═══════════════ Inline Query ═══════════════
 
 INLINE_GAMES_LIST = [
-    ("2048", "🔢", "2048", "پازل عددی"),
-    ("spuzzle", "🧩", "پازل کششی", "پازل کلاسیک"),
-    ("samegame", "✨", "جفت‌ها", "پازل رنگی"),
-    ("dooz", "❌", "دوز", "دوز ۲ نفره"),
-    ("connect4", "🔴", "چهار در ردیف", "استراتژیک ۲ نفره"),
-    ("rps", "🪨", "سنگ کاغذ قیچی", "کلاسیک ۳ راند"),
-    ("memory", "🧠", "حافظه", "تقویت حافظه"),
+    ("2048",      "🔢", "2048",           "پازل عددی"),
+    ("spuzzle",   "🧩", "پازل کششی",      "پازل کلاسیک"),
+    ("samegame",  "✨", "جفت‌ها",          "پازل رنگی"),
+    ("dooz",      "❌", "دوز",             "دوز ۲ نفره"),
+    ("connect4",  "🔴", "چهار در ردیف",    "استراتژیک"),
+    ("rps",       "🪨", "سنگ کاغذ قیچی",  "کلاسیک"),
+    ("memory",    "🧠", "حافظه",           "تقویت حافظه"),
 ]
 
 
@@ -71,6 +62,7 @@ INLINE_GAMES_LIST = [
 async def inline_query_handler(query: InlineQuery):
     uid = query.from_user.id
     lang = get_user_lang(uid)
+    log.info(f"🔍 inline_query from {uid} q={query.query!r}")
 
     try:
         missing = await check_forced_join(query.bot, uid)
@@ -94,20 +86,26 @@ async def inline_query_handler(query: InlineQuery):
             title=f"{icon} {name}",
             description=desc,
             input_message_content=InputTextMessageContent(
-                message_text="⏳",  # ← پیام خالی اولیه
+                message_text=f"{E.HOURGLASS} {name}\n\nآماده‌سازی…",
+                parse_mode=ParseMode.HTML,
             ),
+            reply_markup=kb([[
+                primary(f"{E.GAME} شروع بازی", f"igstart_{gtype}"),
+            ]]),
         ))
 
+    log.info(f"📤 {len(results)} results")
     await query.answer(results, cache_time=1, is_personal=True)
 
 
-# ═══════════════ Chosen Result — شروع بازی ═══════════════
+# ═══════════ chosen_inline_result — شروع خودکار ═══════════
 
 @router.chosen_inline_result()
 async def on_chosen(result: ChosenInlineResult):
+    log.info(f"🎯 chosen: rid={result.result_id!r} mid={result.inline_message_id!r} from={result.from_user.id}")
+
     if not result.result_id.startswith("ig|"):
         return
-
     parts = result.result_id.split("|")
     if len(parts) < 2:
         return
@@ -117,33 +115,70 @@ async def on_chosen(result: ChosenInlineResult):
     lang = get_user_lang(uid)
     mid = result.inline_message_id
 
-    # ⚡ ترفند رندر ایموجی پریمیوم — 0.1 ثانیه صبر
-    await asyncio.sleep(0.1)
+    if mid is None:
+        log.warning(f"⚠️ mid=None for {uid} — inline in PM not supported")
+        return
 
-    _cleanup()
+    if mid in inline_games:
+        return
+
+    await asyncio.sleep(0.5)
 
     try:
-        if gtype == "2048":
-            await _init_2048(result.bot, mid, uid, lang)
-        elif gtype == "spuzzle":
-            await _init_spuzzle(result.bot, mid, uid, lang)
-        elif gtype == "samegame":
-            await _init_samegame(result.bot, mid, uid, lang)
-        elif gtype == "dooz":
-            await _init_dooz(result.bot, mid, uid, result.from_user.first_name or "P1", lang)
-        elif gtype == "connect4":
-            await _init_connect4(result.bot, mid, uid, result.from_user.first_name or "P1", lang)
-        elif gtype == "rps":
-            await _init_rps(result.bot, mid, uid, result.from_user.first_name or "P1", lang)
-        elif gtype == "memory":
-            await _init_memory(result.bot, mid, uid, result.from_user.first_name or "P1", lang)
+        await _start_game(result.bot, mid, gtype, uid,
+                          result.from_user.first_name or "P1", lang)
     except Exception as e:
         log.exception(f"chosen init failed {gtype}: {e}")
 
 
-# ═══════════════════════════════════════════════
-# 2048 — تک‌نفره
-# ═══════════════════════════════════════════════
+# ═══════════ دکمه fallback ═══════════
+
+@router.callback_query(F.data.startswith("igstart_"))
+async def on_start_button(cb: CallbackQuery):
+    log.info(f"🎯 igstart: {cb.data} mid={cb.inline_message_id!r}")
+
+    mid = cb.inline_message_id
+    if mid is None:
+        await cb.answer("⚠️ فقط توی گروه کار می‌کنه", show_alert=True)
+        return
+
+    gtype = cb.data.replace("igstart_", "")
+    uid = cb.from_user.id
+    lang = get_user_lang(uid)
+
+    if mid in inline_games:
+        await cb.answer(t("game_already_running", lang))
+        return
+
+    await cb.answer()
+    try:
+        await _start_game(cb.bot, mid, gtype, uid,
+                          cb.from_user.first_name or "P1", lang)
+    except Exception as e:
+        log.exception(f"button init failed: {e}")
+        await cb.answer(f"⚠️ {e}", show_alert=True)
+
+
+async def _start_game(bot, mid, gtype, uid, name, lang):
+    if gtype == "2048":
+        await _init_2048(bot, mid, uid, lang)
+    elif gtype == "spuzzle":
+        await _init_spuzzle(bot, mid, uid, lang)
+    elif gtype == "samegame":
+        await _init_samegame(bot, mid, uid, lang)
+    elif gtype == "dooz":
+        await _init_dooz(bot, mid, uid, name, lang)
+    elif gtype == "connect4":
+        await _init_connect4(bot, mid, uid, name, lang)
+    elif gtype == "rps":
+        await _init_rps(bot, mid, uid, name, lang)
+    elif gtype == "memory":
+        await _init_memory(bot, mid, uid, name, lang)
+    else:
+        log.warning(f"unknown gtype: {gtype}")
+
+
+# ═══════════ 2048 ═══════════
 
 T2048 = {
     0: "⬛️", 2: "2️⃣", 4: "4️⃣", 8: "8️⃣", 16: "1️⃣6️⃣", 32: "3️⃣2️⃣",
@@ -250,7 +285,6 @@ async def i2048_move(cb: CallbackQuery):
     transformed = _t2048_transform(game["board"], direction)
     moved_board, inc, moved = _t2048_move_left(transformed)
     final = _t2048_reverse(moved_board, direction)
-
     if not moved:
         await cb.answer("حرکت نمی‌شه"); return
 
@@ -271,46 +305,37 @@ async def i2048_move(cb: CallbackQuery):
     await cb.answer()
 
 
-# ═══════════════════════════════════════════════
-# Pازل کششی — تک‌نفره
-# ═══════════════════════════════════════════════
+# ═══════════ Pازل کششی ═══════════
 
-SIZE_SPZ = 4
+SPZ = 4
 
 
 def _spz_solvable():
-    board = list(range(1, SIZE_SPZ * SIZE_SPZ)) + [0]
-    empty = len(board) - 1
+    b = list(range(1, SPZ*SPZ)) + [0]
+    e = len(b) - 1
     for _ in range(300):
-        moves = []
-        if empty < SIZE_SPZ * (SIZE_SPZ - 1): moves.append("up")
-        if empty >= SIZE_SPZ: moves.append("down")
-        if empty % SIZE_SPZ < SIZE_SPZ - 1: moves.append("left")
-        if empty % SIZE_SPZ > 0: moves.append("right")
-        m = random.choice(moves)
-        if m == "up": swap = empty + SIZE_SPZ
-        elif m == "down": swap = empty - SIZE_SPZ
-        elif m == "left": swap = empty + 1
-        else: swap = empty - 1
-        board[empty], board[swap] = board[swap], board[empty]
-        empty = swap
-    return [board[i:i+SIZE_SPZ] for i in range(0, len(board), SIZE_SPZ)]
+        mv = []
+        if e < SPZ*(SPZ-1): mv.append("up")
+        if e >= SPZ: mv.append("down")
+        if e % SPZ < SPZ-1: mv.append("left")
+        if e % SPZ > 0: mv.append("right")
+        m = random.choice(mv)
+        swap = {"up": e+SPZ, "down": e-SPZ, "left": e+1, "right": e-1}[m]
+        b[e], b[swap] = b[swap], b[e]
+        e = swap
+    return [b[i:i+SPZ] for i in range(0, len(b), SPZ)]
 
 
 def _spz_solved(b):
-    flat = [x for row in b for x in row]
-    return flat == list(range(1, SIZE_SPZ * SIZE_SPZ)) + [0]
+    return [x for row in b for x in row] == list(range(1, SPZ*SPZ)) + [0]
 
 
 def _spz_render(game, lang):
     b = game["board"]
     text = f"{E.PUZZLE}{E.SPARK} <b>{t('spuzzle_title', lang)}</b>\n\n{E.INFO} {t('sort_numbers', lang)}"
     rows = []
-    for r in range(SIZE_SPZ):
-        row = []
-        for c in range(SIZE_SPZ):
-            cell = b[r][c]
-            row.append(danger(str(cell) if cell else " ", "ispz_noop"))
+    for r in range(SPZ):
+        row = [danger(str(b[r][c]) if b[r][c] else " ", "ispz_noop") for c in range(SPZ)]
         rows.append(row)
     rows.append([danger("⬆️", "ispz_move_up")])
     rows.append([danger("⬅️", "ispz_move_left"), danger("⬇️", "ispz_move_down"), danger("➡️", "ispz_move_right")])
@@ -337,31 +362,27 @@ async def ispz_move(cb: CallbackQuery):
         await cb.answer("مال تو نیست", show_alert=True); return
 
     lang = get_user_lang(cb.from_user.id)
-    direction = cb.data.split("_")[2]
-
+    d = cb.data.split("_")[2]
     b = game["board"]
     er = ec = -1
-    for r in range(SIZE_SPZ):
+    for r in range(SPZ):
         if 0 in b[r]:
             er, ec = r, b[r].index(0); break
 
     tr, tc = er, ec
-    if direction == "up": tr += 1
-    elif direction == "down": tr -= 1
-    elif direction == "left": tc += 1
-    elif direction == "right": tc -= 1
+    if d == "up": tr += 1
+    elif d == "down": tr -= 1
+    elif d == "left": tc += 1
+    elif d == "right": tc -= 1
 
-    if not (0 <= tr < SIZE_SPZ and 0 <= tc < SIZE_SPZ):
+    if not (0 <= tr < SPZ and 0 <= tc < SPZ):
         await cb.answer("حرکت نمی‌شه"); return
 
     b[er][ec], b[tr][tc] = b[tr][tc], b[er][ec]
 
     if _spz_solved(b):
         dur = int(time.time() - game["start_time"])
-        final = (
-            f"{E.TROPHY}{E.PARTY} <b>{t('puzzle_solved', lang, name=cb.from_user.first_name)}</b>\n\n"
-            f"{E.CAL} {t('solved_in_seconds', lang, n=dur)}"
-        )
+        final = f"{E.TROPHY}{E.PARTY} <b>{t('puzzle_solved', lang, name=cb.from_user.first_name)}</b>\n\n{E.CAL} {t('solved_in_seconds', lang, n=dur)}"
         await _edit(cb.bot, mid, final, None)
         inline_games.pop(mid, None)
     else:
@@ -370,9 +391,7 @@ async def ispz_move(cb: CallbackQuery):
     await cb.answer()
 
 
-# ═══════════════════════════════════════════════
-# جفت‌ها — تک‌نفره
-# ═══════════════════════════════════════════════
+# ═══════════ جفت‌ها ═══════════
 
 SG_COLORS = ["🟥", "🟩", "🟦", "🟨", "🟪"]
 SG_EMPTY = "⬛️"
@@ -388,7 +407,7 @@ def _sg_find(b, r0, c0):
     q, grp = [(r0, c0)], {(r0, c0)}
     while q:
         r, c = q.pop()
-        for dr, dc in ((0, 1), (0, -1), (1, 0), (-1, 0)):
+        for dr, dc in ((0,1),(0,-1),(1,0),(-1,0)):
             nr, nc = r+dr, c+dc
             if 0 <= nr < 10 and 0 <= nc < 10 and b[nr][nc] == color and (nr, nc) not in grp:
                 grp.add((nr, nc)); q.append((nr, nc))
@@ -414,18 +433,12 @@ def _sg_over(b):
 
 def _sg_render(game, lang, finished=False):
     b = game["board"]
-    text = (
-        f"{E.PUZZLE}{E.SPARK} <b>{t('samegame_title', lang)}</b>\n"
-        f"{E.CHART} {t('score', lang)}: <b>{game['score']}</b>"
-    )
+    text = f"{E.PUZZLE}{E.SPARK} <b>{t('samegame_title', lang)}</b>\n{E.CHART} {t('score', lang)}: <b>{game['score']}</b>"
     if finished:
         text += f"\n\n{E.SKULL}{E.CROSS} <b>{t('no_more_moves', lang)}</b>"
     rows = []
     for r in range(10):
-        row = []
-        for c in range(10):
-            cb_data = "isg_noop" if finished else f"isg_click_{r}_{c}"
-            row.append(danger(b[r][c], cb_data))
+        row = [danger(b[r][c], "isg_noop" if finished else f"isg_click_{r}_{c}") for c in range(10)]
         rows.append(row)
     return text, kb(rows)
 
@@ -450,10 +463,8 @@ async def isg_click(cb: CallbackQuery):
         await cb.answer("مال تو نیست", show_alert=True); return
 
     parts = cb.data.split("_")
-    try:
-        r, c = int(parts[2]), int(parts[3])
-    except (ValueError, IndexError):
-        await cb.answer("❌"); return
+    try: r, c = int(parts[2]), int(parts[3])
+    except: await cb.answer("❌"); return
 
     lang = get_user_lang(cb.from_user.id)
     grp = _sg_find(game["board"], r, c)
@@ -475,9 +486,7 @@ async def isg_click(cb: CallbackQuery):
     await cb.answer()
 
 
-# ═══════════════════════════════════════════════
-# دوز ۲ نفره اینلاین
-# ═══════════════════════════════════════════════
+# ═══════════ دوز ═══════════
 
 def _dooz_check(b, sym):
     return (
@@ -491,15 +500,11 @@ def _dooz_check(b, sym):
 def _dooz_render(game, lang):
     p1, p2 = game["players"]
     if game["status"] == "joining":
-        text = (
-            f"{E.PARTY}{E.TARGET} <b>{t('dooz_created', lang, name=p1['name'])}</b>\n\n"
-            f"{E.INFO} {t('waiting_players', lang)}"
-        )
-        markup = kb([[success(f"{E.PLUS} {t('join_game', lang)}", "idooz_join")]])
-        return text, markup
+        text = f"{E.PARTY}{E.TARGET} <b>{t('dooz_created', lang, name=p1['name'])}</b>\n\n{E.INFO} {t('waiting_players', lang)}"
+        return text, kb([[success(f"{E.PLUS} {t('join_game', lang)}", "idooz_join")]])
 
+    b = game["board"]
     if game.get("finished"):
-        b = game["board"]
         if game.get("winner"):
             text = f"{E.PARTY}{E.TROPHY} <b>{t('dooz_won', lang, name=game['winner'])}</b>"
         else:
@@ -507,19 +512,9 @@ def _dooz_render(game, lang):
         rows = [[danger(b[r][c] or " ", "idooz_noop") for c in range(3)] for r in range(3)]
         return text, kb(rows)
 
-    b = game["board"]
     tp = p1 if game["turn"] == p1["id"] else p2
-    text = (
-        f"{E.PARTY} <b>{t('dooz_started', lang, name1=p1['name'], name2=p2['name'])}</b>\n\n"
-        f"{E.ARROW} {t('dooz_your_turn', lang, name=tp['name'], symbol=tp['symbol'])}"
-    )
-    rows = []
-    for r in range(3):
-        row = []
-        for c in range(3):
-            cell = b[r][c] or " "
-            row.append(danger(cell, f"idooz_move_{r*3+c}"))
-        rows.append(row)
+    text = f"{E.PARTY} <b>{t('dooz_started', lang, name1=p1['name'], name2=p2['name'])}</b>\n\n{E.ARROW} {t('dooz_your_turn', lang, name=tp['name'], symbol=tp['symbol'])}"
+    rows = [[danger(b[r][c] or " ", f"idooz_move_{r*3+c}") for c in range(3)] for r in range(3)]
     return text, kb(rows)
 
 
@@ -569,8 +564,7 @@ async def idooz_move(cb: CallbackQuery):
     try:
         idx = int(cb.data.split("_")[2])
         r, c = divmod(idx, 3)
-    except (ValueError, IndexError):
-        await cb.answer("❌"); return
+    except: await cb.answer("❌"); return
 
     if game["board"][r][c]:
         await cb.answer(t("cell_occupied", get_user_lang(cb.from_user.id)), show_alert=True); return
@@ -595,25 +589,23 @@ async def idooz_move(cb: CallbackQuery):
     await cb.answer()
 
 
-# ═══════════════════════════════════════════════
-# چهار در ردیف اینلاین
-# ═══════════════════════════════════════════════
+# ═══════════ چهار در ردیف ═══════════
 
 C4R, C4C = 6, 7
 
 
 def _c4_check(b, sym):
     for r in range(C4R):
-        for c in range(C4C - 3):
+        for c in range(C4C-3):
             if all(b[r][c+i] == sym for i in range(4)): return True
-    for r in range(C4R - 3):
+    for r in range(C4R-3):
         for c in range(C4C):
             if all(b[r+i][c] == sym for i in range(4)): return True
     for r in range(3, C4R):
-        for c in range(C4C - 3):
+        for c in range(C4C-3):
             if all(b[r-i][c+i] == sym for i in range(4)): return True
-    for r in range(C4R - 3):
-        for c in range(C4C - 3):
+    for r in range(C4R-3):
+        for c in range(C4C-3):
             if all(b[r+i][c+i] == sym for i in range(4)): return True
     return False
 
@@ -621,12 +613,8 @@ def _c4_check(b, sym):
 def _c4_render(game, lang):
     p1, p2 = game["players"]
     if game["status"] == "joining":
-        text = (
-            f"{E.PARTY}{E.GAME} <b>{t('c4_created', lang, name=p1['name'])}</b>\n\n"
-            f"{E.INFO} {t('waiting_players', lang)}"
-        )
-        markup = kb([[success(f"{E.PLUS} {t('join_game', lang)}", "ic4_join")]])
-        return text, markup
+        text = f"{E.PARTY}{E.GAME} <b>{t('c4_created', lang, name=p1['name'])}</b>\n\n{E.INFO} {t('waiting_players', lang)}"
+        return text, kb([[success(f"{E.PLUS} {t('join_game', lang)}", "ic4_join")]])
 
     b = game["board"]
     if game.get("finished"):
@@ -638,15 +626,8 @@ def _c4_render(game, lang):
         return text, kb(rows)
 
     tp = p1 if game["turn"] == p1["id"] else p2
-    text = (
-        f"{E.GAME} <b>{t('c4_title', lang)}</b>\n"
-        f"{p1['name']} ({p1['symbol']}) ⚔️ {p2['name']} ({p2['symbol']})\n\n"
-        f"{E.ARROW} {t('turn_of', lang)}: {tp['name']}"
-    )
-    rows = []
-    for r in range(C4R):
-        row = [danger(b[r][c], f"ic4_move_{c}") for c in range(C4C)]
-        rows.append(row)
+    text = f"{E.GAME} <b>{t('c4_title', lang)}</b>\n{p1['name']} ({p1['symbol']}) ⚔️ {p2['name']} ({p2['symbol']})\n\n{E.ARROW} {t('turn_of', lang)}: {tp['name']}"
+    rows = [[danger(b[r][c], f"ic4_move_{c}") for c in range(C4C)] for r in range(C4R)]
     return text, kb(rows)
 
 
@@ -693,13 +674,11 @@ async def ic4_move(cb: CallbackQuery):
     if game["turn"] != cb.from_user.id:
         await cb.answer(t("not_your_turn", get_user_lang(cb.from_user.id)), show_alert=True); return
 
-    try:
-        col = int(cb.data.split("_")[2])
-    except (ValueError, IndexError):
-        await cb.answer("❌"); return
+    try: col = int(cb.data.split("_")[2])
+    except: await cb.answer("❌"); return
 
     row = -1
-    for r in range(C4R - 1, -1, -1):
+    for r in range(C4R-1, -1, -1):
         if game["board"][r][col] == "⚪️":
             row = r; break
     if row == -1:
@@ -709,8 +688,7 @@ async def ic4_move(cb: CallbackQuery):
     game["board"][row][col] = player["symbol"]
 
     if _c4_check(game["board"], player["symbol"]):
-        game["finished"] = True
-        game["winner"] = player["name"]
+        game["finished"] = True; game["winner"] = player["name"]
     elif all(cell != "⚪️" for row in game["board"] for cell in row):
         game["finished"] = True
     else:
@@ -725,9 +703,7 @@ async def ic4_move(cb: CallbackQuery):
     await cb.answer()
 
 
-# ═══════════════════════════════════════════════
-# سنگ کاغذ قیچی اینلاین (۳ راند)
-# ═══════════════════════════════════════════════
+# ═══════════ سنگ کاغذ قیچی ═══════════
 
 RPS_SYM = {"rock": "🪨", "paper": "📄", "scissors": "✂️"}
 RPS_RULES = {"rock": "scissors", "paper": "rock", "scissors": "paper"}
@@ -745,27 +721,17 @@ def _rps_choice_kb(lang):
 def _rps_render(game, lang):
     p1, p2 = game["players"]
     if game["status"] == "joining":
-        text = (
-            f"{E.PARTY}{E.GAME} <b>{t('rps_created', lang, name=p1['name'], n=RPS_NEEDED)}</b>\n\n"
-            f"{E.INFO} {t('waiting_players', lang)}"
-        )
-        markup = kb([[success(f"{E.PLUS} {t('join_game', lang)}", "irps_join")]])
-        return text, markup
+        text = f"{E.PARTY}{E.GAME} <b>{t('rps_created', lang, name=p1['name'], n=RPS_NEEDED)}</b>\n\n{E.INFO} {t('waiting_players', lang)}"
+        return text, kb([[success(f"{E.PLUS} {t('join_game', lang)}", "irps_join")]])
 
     s1 = game["scores"].get(p1["id"], 0)
     s2 = game["scores"].get(p2["id"], 0)
     if game.get("finished"):
         winner = p1 if s1 >= RPS_NEEDED else p2
-        text = (
-            f"{E.TROPHY}{E.PARTY} <b>{t('rps_game_winner', lang, name=winner['name'])}</b>\n\n"
-            f"{E.CHART} {t('rps_final_score', lang, n1=p1['name'], s1=s1, n2=p2['name'], s2=s2)}"
-        )
+        text = f"{E.TROPHY}{E.PARTY} <b>{t('rps_game_winner', lang, name=winner['name'])}</b>\n\n{E.CHART} {t('rps_final_score', lang, n1=p1['name'], s1=s1, n2=p2['name'], s2=s2)}"
         return text, None
 
-    text = (
-        f"{E.GAME} <b>{t('rps_started', lang, name1=p1['name'], name2=p2['name'], n=RPS_NEEDED)}</b>\n\n"
-        f"{E.CHART} {t('rps_score_line', lang, n1=p1['name'], s1=s1, n2=p2['name'], s2=s2, needed=RPS_NEEDED)}"
-    )
+    text = f"{E.GAME} <b>{t('rps_started', lang, name1=p1['name'], name2=p2['name'], n=RPS_NEEDED)}</b>\n\n{E.CHART} {t('rps_score_line', lang, n1=p1['name'], s1=s1, n2=p2['name'], s2=s2, needed=RPS_NEEDED)}"
     return text, _rps_choice_kb(lang)
 
 
@@ -774,8 +740,7 @@ async def _init_rps(bot, mid, uid, name, lang):
         "type": "rps", "status": "joining",
         "players": [{"id": uid, "name": name}],
         "choices": {}, "scores": {uid: 0},
-        "rounds_needed": RPS_NEEDED,
-        "_created": time.time(),
+        "rounds_needed": RPS_NEEDED, "_created": time.time(),
     }
     text, markup = _rps_render(inline_games[mid], lang)
     await _edit(bot, mid, text, markup)
@@ -833,9 +798,7 @@ async def irps_choose(cb: CallbackQuery):
     winner = None
     if RPS_RULES[c1] == c2: winner = p1
     elif RPS_RULES[c2] == c1: winner = p2
-
-    if winner:
-        game["scores"][winner["id"]] += 1
+    if winner: game["scores"][winner["id"]] += 1
 
     s1 = game["scores"][p1["id"]]
     s2 = game["scores"][p2["id"]]
@@ -858,9 +821,7 @@ async def irps_choose(cb: CallbackQuery):
     await _edit(cb.bot, mid, text, _rps_choice_kb(lang))
 
 
-# ═══════════════════════════════════════════════
-# حافظه اینلاین (۴x۴، ۲ نفره)
-# ═══════════════════════════════════════════════
+# ═══════════ حافظه ═══════════
 
 MEM_EMOJIS = ["🍎","🍓","🍉","🍕","🍔","🎂","🍦","🍩","🍿","🌸","🌻","🍁","🍀","🍄","🌈","⭐","🔥","🌊"]
 
@@ -890,10 +851,7 @@ def _mem_render(game, lang, finished=False):
     bv = game["board_view"]
     rows = []
     for r in range(4):
-        row = []
-        for c in range(4):
-            action = "noop" if finished else "flip"
-            row.append(danger(bv[r][c], f"imem_{action}_{r}_{c}"))
+        row = [danger(bv[r][c], f"imem_{'noop' if finished else 'flip'}_{r}_{c}") for c in range(4)]
         rows.append(row)
     return text, kb(rows)
 
@@ -908,12 +866,8 @@ async def _init_memory(bot, mid, uid, name, lang):
         "matched": 0, "total": 8, "_created": time.time(),
     }
     p1 = inline_games[mid]["players"][0]
-    text = (
-        f"{E.BRAIN} <b>{t('memory_created', lang, name=p1['name'], size='4x4')}</b>\n\n"
-        f"{E.INFO} {t('waiting_players', lang)}"
-    )
-    markup = kb([[success(f"{E.PLUS} {t('join_game', lang)}", "imem_join")]])
-    await _edit(bot, mid, text, markup)
+    text = f"{E.BRAIN} <b>{t('memory_created', lang, name=p1['name'], size='4x4')}</b>\n\n{E.INFO} {t('waiting_players', lang)}"
+    await _edit(bot, mid, text, kb([[success(f"{E.PLUS} {t('join_game', lang)}", "imem_join")]]))
 
 
 @router.callback_query(F.data == "imem_join")
@@ -953,15 +907,13 @@ async def imem_flip(cb: CallbackQuery):
     try:
         parts = cb.data.split("_")
         r, c = int(parts[2]), int(parts[3])
-    except (ValueError, IndexError):
-        await cb.answer("❌"); return
+    except: await cb.answer("❌"); return
     if game["board_view"][r][c] != "❔":
         await cb.answer(t("memory_already_flipped", get_user_lang(cb.from_user.id)), show_alert=True); return
 
     await cb.answer()
     val = game["board_solution"][r][c]
     game["board_view"][r][c] = val
-
     lang = get_user_lang(cb.from_user.id)
 
     if not game["first_card"]:
@@ -998,10 +950,6 @@ async def imem_flip(cb: CallbackQuery):
         text, markup = _mem_render(game, lang)
         await _edit(cb.bot, mid, text, markup)
 
-
-# ═══════════════════════════════════════════════
-# Noop (دکمه‌های تزئینی)
-# ═══════════════════════════════════════════════
 
 @router.callback_query(F.data.endswith("_noop"))
 async def noop(cb: CallbackQuery):
