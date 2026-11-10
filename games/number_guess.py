@@ -6,6 +6,7 @@ from aiogram.enums import ParseMode
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.filters import Command
+from aiogram.dispatcher.event.bases import SkipHandler
 
 from emojis import E
 from langs import t, get_user_lang
@@ -45,7 +46,6 @@ async def start(cb: CallbackQuery, state_fsm: FSMContext):
         await cb.answer(t("not_your_panel", lang), show_alert=True)
         return
 
-    # فقط ادمین گروه
     try:
         member = await cb.bot.get_chat_member(chat_id, uid)
         is_admin = member.status in ("administrator", "creator")
@@ -78,7 +78,7 @@ async def start(cb: CallbackQuery, state_fsm: FSMContext):
 async def receive_range(message: Message, state_fsm: FSMContext):
     data = await state_fsm.get_data()
     if message.from_user.id != data.get("starter_id"):
-        return  # فقط ادمین سازنده
+        return
 
     lang = get_user_lang(message.from_user.id)
     text = _to_en_digits(message.text or "")
@@ -122,7 +122,8 @@ async def on_guess(message: Message):
     chat_id = message.chat.id
     game = state.active_games["guess_number"].get(chat_id)
     if not game:
-        return
+        # ✅ باگ قبلی: return می‌کرد و عددهای گروه مصرف می‌شد
+        raise SkipHandler
 
     lang = get_user_lang(message.from_user.id)
     try:
@@ -144,7 +145,6 @@ async def on_guess(message: Message):
             f"{E.CHART} تعداد تلاش: {game['tries']}",
             parse_mode=ParseMode.HTML,
         )
-        # ذخیره در leaderboard
         try:
             from database import db
             await db.pool.execute(
