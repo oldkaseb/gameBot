@@ -29,8 +29,6 @@ from games.stop import router as stop_router
 from games.anon import router as anon_router
 from games.inline_games import router as inline_games_router
 from admin.panel import router as admin_router
-# در بالای فایل کنار بقیه import ها:
-from games.lobbies import router as lobby_router
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("rhino")
@@ -301,7 +299,6 @@ async def cmd_start(message: Message, command=None):
     if user_lang:
         set_user_lang(uid, user_lang)
 
-    # ✅ چک عضویت اجباری — قبل از هر کار دیگری
     try:
         missing = await check_forced_join(message.bot, uid)
     except Exception:
@@ -471,15 +468,13 @@ async def main():
     set_bot_username(me.username or "bot")
     log.info(f"Bot: @{get_bot_username()}")
 
-    # ───── Routerها (بدون leaderboard)
+    # ───── Routerها (بدون leaderboard - لابی در register_all_games ثبت شده)
     register_all_games(dp)
     dp.include_router(anon_router)
     dp.include_router(stop_router)
     dp.include_router(inline_games_router)
     dp.include_router(admin_router)
     dp.include_router(persian_cmd_router)
-    
-    dp.include_router(lobby_router)
 
     # ───── Middlewares
     forced = ForcedJoinMiddleware(bot)
@@ -493,20 +488,8 @@ async def main():
         await cmd_start(msg, command)
 
     @dp.message(F.text.in_({
-    # فارسی
-    "شروع", "استارت",
-    # English
-    "start",
-    # العربية
-    "بدء", "ابدأ",
-    # Türkçe
-    "başla", "başlat",
-    # Русский
-    "начать", "старт",
-    # Deutsch
-    "los", "starten",
-    # 中文
-    "开始",
+        "شروع", "استارت", "start", "بدء", "ابدأ", "başla", "başlat",
+        "начать", "старт", "los", "starten", "开始",
     }))
     async def _start_p(msg: Message):
         await cmd_start(msg)
