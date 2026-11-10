@@ -5,6 +5,7 @@ from aiogram import Router, F
 from aiogram.types import CallbackQuery, Message
 from aiogram.enums import ParseMode
 from aiogram.filters import Command
+from aiogram.dispatcher.event.bases import SkipHandler
 
 from emojis import E
 from langs import t, get_user_lang
@@ -23,7 +24,6 @@ async def start_game(cb: CallbackQuery):
     lang = get_user_lang(uid)
     chat_id = cb.message.chat.id
 
-    # امنیت: مالکیت پنل
     try:
         target = int(cb.data.rsplit("_", 1)[1])
     except (ValueError, IndexError):
@@ -38,7 +38,7 @@ async def start_game(cb: CallbackQuery):
         return
 
     await cb.answer()
-    word = get_random_word()  # ← فیلتر کلمات دارای فاصله در اینجا
+    word = get_random_word()
     game_id = cb.message.message_id + 1
 
     game = {
@@ -46,9 +46,9 @@ async def start_game(cb: CallbackQuery):
         "word": word,
         "display": ["_"] * len(word),
         "guessed": set(),
-        "players": {},  # {user_id: lives}
+        "players": {},
         "finished": False,
-        "player_id": None,  # برای پاک‌سازی
+        "player_id": None,
     }
     state.register("hangman", chat_id, game_id, game)
 
@@ -67,17 +67,16 @@ async def handle_guess(message: Message):
     uid = message.from_user.id
     lang = get_user_lang(uid)
 
-    # پیدا کردن بازی فعال در این گروه
     games = state.active_games["hangman"].get(chat_id, {})
     if not games:
-        return
+        # ✅ باگ قبلی: return می‌کرد و حرف‌های تکی گروه مصرف می‌شد
+        raise SkipHandler
     game = next(iter(games.values()), None)
     if not game or game["finished"]:
-        return
+        raise SkipHandler
 
     guess = (message.text or "").strip()
 
-    # ── باگ قبلی: حرف تکراری خطا نمی‌داد
     if guess in game["guessed"]:
         await message.reply(f"{E.WARN} {t('letter_already', lang)}", quote=True)
         return
@@ -85,7 +84,6 @@ async def handle_guess(message: Message):
     game["guessed"].add(guess)
     game["players"].setdefault(uid, INITIAL_LIVES)
 
-    # ── باگ قبلی: کاربر بدون جان می‌توانست بازی کند
     if game["players"][uid] <= 0:
         await message.reply(
             f"{E.SKULL} {t('no_lives_left', lang)}", quote=True
@@ -93,13 +91,11 @@ async def handle_guess(message: Message):
         return
 
     if guess in game["word"]:
-        # حرف درست
         for i, ch in enumerate(game["word"]):
             if ch == guess:
                 game["display"][i] = ch
 
         if "_" not in game["display"]:
-            # برنده
             game["finished"] = True
             user_name = message.from_user.first_name
             await message.reply(
@@ -114,7 +110,6 @@ async def handle_guess(message: Message):
             parse_mode=ParseMode.HTML,
         )
     else:
-        # حرف غلط
         game["players"][uid] -= 1
         lives = game["players"][uid]
 
@@ -128,7 +123,6 @@ async def handle_guess(message: Message):
                 f"{E.SKULL} {t('player_eliminated', lang, name=message.from_user.first_name)}",
                 parse_mode=ParseMode.HTML,
             )
-            # آیا همه حذف شده‌اند؟
             if not any(l > 0 for l in game["players"].values()):
                 await message.answer(
                     f"{E.SKULL}{E.CROSS} {t('all_lost_word_was', lang, word=game['word'])}",
