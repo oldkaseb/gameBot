@@ -29,6 +29,8 @@ from games.stop import router as stop_router
 from games.anon import router as anon_router
 from games.inline_games import router as inline_games_router
 from admin.panel import router as admin_router
+# در بالای فایل کنار بقیه import ها:
+from games.lobbies import router as lobby_router
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("rhino")
@@ -476,6 +478,8 @@ async def main():
     dp.include_router(inline_games_router)
     dp.include_router(admin_router)
     dp.include_router(persian_cmd_router)
+    
+    dp.include_router(lobby_router)
 
     # ───── Middlewares
     forced = ForcedJoinMiddleware(bot)
