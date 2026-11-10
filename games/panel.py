@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""پنل بازی‌ها — تمام بازی‌ها متصل به مینی‌اپ با حفظ استایل primary / success / danger"""
+"""پنل بازی‌ها — تمام بازی‌ها متصل به مینی‌اپ + گردونه شانس به صورت لابی گروهی"""
 
 import os
 from urllib.parse import urlencode
@@ -47,16 +47,17 @@ async def show_panel(message: Message):
         [_group_game_btn(f"{E.PUZZLE} {t('game_2048_title', lang)}", "2048", uid, primary),
          _group_game_btn(f"{E.PUZZLE} {t('game_spuzzle', lang)}", "spuzzle", uid, primary)],
         [_group_game_btn(f"{E.SPARK} {t('game_samegame', lang)}", "samegame", uid, primary)],
-        [_group_game_btn(f"{E.TARGET} {t('game_dooz', lang)}", "dooz", uid, primary),
-         _group_game_btn(f"{E.TARGET} {t('game_doz4p', lang)}", "doz4p", uid, primary)],
-        [_group_game_btn(f"{E.GAME} {t('game_connect4', lang)}", "connect4", uid, success),
-         _group_game_btn(f"{E.CARD} {t('game_hokm_4p', lang)}", "hokm", uid, success)],
-        [_group_game_btn(f"{E.PUZZLE} {t('game_rps', lang)}", "rps", uid, primary),
-         _group_game_btn(f"{E.BRAIN} {t('game_memory', lang)}", "memory", uid, primary)],
+        [primary(f"{E.TARGET} {t('game_dooz', lang)}", f"lobby_dooz_{uid}"),
+         primary(f"{E.TARGET} {t('game_doz4p', lang)}", f"lobby_doz4p_{uid}")],
+        [success(f"{E.GAME} {t('game_connect4', lang)}", f"lobby_connect4_{uid}"),
+         success(f"{E.CARD} {t('game_hokm_4p', lang)}", f"lobby_hokm_{uid}")],
+        [primary(f"{E.PUZZLE} {t('game_rps', lang)}", f"lobby_rps_{uid}"),
+         primary(f"{E.BRAIN} {t('game_memory', lang)}", f"lobby_memory_{uid}")],
         [_group_game_btn(f"{E.MIC} {t('game_typing', lang)}", "typing", uid, primary),
          _group_game_btn(f"{E.BRAIN} {t('game_hangman', lang)}", "hangman", uid, primary)],
         [_group_game_btn(f"{E.TARGET} {t('game_guess_num', lang)}", "guess", uid, primary)],
-        [_group_game_btn(f"{E.TARGET} {t('game_gardone', lang)}", "gardone", uid, success)],
+        # گردونه شانس: به صورت لابی داخل گروه با تعیین تعداد برنده توسط سازنده
+        [success(f"{E.TARGET} {t('game_gardone', lang)}", f"gardone_start_{uid}")],
         [danger(f"{E.CROSS} {t('btn_close', lang)}", f"rsgame_close_{uid}")],
     ]
     await message.answer(text, reply_markup=kb(rows), parse_mode=ParseMode.HTML)
@@ -84,7 +85,7 @@ async def _send_pm_panel(message: Message, uid: int, lang: str, name: str):
         [wa(f"{E.MIC} {t('game_typing', lang)}", "typing", primary),
          wa(f"{E.BRAIN} {t('game_hangman', lang)}", "hangman", primary)],
         [wa(f"{E.TARGET} {t('game_guess_num', lang)}", "guess", primary)],
-        [wa(f"{E.TARGET} {t('game_gardone', lang)}", "gardone", success)],
+        [success(f"{E.TARGET} {t('game_gardone', lang)}", f"gardone_start_{uid}")],
         [danger(f"{E.CROSS} {t('btn_close', lang)}", f"rsgame_close_{uid}")],
     ]
     await message.answer(text, reply_markup=kb(rows), parse_mode=ParseMode.HTML)
@@ -127,7 +128,6 @@ async def open_game_redirect(cb: CallbackQuery):
         )
         await cb.answer(t("check_pm", lang), show_alert=True)
     except Exception:
-        # کاربر ربات را در PM استارت نکرده
         try:
             await cb.message.answer(
                 f"{E.WARN} {t('start_pm_first_msg', lang)}",
