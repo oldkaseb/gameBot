@@ -1,17 +1,52 @@
-"""ساخت دکمه — بدون style و icon_custom_emoji_id (سازگار با گروه و PV)"""
+"""utils/premium.py — نسخه اصلاح‌شده با استایل و ایموجی پریمیوم"""
 
 import re
-from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
-from emojis import E, BASE_MAP, EMOJI_ID_RE
+from aiogram.types import (
+    InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo,
+)
+from emojis import E, BASE_MAP, EMOJI_ID_RE, PREMIUM_EMOJIS_ENABLED
 from langs import t, get_user_lang, LANGS
 
 
-def _clean_text(text: str) -> str:
-    """تبدیل [emoji_id] به ایموجی یونیکد (دکمه‌ها از ایموجی پریمیوم پشتیبانی نمی‌کنند)"""
+# ── شناسه ایموجی پریمیوم برای استایل دکمه‌ها
+STYLE_ICON = {
+    "primary": "5213060381366300423",   # ✨ SPARK
+    "success": "5215668908278686541",   # ✔️ OK2
+    "danger":  "5212985062187012340",   # ❌ CROSS
+}
+
+# فلگ جهانی — اگر Bot API ایموجی پریمیوم در دکمه را نپذیرفت، غیرفعال می‌شود
+_button_premium_ok = True
+
+
+def button_premium_enabled() -> bool:
+    return _button_premium_ok
+
+
+def disable_button_premium() -> None:
+    global _button_premium_ok
+    _button_premium_ok = False
+
+
+def _to_unicode(text: str) -> str:
+    """تبدیل ایموجی پریمیوم به یونیکد (فقط برای fallback)"""
     if not text:
         return "·"
-    result = EMOJI_ID_RE.sub(lambda m: BASE_MAP.get(m.group(1), "⭐"), text)
-    return result.strip() or "·"
+    result = EMOJI_ID_RE.sub(lambda m: BASE_MAP.get(m.group(1), ""), text)
+    return re.sub(r"\s+", " ", result).strip() or "·"
+
+
+def _extract_premium(text: str) -> tuple[str, str | None]:
+    """اولین ایموجی پریمیوم را جدا می‌کند تا به‌عنوان icon قرار گیرد"""
+    if not text:
+        return "·", None
+    ids = EMOJI_ID_RE.findall(text)
+    if not ids:
+        return text.strip() or "·", None
+    first_eid = ids[0]
+    cleaned = EMOJI_ID_RE.sub("", text)
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+    return cleaned or "·", first_eid
 
 
 def btn(
@@ -19,37 +54,60 @@ def btn(
     data=None,
     *,
     url=None,
+    web_app_url=None,
     style=None,
     switch_inline=None,
     switch_current=None,
 ) -> InlineKeyboardButton:
     """
-    ساخت دکمه امن برای گروه و PV.
-    پارامتر style نادیده گرفته می‌شود چون در Telegram Bot API وجود ندارد.
-    ایموجی‌ها به یونیکد تبدیل می‌شوند.
+    ساخت دکمه با پشتیبانی از:
+    - ایموجی پریمیوم (icon_custom_emoji_id)
+    - استایل رنگی (style)
+    - WebApp
     """
-    kwargs = {"text": _clean_text(text)}
+    use_premium = PREMIUM_EMOJIS_ENABLED and _button_premium_ok
+
+    kwargs = {}
+    if use_premium:
+        cleaned, eid = _extract_premium(text)
+        kwargs["text"] = cleaned
+        if eid is None and style:
+            eid = STYLE_ICON.get(style)
+        if eid:
+            kwargs["icon_custom_emoji_id"] = eid
+    else:
+        kwargs["text"] = _to_unicode(text)
+
     if data is not None:
         kwargs["callback_data"] = data
     if url is not None:
         kwargs["url"] = url
+    if web_app_url is not None:
+        kwargs["web_app"] = WebAppInfo(url=web_app_url)
     if switch_inline is not None:
         kwargs["switch_inline_query"] = switch_inline
     if switch_current is not None:
         kwargs["switch_inline_query_current_chat"] = switch_current
-    return InlineKeyboardButton(**kwargs)
+
+    try:
+        return InlineKeyboardButton(**kwargs)
+    except TypeError:
+        # aiogram این فیلدها را نمی‌شناسد
+        kwargs.pop("icon_custom_emoji_id", None)
+        kwargs["text"] = _to_unicode(text)
+        return InlineKeyboardButton(**kwargs)
 
 
-def primary(text: str, data=None, *, url=None) -> InlineKeyboardButton:
-    return btn(text, data, url=url)
+def primary(text, data=None, *, url=None, web_app_url=None):
+    return btn(text, data, url=url, web_app_url=web_app_url, style="primary")
 
 
-def success(text: str, data=None, *, url=None) -> InlineKeyboardButton:
-    return btn(text, data, url=url)
+def success(text, data=None, *, url=None, web_app_url=None):
+    return btn(text, data, url=url, web_app_url=web_app_url, style="success")
 
 
-def danger(text: str, data=None, *, url=None) -> InlineKeyboardButton:
-    return btn(text, data, url=url)
+def danger(text, data=None, *, url=None, web_app_url=None):
+    return btn(text, data, url=url, web_app_url=web_app_url, style="danger")
 
 
 def _resolve_lang(user_or_lang) -> str:
@@ -60,14 +118,12 @@ def _resolve_lang(user_or_lang) -> str:
     return "fa"
 
 
-def back_btn(user_or_lang, target: str = "menu") -> InlineKeyboardButton:
-    lang = _resolve_lang(user_or_lang)
-    return primary(f"{E.ARROW} {t('btn_back', lang)}", target)
+def back_btn(user_or_lang, target: str = "menu"):
+    return primary(f"{E.ARROW} {t('btn_back', _resolve_lang(user_or_lang))}", target)
 
 
-def cancel_btn(user_or_lang, target: str = "menu") -> InlineKeyboardButton:
-    lang = _resolve_lang(user_or_lang)
-    return danger(f"{E.CROSS} {t('btn_cancel', lang)}", target)
+def cancel_btn(user_or_lang, target: str = "menu"):
+    return danger(f"{E.CROSS} {t('btn_cancel', _resolve_lang(user_or_lang))}", target)
 
 
 def kb(rows):
