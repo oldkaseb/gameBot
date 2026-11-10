@@ -1,15 +1,26 @@
 # -*- coding: utf-8 -*-
-"""ثبت بازی‌های باقی‌مانده در ربات (بازی‌های مینی‌اپ حذف شدند)"""
+"""games/__init__.py — ثبت روترهای بازی، پنل، لابی و گردونه شانس"""
 
 from aiogram import Dispatcher
 
-from .panel import router as panel_r
-from .gardone import router as gardone_r
-from .lobbies import router as lobby_r  # مدیریت لابی‌ها برای انتقال به مینی اپ
+from games.panel import router as panel_router
+from games.lobbies import router as lobbies_router
+from games.gardone import router as gardone_router
 
-def register_all_games(dp: Dispatcher) -> None:
-    dp.include_routers(
-        panel_r,
-        lobby_r,
-        gardone_r,
-    )
+
+def register_all_games(dp: Dispatcher):
+    dp.include_router(panel_router)
+    dp.include_router(lobbies_router)
+    dp.include_router(gardone_router)
+
+    # ثبت سایر روترهای احتمالی در صورت فراخوانی مستقیم
+    optional_modules = [
+        "leaderboard",
+    ]
+    for mod_name in optional_modules:
+        try:
+            mod = __import__(f"games.{mod_name}", fromlist=["router"])
+            if hasattr(mod, "router"):
+                dp.include_router(mod.router)
+        except Exception:
+            pass
