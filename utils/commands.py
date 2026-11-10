@@ -3,6 +3,7 @@
 from aiogram import Router, F
 from aiogram.types import Message
 from aiogram.enums import ChatType
+from aiogram.dispatcher.event.bases import SkipHandler
 
 router = Router(name="persian_cmds")
 
@@ -46,15 +47,16 @@ COMMANDS = {
 }
 
 
-@router.message(F.chat.type.in_({"private", "group", "supergroup"}))
+@router.message(F.chat.type.in_({"private", "group", "supergroup"}), F.text)
 async def dispatch(message: Message, **kwargs):
     text = (message.text or "").strip()
     if not text:
-        return
+        raise SkipHandler
 
     cmd_id = COMMANDS.get(text)
     if not cmd_id:
-        return
+        # ✅ باگ قبلی: return می‌کرد و پیام مصرف می‌شد؛ حالا رد می‌شود به هندلر بعدی
+        raise SkipHandler
 
     from main import cmd_start, cmd_lang, _build_main_menu
     from database import db
