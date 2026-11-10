@@ -75,11 +75,20 @@ def cleanup_stale() -> int:
     removed = 0
     for gtype, chats in active_games.items():
         for chat_id, games in list(chats.items()):
+            if not isinstance(games, dict):
+                del chats[chat_id]
+                removed += 1
+                logger.warning(f"🗑️ removed corrupted entry {gtype}/{chat_id}")
+                continue
             for gid, g in list(games.items()):
+                if not isinstance(g, dict):
+                    del games[gid]
+                    removed += 1
+                    continue
                 if now - g.get("_created", now) > GAME_TIMEOUT_SECONDS:
                     del games[gid]
                     removed += 1
-                    logger.info(f"⏰ timeout cleanup {gtype} chat={chat_id} gid={gid}")
+                    logger.info(f"⏰ timeout {gtype}/{chat_id}/{gid}")
             if not games:
                 del chats[chat_id]
     return removed
