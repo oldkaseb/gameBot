@@ -21,8 +21,24 @@ def _check_owner(cb: CallbackQuery) -> bool:
 
 
 @router.message(Command("rsgame"))
-@router.message(F.text.in_({"بازی", "بازی‌ها", "بازیها", "پنل"}))
+@router.message(F.text.in_({
+    # فارسی
+    "بازی", "بازی‌ها", "بازیها", "پنل",
+    # English
+    "game", "games", "panel", "play",
+    # العربية
+    "لعبة", "ألعاب", "لعب",
+    # Türkçe
+    "oyun", "oyunlar",
+    # Русский
+    "игра", "игры",
+    # Deutsch
+    "spiel", "spiele",
+    # 中文
+    "游戏",
+}))
 async def show_panel(message: Message):
+    ...  # بقیه کد بدون تغییر
     uid = message.from_user.id
     lang = get_user_lang(uid)
 
