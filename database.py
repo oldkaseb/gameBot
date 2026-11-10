@@ -92,26 +92,44 @@ SQL_INDEXES = [
 ]
 
 
+def _normalize_dsn(dsn: str) -> str:
+    dsn = (dsn or "").strip()
+    if dsn.startswith("postgresql+asyncpg://"):
+        dsn = "postgresql://" + dsn[len("postgresql+asyncpg://"):]
+    elif dsn.startswith("postgres+asyncpg://"):
+        dsn = "postgresql://" + dsn[len("postgres+asyncpg://"):]
+    return dsn
+
+
 class Database:
     def __init__(self, dsn: str = ""):
-        self.dsn = dsn or DATABASE_URL
+        self.dsn = _normalize_dsn(dsn or DATABASE_URL)
         self.pool: Optional[asyncpg.Pool] = None
 
     # ══════════ اتصال
     async def connect(self):
         if self.pool:
             return
-        for attempt in range(1, 11):
+        if not self.dsn:
+            self.dsn = _normalize_dsn(os.getenv("DATABASE_URL", ""))
+        if not self.dsn:
+            raise RuntimeError("DATABASE_URL is empty! Set it in Coolify environment variables.")
+
+        for attempt in range(1, 15):
             try:
                 self.pool = await asyncpg.create_pool(
                     dsn=self.dsn, min_size=1, max_size=10, command_timeout=60
                 )
-                logger.info("✅ DB connected")
+                logger.info("DB connected successfully")
                 return
             except Exception as e:
-                logger.warning(f"DB connect {attempt}/10 failed: {e}")
+                logger.warning(f"DB connect {attempt}/14 failed: {e}")
                 await asyncio.sleep(3)
-        raise RuntimeError("Cannot connect to DB after 10 attempts")
+        raise RuntimeError("Cannot connect to DB after multiple attempts")
+
+    async def ensure_pool(self):
+        if not self.pool:
+            await self.connect()
 
     async def close(self):
         if self.pool:
@@ -119,8 +137,7 @@ class Database:
             self.pool = None
 
     async def init(self):
-        if not self.pool:
-            await self.connect()
+        await self.ensure_pool()
         async with self.pool.acquire() as conn:
             for sql in SQL_TABLES:
                 await conn.execute(sql)
@@ -134,15 +151,17 @@ class Database:
                     await conn.execute(sql)
                 except Exception as e:
                     logger.debug(f"index skip: {e}")
-        logger.info("✅ DB schema ready")
+        logger.info("DB schema ready")
 
     # ══════════ کاربران
     async def get_user(self, user_id: int) -> Optional[asyncpg.Record]:
+        await self.ensure_pool()
         return await self.pool.fetchrow(
             "SELECT * FROM users WHERE user_id=$1", user_id
         )
 
     async def upsert_user(self, user_id: int, username: str, first_name: str) -> bool:
+        await self.ensure_pool()
         existing = await self.get_user(user_id)
         if existing:
             await self.pool.execute(
@@ -157,22 +176,26 @@ class Database:
         return True
 
     async def is_banned(self, user_id: int) -> bool:
+        await self.ensure_pool()
         val = await self.pool.fetchval(
             "SELECT is_banned FROM users WHERE user_id=$1", user_id
         )
         return bool(val) if val is not None else False
 
     async def set_banned(self, user_id: int, banned: bool):
+        await self.ensure_pool()
         await self.pool.execute(
             "UPDATE users SET is_banned=$2 WHERE user_id=$1", user_id, banned
         )
 
     async def set_language(self, user_id: int, lang: str):
+        await self.ensure_pool()
         await self.pool.execute(
             "UPDATE users SET language=$2 WHERE user_id=$1", user_id, lang
         )
 
     async def user_language(self, user_id: int) -> Optional[str]:
+        await self.ensure_pool()
         return await self.pool.fetchval(
             "SELECT language FROM users WHERE user_id=$1", user_id
         )
@@ -181,6 +204,7 @@ class Database:
     async def is_admin(self, user_id: int) -> bool:
         if user_id in OWNER_IDS:
             return True
+        await self.ensure_pool()
         return await self.pool.fetchval(
             "SELECT 1 FROM admins WHERE user_id=$1", user_id
         ) is not None
@@ -189,14 +213,17 @@ class Database:
         return user_id in OWNER_IDS
 
     async def list_admins(self):
+        await self.ensure_pool()
         return await self.pool.fetch("SELECT * FROM admins ORDER BY created_at")
 
     async def add_admin(self, user_id: int):
+        await self.ensure_pool()
         await self.pool.execute(
             "INSERT INTO admins (user_id) VALUES ($1) ON CONFLICT DO NOTHING", user_id
         )
 
     async def remove_admin(self, user_id: int):
+        await self.ensure_pool()
         await self.pool.execute("DELETE FROM admins WHERE user_id=$1", user_id)
 
     async def log_admin(
@@ -204,6 +231,7 @@ class Database:
         target_id: int = None, detail: str = ""
     ):
         try:
+            await self.ensure_pool()
             await self.pool.execute(
                 "INSERT INTO admin_logs (admin_id, action, target_id, detail) "
                 "VALUES ($1,$2,$3,$4)",
@@ -214,12 +242,14 @@ class Database:
 
     # ══════════ تنظیمات بازی
     async def is_game_enabled(self, game_type: str) -> bool:
+        await self.ensure_pool()
         val = await self.pool.fetchval(
             "SELECT is_enabled FROM game_settings WHERE game_type=$1", game_type
         )
         return True if val is None else bool(val)
 
     async def toggle_game(self, game_type: str) -> bool:
+        await self.ensure_pool()
         current = await self.is_game_enabled(game_type)
         new = not current
         await self.pool.execute(
@@ -232,6 +262,7 @@ class Database:
 
     async def all_game_settings(self) -> dict[str, bool]:
         try:
+            await self.ensure_pool()
             rows = await self.pool.fetch(
                 "SELECT game_type, is_enabled FROM game_settings"
             )
@@ -240,12 +271,21 @@ class Database:
             return {}
 
     async def get_game_config(self, game_type: str) -> dict:
+        await self.ensure_pool()
         val = await self.pool.fetchval(
             "SELECT config FROM game_settings WHERE game_type=$1", game_type
         )
-        return dict(val) if val else {}
+        if not val:
+            return {}
+        if isinstance(val, str):
+            try:
+                return json.loads(val)
+            except Exception:
+                return {}
+        return dict(val)
 
     async def set_game_config(self, game_type: str, key: str, value: Any):
+        await self.ensure_pool()
         await self.pool.execute(
             """INSERT INTO game_settings (game_type, config) VALUES ($1, $2::jsonb)
                ON CONFLICT (game_type) DO UPDATE
@@ -259,6 +299,7 @@ class Database:
     # ══════════ Leaderboard
     async def add_win(self, user_id: int, game_type: str, best_time: float = None):
         try:
+            await self.ensure_pool()
             if best_time is not None:
                 await self.pool.execute(
                     """INSERT INTO game_wins (user_id, game_type, wins, best_time)
@@ -283,6 +324,7 @@ class Database:
             logger.debug(f"add_win failed: {e}")
 
     async def top_players(self, game_type: str = None, limit: int = 10):
+        await self.ensure_pool()
         if game_type:
             return await self.pool.fetch(
                 """SELECT gw.user_id, gw.wins, gw.best_time, u.first_name
@@ -300,6 +342,7 @@ class Database:
         )
 
     async def user_wins(self, user_id: int):
+        await self.ensure_pool()
         return await self.pool.fetch(
             "SELECT game_type, wins, best_time FROM game_wins "
             "WHERE user_id=$1 ORDER BY wins DESC",
@@ -307,13 +350,16 @@ class Database:
         )
 
     async def reset_user_wins(self, user_id: int):
+        await self.ensure_pool()
         await self.pool.execute("DELETE FROM game_wins WHERE user_id=$1", user_id)
 
     # ══════════ کانال اجباری
     async def list_channels(self):
+        await self.ensure_pool()
         return await self.pool.fetch("SELECT * FROM forced_channels ORDER BY id")
 
     async def add_channel(self, chat_id: str, username: str, title: str):
+        await self.ensure_pool()
         await self.pool.execute(
             """INSERT INTO forced_channels (chat_id, username, title)
                VALUES ($1,$2,$3)
@@ -322,15 +368,18 @@ class Database:
         )
 
     async def remove_channel(self, ch_id: int):
+        await self.ensure_pool()
         await self.pool.execute("DELETE FROM forced_channels WHERE id=$1", ch_id)
 
     # ══════════ گروه‌ها
     async def get_group(self, group_id: int):
+        await self.ensure_pool()
         return await self.pool.fetchrow(
             "SELECT * FROM groups WHERE group_id=$1", group_id
         )
 
     async def add_group(self, group_id: int, title: str, member_count: int):
+        await self.ensure_pool()
         await self.pool.execute(
             """INSERT INTO groups (group_id, title, member_count) VALUES ($1,$2,$3)
                ON CONFLICT (group_id) DO UPDATE SET title=$2, member_count=$3""",
@@ -338,9 +387,11 @@ class Database:
         )
 
     async def remove_group(self, group_id: int):
+        await self.ensure_pool()
         await self.pool.execute("DELETE FROM groups WHERE group_id=$1", group_id)
 
     async def list_groups(self, limit: int = 100, offset: int = 0):
+        await self.ensure_pool()
         return await self.pool.fetch(
             "SELECT * FROM groups ORDER BY added_time DESC LIMIT $1 OFFSET $2",
             limit, offset,
@@ -348,12 +399,15 @@ class Database:
 
     # ══════════ شمارش‌ها
     async def count_groups(self) -> int:
+        await self.ensure_pool()
         return await self.pool.fetchval("SELECT COUNT(*) FROM groups") or 0
 
     async def count_users(self) -> int:
+        await self.ensure_pool()
         return await self.pool.fetchval("SELECT COUNT(*) FROM users") or 0
 
     async def count_banned(self) -> int:
+        await self.ensure_pool()
         return await self.pool.fetchval(
             "SELECT COUNT(*) FROM users WHERE is_banned=TRUE"
         ) or 0
