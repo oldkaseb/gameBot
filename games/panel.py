@@ -1,12 +1,12 @@
-"""پنل بازی‌ها — لیست همه بازی‌ها بدون دسته‌بندی"""
+"""پنل بازی‌ها — چندزبانه"""
 
 from aiogram import Router, F
-from aiogram.types import CallbackQuery, Message, WebAppInfo, InlineKeyboardButton
+from aiogram.types import CallbackQuery, Message, InlineKeyboardButton
 from aiogram.enums import ParseMode, ChatType
 from aiogram.filters import Command
 from urllib.parse import urlencode
 
-from emojis import E, BASE_MAP, EMOJI_ID_RE
+from emojis import E
 from langs import t, get_user_lang
 from utils.premium import success, primary, danger, kb
 
@@ -15,16 +15,10 @@ router = Router(name="panel")
 MINI_APP_URL = "https://games.rhinokaseb.abrdns.com"
 
 
-def _clean_btn_text(text: str) -> str:
-    if not text:
-        return "·"
-    return EMOJI_ID_RE.sub(lambda m: BASE_MAP.get(m.group(1), "⭐"), text).strip() or "·"
-
-
 def webapp_btn(text: str, game: str, uid: int) -> InlineKeyboardButton:
     params = urlencode({"game": game, "uid": uid})
     url = f"{MINI_APP_URL}/?{params}"
-    return InlineKeyboardButton(text=_clean_btn_text(text), web_app=WebAppInfo(url=url))
+    return primary(text, web_app_url=url)
 
 
 @router.message(Command("rsgame"))
@@ -37,29 +31,25 @@ async def show_panel(message: Message):
         await message.answer(t("panel_group_only", lang), parse_mode=ParseMode.HTML)
         return
 
-    text = f"{E.GAME}{E.PARTY} <b>{t('game_panel', lang, name=message.from_user.first_name)}</b>\n\n👇 یک بازی انتخاب کنید:"
+    text = (
+        f"{E.GAME}{E.PARTY} <b>{t('game_panel', lang, name=message.from_user.first_name)}</b>\n\n"
+        f"{t('choose_game_hint', lang)}"
+    )
 
     rows = [
-        # ── تک‌نفره (مستقیم به مینی‌اپ)
-        [webapp_btn(f"{E.PUZZLE} 2048", "2048", uid),
-         webapp_btn(f"{E.PUZZLE} پازل کششی", "spuzzle", uid)],
-        [webapp_btn(f"{E.SPARK} جفت‌ها", "samegame", uid)],
-
-        # ── چندنفره (لابی ربات)
-        [primary(f"{E.TARGET} دوز ۲ نفره", f"lobby_dooz_{uid}"),
-         primary(f"{E.TARGET} دوز ۴ نفره", f"lobby_doz4p_{uid}")],
-        [success(f"{E.GAME} چهار در ردیف", f"lobby_connect4_{uid}"),
-         success(f"{E.CARD} حکم ۴ نفره", f"lobby_hokm_{uid}")],
-        [primary("🪨 سنگ کاغذ قیچی", f"lobby_rps_{uid}"),
-         primary(f"{E.BRAIN} حافظه", f"lobby_memory_{uid}")],
-
-        # ── چت‌محور (مستقیم به مینی‌اپ چت)
-        [webapp_btn(f"{E.MIC} تایپ سرعتی", "typing", uid),
-         webapp_btn(f"{E.BRAIN} حدس کلمه", "hangman", uid)],
-        [webapp_btn(f"{E.TARGET} حدس عدد", "guess", uid)],
-
-        # ── سایر
-        [success(f"{E.TARGET} گردونه شانس", f"gardone_start_{uid}")],
+        [webapp_btn(f"{E.PUZZLE} {t('game_2048_title', lang)}", "2048", uid),
+         webapp_btn(f"{E.PUZZLE} {t('game_spuzzle', lang)}", "spuzzle", uid)],
+        [webapp_btn(f"{E.SPARK} {t('game_samegame', lang)}", "samegame", uid)],
+        [primary(f"{E.TARGET} {t('game_dooz', lang)}", f"lobby_dooz_{uid}"),
+         primary(f"{E.TARGET} {t('game_doz4p', lang)}", f"lobby_doz4p_{uid}")],
+        [success(f"{E.GAME} {t('game_connect4', lang)}", f"lobby_connect4_{uid}"),
+         success(f"{E.CARD} {t('game_hokm_4p', lang)}", f"lobby_hokm_{uid}")],
+        [primary(f"🪨 {t('game_rps', lang)}", f"lobby_rps_{uid}"),
+         primary(f"{E.BRAIN} {t('game_memory', lang)}", f"lobby_memory_{uid}")],
+        [webapp_btn(f"{E.MIC} {t('game_typing', lang)}", "typing", uid),
+         webapp_btn(f"{E.BRAIN} {t('game_hangman', lang)}", "hangman", uid)],
+        [webapp_btn(f"{E.TARGET} {t('game_guess_num', lang)}", "guess", uid)],
+        [success(f"{E.TARGET} {t('game_gardone', lang)}", f"gardone_start_{uid}")],
         [danger(f"{E.CROSS} {t('btn_close', lang)}", f"rsgame_close_{uid}")],
     ]
 
