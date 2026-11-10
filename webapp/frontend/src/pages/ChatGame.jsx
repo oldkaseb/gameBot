@@ -7,8 +7,10 @@ export default function ChatGame({ game, session, uid }) {
   const bottomRef = useRef(null);
 
   useEffect(() => {
-    // ⚠️ اگر بک‌اند FastAPI روی پورت دیگری است، دامنه را اینجا تغییر دهید
-    const wsUrl = `wss://games.rhinokaseb.abrdns.com/ws/${game}/${session}/${uid}`;
+    // ✅ استخراج اطلاعات امنیتی تلگرام
+    const initData = window.Telegram?.WebApp?.initData || "";
+    const wsUrl = `wss://games.rhinokaseb.abrdns.com/ws/${game}/${session}/${uid}?init_data=${encodeURIComponent(initData)}`;
+    
     ws.current = new WebSocket(wsUrl);
     
     ws.current.onmessage = (e) => {
