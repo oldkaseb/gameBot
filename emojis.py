@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""emojis.py — مدیریت کامل کاستوم ایموجی‌های پریمیوم برای متن‌ها و دکمه‌ها"""
+"""emojis.py — مدیریت کامل کاستوم ایموجی‌های پریمیوم (رفع خطای ENTITY_TEXT_INVALID)"""
 
 import re
 
@@ -9,7 +9,7 @@ TG_EMOJI_TAG_RE = re.compile(
     re.DOTALL,
 )
 
-# آیدی‌های کاستوم ایموجی پریمیوم برای تمام بخش‌های ربات و پنل ادمین
+# آیدی‌های کاستوم ایموجی پریمیوم
 EMOJI_MAP = {
     "GAME": "5368324170671202286",
     "PARTY": "5461151367559141950",
@@ -63,7 +63,24 @@ EMOJI_MAP = {
     "DOWN": "5451646226975955576",
 }
 
-BASE_MAP = {v: "·" for v in EMOJI_MAP.values()}
+# کاراکتر ایموجی الزامی داخل تگ <tg-emoji> برای جلوگیری از خطای ENTITY_TEXT_INVALID در سرور تلگرام
+BASE_MAP = {
+    "5368324170671202286": "🎮",
+    "5461151367559141950": "🎉",
+    "5472164874886846699": "✨",
+    "5373098009640856781": "🧩",
+    "5382194935057372936": "🎯",
+    "5443038326535759644": "🧠",
+    "5465665476971471368": "❌",
+    "5427009714745517609": "✅",
+    "5424818078833715060": "👑",
+    "5438496463044752972": "⭐",
+    "5451646226975955576": "🔄",
+    "5341715473882955310": "⚙️",
+    "5447644880824181073": "⚠️",
+    "5373012449597351010": "👤",
+    "5409048419211682843": "🏆",
+}
 
 
 def _tok(emoji_id: str) -> str:
@@ -80,20 +97,26 @@ E = _EmojiNamespace()
 
 
 def render_emojis(text: str) -> str:
-    """تبدیل توکن‌های [E:ID] به تگ استاندارد <tg-emoji> برای متن پیام‌ها"""
+    """
+    تبدیل توکن‌های [E:ID] به تگ استاندارد <tg-emoji emoji-id="ID">⚡</tg-emoji>.
+    داشتن یک ایموجی پایه معتبر داخل تگ برای سرور تلگرام الزامی است تا ENTITY_TEXT_INVALID ندهد.
+    """
     if not text:
         return text
     return EMOJI_ID_RE.sub(
-        lambda m: f'<tg-emoji emoji-id="{m.group(1)}">·</tg-emoji>',
+        lambda m: f'<tg-emoji emoji-id="{m.group(1)}">{BASE_MAP.get(m.group(1), "⚡")}</tg-emoji>',
         text,
     )
 
 
 def strip_custom_emoji_tags(text: str, keep_unicode: bool = False) -> str:
-    """حذف تگ‌های کاستوم ایموجی در صورت بروز خطا بدون جایگزینی با ایموجی یونیکد ساده"""
+    """حذف کامل تگ‌های کاستوم ایموجی در صورت عدم پشتیبانی بدون باقی گذاشتن ایموجی یونیکد"""
     if not text:
         return text
-    cleaned = TG_EMOJI_TAG_RE.sub("", text)
+    if keep_unicode:
+        cleaned = TG_EMOJI_TAG_RE.sub(lambda m: BASE_MAP.get(m.group(1), ""), text)
+    else:
+        cleaned = TG_EMOJI_TAG_RE.sub("", text)
     cleaned = EMOJI_ID_RE.sub("", cleaned)
     return re.sub(r" +", " ", cleaned).strip()
 
