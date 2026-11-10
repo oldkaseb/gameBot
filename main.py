@@ -77,17 +77,15 @@ class EmojiBot(Bot):
         except TelegramBadRequest as e:
             err = str(e)
             # اگر Bot شما Premium Bot نیست و ایموجی‌ها Invalid هستند
-            if "DOCUMENT_INVALID" in err or "CUSTOM_EMOJI_INVALID" in err:
-                log.warning("⚠️ premium emoji rejected — stripping tags (no unicode fallback)")
+            if "DOCUMENT_INVALID" in err:
+                log.warning("⚠️ DOCUMENT_INVALID — stripping premium emoji tags completely")
                 for attr in ("text", "caption"):
                     val = getattr(method, attr, None)
                     if isinstance(val, str) and "<tg-emoji" in val:
-                        try:
-                            # حذف کامل تگ‌ها — بدون fallback به یونیکد
-                            setattr(method, attr,
-                                    strip_custom_emoji_tags(val, keep_unicode=False))
-                        except Exception:
-                            pass
+            try:
+                setattr(method, attr, strip_custom_emoji_tags(val, keep_unicode=False))
+            except Exception:
+                pass
                 return await super().__call__(method, request_timeout)
             raise
 
