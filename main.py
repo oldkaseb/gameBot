@@ -493,25 +493,24 @@ async def _send_stars_invoice(bot: Bot, chat_id: int, amount: int, uid: int):
 # Health server
 # ═══════════════════════════════════════════════
 
-async def _start_health_server(port: int = 8080):
+async def _start_health_server(port: int = 8000):
+    """اجرای همزمان سرور FastAPI مینی‌اپ و WebSocket در کنار ربات تلگرام"""
     try:
-        from aiohttp import web
+        import uvicorn
+        from webapp.backend.main import app as webapp_fastapi
 
-        async def health(_request):
-            return web.Response(text="ok")
-
-        app = web.Application()
-        app.router.add_get("/", health)
-        app.router.add_get("/health", health)
-
-        runner = web.AppRunner(app)
-        await runner.setup()
-        site = web.TCPSite(runner, "0.0.0.0", port)
-        await site.start()
-        log.info(f"Health server running on :{port}")
-        return runner
+        config = uvicorn.Config(
+            webapp_fastapi,
+            host="0.0.0.0",
+            port=port,
+            log_level="info",
+        )
+        server = uvicorn.Server(config)
+        asyncio.create_task(server.serve())
+        log.info(f"Mini App FastAPI + WebSocket server running on :{port}")
+        return server
     except Exception as e:
-        log.warning(f"Health server failed: {e}")
+        log.warning(f"FastAPI server fallback: {e}")
         return None
 
 
