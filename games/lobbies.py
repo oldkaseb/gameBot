@@ -115,7 +115,7 @@ async def start_webapp_game(cb: CallbackQuery, lobby_id: str):
         f"{E.PARTY} <b>لابی پر شد! بازی شروع می‌شود.</b>\n\n"
         f"{E.INFO} همه بازیکنان وارد میز شوند:"
     )
-    markup = kb([[InlineKeyboardButton(text=f"{E.GAME} ورود به میز بازی", web_app=WebAppInfo(url=game_url))]])
+    markup = kb([[primary(f"{E.GAME} ورود به میز بازی", web_app_url=game_url)]])
     
     await cb.bot.edit_message_text(
         text=text, chat_id=lobby["chat_id"], message_id=lobby["msg_id"],
