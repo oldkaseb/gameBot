@@ -239,7 +239,7 @@ async def _build_pm_welcome(uid: int, name: str):
             url=f"https://t.me/{bot_username}?startgroup=true",
         )],
         [primary(f"{E.HEART} {t('btn_donate', lang)}", "donate")],
-        [primary(f"{E.SPARK} {t('btn_change_lang', lang)}", "lang_menu")],
+        [primary(f"{_lang_flag(lang)} {t('btn_change_lang', lang)}", "lang_menu")],
     ]
     if uid in OWNER_IDS:
         rows.append([success(f"{E.CROWN} {t('admin_panel', lang)}", "adm:panel")])
@@ -483,7 +483,22 @@ async def main():
     async def _start(msg: Message, command=None):
         await cmd_start(msg, command)
 
-    @dp.message(F.text.in_({"شروع", "استارت", "start"}))
+    @dp.message(F.text.in_({
+    # فارسی
+    "شروع", "استارت",
+    # English
+    "start",
+    # العربية
+    "بدء", "ابدأ",
+    # Türkçe
+    "başla", "başlat",
+    # Русский
+    "начать", "старт",
+    # Deutsch
+    "los", "starten",
+    # 中文
+    "开始",
+    }))
     async def _start_p(msg: Message):
         await cmd_start(msg)
 
