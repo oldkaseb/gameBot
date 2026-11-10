@@ -232,7 +232,7 @@ async def _build_main_menu(uid: int, name: str, is_pm: bool = False):
         [gbtn(f"{E.MIC} {t('game_typing', lang)}", "typing", primary),
          gbtn(f"{E.BRAIN} {t('game_hangman', lang)}", "hangman", primary)],
         [gbtn(f"{E.TARGET} {t('game_guess_num', lang)}", "guess", primary)],
-        [gbtn(f"{E.TARGET} {t('game_gardone', lang)}", "gardone", success)],
+        [success(f"{E.TARGET} {t('game_gardone', lang)}", f"gardone_start_{uid}")],
         [danger(f"{E.CROSS} {t('btn_close', lang)}", f"rsgame_close_{uid}")],
     ]
     if uid in OWNER_IDS:
