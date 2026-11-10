@@ -59,31 +59,9 @@ def _clean_btn_text(text: str) -> str:
     return EMOJI_ID_RE.sub(lambda m: BASE_MAP.get(m.group(1), "⭐"), text).strip() or "·"
 
 
-def _strip_btn_icons(markup):
-    """حذف آیکون‌های غیرمجاز از دکمه‌ها (برای fallback خطاهای تلگرام)"""
-    if not isinstance(markup, InlineKeyboardMarkup):
-        return markup
-    try:
-        new_rows = []
-        for row in markup.inline_keyboard:
-            new_row = []
-            for b in row:
-                data = b.model_dump(exclude_none=True)
-                data.pop("icon_custom_emoji_id", None)
-                data.pop("style", None)
-                new_row.append(InlineKeyboardButton(**{
-                    k: v for k, v in data.items()
-                    if k in ("text", "url", "callback_data", "web_app",
-                             "switch_inline_query", "switch_inline_query_current_chat")
-                }))
-            new_rows.append(new_row)
-        return InlineKeyboardMarkup(inline_keyboard=new_rows)
-    except Exception:
-        return markup
-
-
 class EmojiBot(Bot):
     async def __call__(self, method, request_timeout=None):
+        # رندر ایموجی‌های پریمیوم فقط برای متن/کپشن
         rendered = False
         for attr in ("text", "caption"):
             val = getattr(method, attr, None)
@@ -98,40 +76,19 @@ class EmojiBot(Bot):
             return await super().__call__(method, request_timeout)
         except TelegramBadRequest as e:
             err = str(e)
-
-            if "DOCUMENT_INVALID" in err and rendered:
-                log.warning("⚠️ DOCUMENT_INVALID — fallback به یونیکد خام")
+            # اگر Bot شما Premium Bot نیست و ایموجی‌ها Invalid هستند
+            if "DOCUMENT_INVALID" in err or "CUSTOM_EMOJI_INVALID" in err:
+                log.warning("⚠️ premium emoji rejected — stripping tags (no unicode fallback)")
                 for attr in ("text", "caption"):
                     val = getattr(method, attr, None)
                     if isinstance(val, str) and "<tg-emoji" in val:
                         try:
-                            setattr(method, attr, strip_custom_emoji_tags(val))
+                            # حذف کامل تگ‌ها — بدون fallback به یونیکد
+                            setattr(method, attr,
+                                    strip_custom_emoji_tags(val, keep_unicode=False))
                         except Exception:
                             pass
-                try:
-                    rm = getattr(method, "reply_markup", None)
-                    if rm is not None:
-                        setattr(method, "reply_markup", _strip_btn_icons(rm))
-                except Exception:
-                    pass
                 return await super().__call__(method, request_timeout)
-
-            if "BUTTON_TYPE_INVALID" in err:
-                log.warning("⚠️ BUTTON_TYPE_INVALID — disabling button premium globally")
-                try:
-                    from utils.premium import disable_button_premium
-                    disable_button_premium()
-                except Exception:
-                    pass
-                try:
-                    rm = getattr(method, "reply_markup", None)
-                    if rm is not None:
-                        setattr(method, "reply_markup", _strip_btn_icons(rm))
-                    return await super().__call__(method, request_timeout)
-                except Exception as e2:
-                    log.error(f"Buttons fallback failed: {e2}")
-                    raise
-
             raise
 
 
@@ -242,9 +199,9 @@ class GameGuard(BaseMiddleware):
 # ═══════════════════════════════════════════════
 
 def webapp_btn(text: str, game: str, uid: int) -> InlineKeyboardButton:
+    from utils.premium import primary
     params = urlencode({"game": game, "uid": uid})
     url = f"{MINI_APP_URL}/?{params}"
-    from utils.premium import primary
     return primary(text, web_app_url=url)
 
 
@@ -262,7 +219,7 @@ async def _build_main_menu(uid: int, name: str):
          primary(f"{E.TARGET} {t('game_doz4p', lang)}", f"lobby_doz4p_{uid}")],
         [success(f"{E.GAME} {t('game_connect4', lang)}", f"lobby_connect4_{uid}"),
          success(f"{E.CARD} {t('game_hokm_4p', lang)}", f"lobby_hokm_{uid}")],
-        [primary(f"🪨 {t('game_rps', lang)}", f"lobby_rps_{uid}"),
+        [primary(f"{E.PUZZLE} {t('game_rps', lang)}", f"lobby_rps_{uid}"),
          primary(f"{E.BRAIN} {t('game_memory', lang)}", f"lobby_memory_{uid}")],
         [webapp_btn(f"{E.MIC} {t('game_typing', lang)}", "typing", uid),
          webapp_btn(f"{E.BRAIN} {t('game_hangman', lang)}", "hangman", uid)],
