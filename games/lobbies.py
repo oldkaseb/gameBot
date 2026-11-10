@@ -69,7 +69,7 @@ async def update_lobby_message(cb_or_bot, lobby_id):
         f"{E.HOURGLASS} منتظر بازیکنان..."
     )
     
-    rows = [[success(f"{E.PLUS} پیوستن به بازی", f"join_lobby_{lobby_id}")]]
+    rows = [[success(f"{E.PLUS} {t('join_game', get_user_lang(cb_or_bot.from_user.id))}",f"join_lobby_{lobby_id}")]]
     if lobby["host_id"] == (cb_or_bot.from_user.id if hasattr(cb_or_bot, 'from_user') else 0):
         rows.append([danger("لغو لابی", f"cancel_lobby_{lobby_id}")])
     
@@ -115,7 +115,7 @@ async def start_webapp_game(cb: CallbackQuery, lobby_id: str):
         f"{E.PARTY} <b>لابی پر شد! بازی شروع می‌شود.</b>\n\n"
         f"{E.INFO} همه بازیکنان وارد میز شوند:"
     )
-    markup = kb([[primary(f"{E.GAME} ورود به میز بازی", web_app_url=game_url)]])
+    markup = kb([[primary(f"{E.GAME} {t('enter_game_table', get_user_lang(lobby['host_id']))}",web_app_url=game_url)]])
     
     await cb.bot.edit_message_text(
         text=text, chat_id=lobby["chat_id"], message_id=lobby["msg_id"],
