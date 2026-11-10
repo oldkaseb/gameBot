@@ -27,23 +27,16 @@ async def show_panel(message: Message):
     lang = get_user_lang(uid)
 
     if message.chat.type == ChatType.PRIVATE:
-        await message.answer(
-            t("panel_group_only", lang),
-            parse_mode=ParseMode.HTML,
-        )
+        await message.answer(t("panel_group_only", lang), parse_mode=ParseMode.HTML)
         return
 
     text = f"{E.GAME}{E.PARTY} <b>{t('game_panel', lang, name=message.from_user.first_name)}</b>"
     rows = [
-        # ردیف سبز
         [success(f"{E.TROPHY} {t('btn_group', lang)}",   f"rsgame_cat_board_{uid}"),
          success(f"{E.TARGET} {t('btn_single', lang)}",  f"rsgame_cat_single_{uid}")],
-        # ردیف آبی
         [primary(f"{E.MIC} {t('btn_typing', lang)}",     f"rsgame_cat_typing_{uid}"),
          primary(f"{E.GHOST} {t('btn_anon', lang)}",     f"rsgame_cat_anon_{uid}")],
-        # ردیف سبز
-        [success(f"{E.TROPHY} 🏆 برترین‌ها", "lb_menu")],
-        # ردیف قرمز
+        [success(f"{E.TARGET} {t('game_gardone', lang)}", f"gardone_start_{uid}")],
         [danger(f"{E.CROSS} {t('btn_close', lang)}",     f"rsgame_close_{uid}")],
     ]
     await message.answer(text, reply_markup=kb(rows), parse_mode=ParseMode.HTML)
@@ -63,18 +56,13 @@ async def category(cb: CallbackQuery):
     if cat == "board":
         text = f"{E.TROPHY} <b>{t('group_games_title', lang)}</b>"
         rows = [
-            # ردیف سبز: حکم
             [success(f"{E.CARD} {t('game_hokm', lang)}", f"hokm_start_2p_{uid}"),
              success(f"{E.CARD} {t('game_hokm_4p', lang)}", f"hokm_start_4p_{uid}")],
-            # ردیف آبی: دوز
             [primary(f"{E.TARGET} {t('game_dooz', lang)}", f"dooz_start_2p_{uid}"),
              primary(f"{E.TARGET} {t('game_doz4p', lang)}", f"doz4p_start_{uid}")],
-            # ردیف سبز: چهار در ردیف + RPS
             [success(f"{E.GAME} {t('game_connect4', lang)}", f"connect4_start_{uid}")],
-            # ردیف آبی: RPS + Memory
             [primary("🪨📄✂️ " + t("game_rps", lang), f"rps_start_{uid}"),
              primary(f"{E.BRAIN} {t('game_memory', lang)}", f"memory_start_4x4_{uid}")],
-            # ردیف قرمز: بازگشت
             [danger(f"{E.ARROW} {t('btn_back', lang)}", f"rsgame_main_{uid}")],
         ]
     elif cat == "single":
@@ -124,7 +112,7 @@ async def back_main(cb: CallbackQuery):
          success(f"{E.TARGET} {t('btn_single', lang)}", f"rsgame_cat_single_{uid}")],
         [primary(f"{E.MIC} {t('btn_typing', lang)}",    f"rsgame_cat_typing_{uid}"),
          primary(f"{E.GHOST} {t('btn_anon', lang)}",    f"rsgame_cat_anon_{uid}")],
-        [success(f"{E.TROPHY} 🏆 برترین‌ها", "lb_menu")],
+        [success(f"{E.TARGET} {t('game_gardone', lang)}", f"gardone_start_{uid}")],
         [danger(f"{E.CROSS} {t('btn_close', lang)}",    f"rsgame_close_{uid}")],
     ]
     try:
