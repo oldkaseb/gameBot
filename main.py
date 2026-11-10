@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""main.py — ربات بازی راینو"""
+"""main.py — ربات بازی راینو (نسخه دیباگ‌شده و متصل به مینی‌اپ)"""
 
 import asyncio
 import logging
@@ -40,35 +40,35 @@ log = logging.getLogger("rhino")
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "")
 OWNER_IDS = {7662192190, 6041119040}
-MINI_APP_URL = "https://games.rhinokaseb.abrdns.com"
+MINI_APP_URL = os.environ.get("MINI_APP_URL", "https://games.rhinokaseb.abrdns.com").rstrip("/")
 
 
 # ═══════════════════════════════════════════════
 # Helpers
 # ═══════════════════════════════════════════════
 
-def _lang_flag(lang: str) -> str:
-    entry = LANGS.get(lang, "🌐")
-    parts = entry.split()
-    return parts[0] if parts else "🌐"
+def _clean_lang_label(label: str) -> str:
+    """حذف ایموجی‌های یونیکد پرچم از ابتدای نام زبان و جایگزینی با کاستوم ایموجی"""
+    parts = (label or "").split(" ", 1)
+    clean_name = parts[1] if len(parts) > 1 else label
+    globe_emoji = getattr(E, "GLOBE", getattr(E, "SPARK", ""))
+    return f"{globe_emoji} {clean_name}".strip()
 
 
 def _clean_btn_text(text: str) -> str:
     if not text:
         return "·"
-    return EMOJI_ID_RE.sub(lambda m: BASE_MAP.get(m.group(1), "⭐"), text).strip() or "·"
+    return EMOJI_ID_RE.sub(lambda m: BASE_MAP.get(m.group(1), ""), text).strip() or "·"
 
 
 class EmojiBot(Bot):
     async def __call__(self, method, request_timeout=None):
-        # رندر ایموجی‌های پریمیوم فقط برای متن/کپشن
-        rendered = False
+        # رندر ایموجی‌های پریمیوم برای متن و کپشن
         for attr in ("text", "caption"):
             val = getattr(method, attr, None)
             if isinstance(val, str) and "[" in val and "<tg-emoji" not in val:
                 try:
                     setattr(method, attr, render_emojis(val))
-                    rendered = True
                 except Exception:
                     pass
 
@@ -76,16 +76,16 @@ class EmojiBot(Bot):
             return await super().__call__(method, request_timeout)
         except TelegramBadRequest as e:
             err = str(e)
-            # اگر Bot شما Premium Bot نیست و ایموجی‌ها Invalid هستند
-            if "DOCUMENT_INVALID" in err:
-                log.warning("⚠️ DOCUMENT_INVALID — stripping premium emoji tags completely")
+            # اگر DOCUMENT_INVALID رخ داد، تگ‌های کاستوم ایموجی نامعتبر را بدون گذاشتن یونیکد ساده پاک کن
+            if "DOCUMENT_INVALID" in err or "CUSTOM_EMOJI" in err:
+                log.warning("DOCUMENT_INVALID — stripping invalid custom emoji tags")
                 for attr in ("text", "caption"):
                     val = getattr(method, attr, None)
                     if isinstance(val, str) and "<tg-emoji" in val:
-            try:
-                setattr(method, attr, strip_custom_emoji_tags(val, keep_unicode=False))
-            except Exception:
-                pass
+                        try:
+                            setattr(method, attr, strip_custom_emoji_tags(val, keep_unicode=False))
+                        except Exception:
+                            pass
                 return await super().__call__(method, request_timeout)
             raise
 
@@ -100,10 +100,10 @@ def _join_kb(channels, lang: str = "fa"):
         label = f"{E.LINK} {t('force_join_btn', lang)} — {ch['title'] or ch['chat_id']}"
         if ch["username"]:
             url = f"https://t.me/{ch['username'].lstrip('@')}"
-            rows.append([btn(label, url=url)])
+            rows.append([primary(label, url=url)])
         else:
             rows.append([success(label, "check_join")])
-    rows.append([primary(f"{E.REFRESH} {t('force_join_check', lang)}", "check_join")])
+    rows.append([success(f"{E.REFRESH} {t('force_join_check', lang)}", "check_join")])
     return kb(rows)
 
 
@@ -170,6 +170,7 @@ class GameGuard(BaseMiddleware):
         "type_start_": "typing", "hads_addad_start_": "number_guess",
         "gardone_start_": "gardone", "gharch_start_": "gharch",
         "eteraf_start_": "eteraf",
+        "open_game_": "__open__",
         "lobby_": "__lobby__",
     }
 
@@ -179,6 +180,12 @@ class GameGuard(BaseMiddleware):
                 if event.data.startswith(prefix):
                     if gtype == "__lobby__":
                         break
+                    if gtype == "__open__":
+                        parts = event.data.split("_")
+                        if len(parts) >= 3:
+                            gtype = parts[2]
+                        else:
+                            break
                     try:
                         if not await db.is_game_enabled(gtype):
                             await event.answer(
@@ -193,40 +200,42 @@ class GameGuard(BaseMiddleware):
 
 
 # ═══════════════════════════════════════════════
-# منوی اصلی
+# منوی اصلی (تمام بازی‌ها متصل به Mini App با حفظ استایل‌ها)
 # ═══════════════════════════════════════════════
 
-def webapp_btn(text: str, game: str, uid: int) -> InlineKeyboardButton:
-    from utils.premium import primary
+def webapp_btn(text: str, game: str, uid: int, style_fn=primary) -> InlineKeyboardButton:
     params = urlencode({"game": game, "uid": uid})
     url = f"{MINI_APP_URL}/?{params}"
-    return primary(text, web_app_url=url)
+    return style_fn(text, web_app_url=url)
 
 
-async def _build_main_menu(uid: int, name: str):
+async def _build_main_menu(uid: int, name: str, is_pm: bool = False):
     lang = get_user_lang(uid)
     text = (
         f"{E.PARTY}{E.SPARK} <b>{t('welcome', lang, name=name)}</b>\n\n"
-        f"{E.GAME} {t('game_panel', lang)}\n\n{t('choose_game_hint', lang)}"
+        f"{E.GAME} {t('game_panel', lang, name=name)}\n\n{t('choose_game_hint', lang)}"
     )
-    # در گروه — فقط callback
-    def gbtn(txt, game):
-        return primary(txt, f"open_game_{game}_{uid}")
+
+    # در پیوی مستقیماً WebApp باز می‌شود؛ در گروه از طریق open_game_ لینک مینی‌اپ/لابی ساخته می‌شود
+    def gbtn(txt, game, style_fn=primary):
+        if is_pm:
+            return webapp_btn(txt, game, uid, style_fn=style_fn)
+        return style_fn(txt, f"open_game_{game}_{uid}")
 
     rows = [
-        [gbtn(f"{E.PUZZLE} {t('game_2048_title', lang)}", "2048"),
-         gbtn(f"{E.PUZZLE} {t('game_spuzzle', lang)}", "spuzzle")],
-        [gbtn(f"{E.SPARK} {t('game_samegame', lang)}", "samegame")],
-        [primary(f"{E.TARGET} {t('game_dooz', lang)}", f"lobby_dooz_{uid}"),
-         primary(f"{E.TARGET} {t('game_doz4p', lang)}", f"lobby_doz4p_{uid}")],
-        [success(f"{E.GAME} {t('game_connect4', lang)}", f"lobby_connect4_{uid}"),
-         success(f"{E.CARD} {t('game_hokm_4p', lang)}", f"lobby_hokm_{uid}")],
-        [primary(f"{E.PUZZLE} {t('game_rps', lang)}", f"lobby_rps_{uid}"),
-         primary(f"{E.BRAIN} {t('game_memory', lang)}", f"lobby_memory_{uid}")],
-        [gbtn(f"{E.MIC} {t('game_typing', lang)}", "typing"),
-         gbtn(f"{E.BRAIN} {t('game_hangman', lang)}", "hangman")],
-        [gbtn(f"{E.TARGET} {t('game_guess_num', lang)}", "guess")],
-        [success(f"{E.TARGET} {t('game_gardone', lang)}", f"gardone_start_{uid}")],
+        [gbtn(f"{E.PUZZLE} {t('game_2048_title', lang)}", "2048", primary),
+         gbtn(f"{E.PUZZLE} {t('game_spuzzle', lang)}", "spuzzle", primary)],
+        [gbtn(f"{E.SPARK} {t('game_samegame', lang)}", "samegame", primary)],
+        [gbtn(f"{E.TARGET} {t('game_dooz', lang)}", "dooz", primary),
+         gbtn(f"{E.TARGET} {t('game_doz4p', lang)}", "doz4p", primary)],
+        [gbtn(f"{E.GAME} {t('game_connect4', lang)}", "connect4", success),
+         gbtn(f"{E.CARD} {t('game_hokm_4p', lang)}", "hokm", success)],
+        [gbtn(f"{E.PUZZLE} {t('game_rps', lang)}", "rps", primary),
+         gbtn(f"{E.BRAIN} {t('game_memory', lang)}", "memory", primary)],
+        [gbtn(f"{E.MIC} {t('game_typing', lang)}", "typing", primary),
+         gbtn(f"{E.BRAIN} {t('game_hangman', lang)}", "hangman", primary)],
+        [gbtn(f"{E.TARGET} {t('game_guess_num', lang)}", "guess", primary)],
+        [gbtn(f"{E.TARGET} {t('game_gardone', lang)}", "gardone", success)],
         [danger(f"{E.CROSS} {t('btn_close', lang)}", f"rsgame_close_{uid}")],
     ]
     if uid in OWNER_IDS:
@@ -245,11 +254,19 @@ async def _build_pm_welcome(uid: int, name: str):
     )
     rows = [
         [success(
+            f"{E.GAME} {t('game_panel', lang, name=name)}",
+            web_app_url=f"{MINI_APP_URL}/?uid={uid}&lang={lang}",
+        )],
+        [primary(
+            f"{E.SPARK} {t('open_game_btn', lang)}",
+            "open_pm_games",
+        )],
+        [success(
             f"{E.PLUS} {t('btn_add_to_group', lang)}",
             url=f"https://t.me/{bot_username}?startgroup=true",
         )],
         [primary(f"{E.HEART} {t('btn_donate', lang)}", "donate")],
-        [primary(f"{_lang_flag(lang)} {t('btn_change_lang', lang)}", "lang_menu")],
+        [primary(f"{E.SPARK} {t('btn_change_lang', lang)}", "lang_menu")],
     ]
     if uid in OWNER_IDS:
         rows.append([success(f"{E.CROWN} {t('admin_panel', lang)}", "adm:panel")])
@@ -290,16 +307,12 @@ async def cmd_start(message: Message, command=None):
     if payload.startswith("gharch_") or payload.startswith("eteraf_"):
         return
 
-    # ═══════════════ دیپ‌لینک بازی → ارسال web_app فقط در PM
+    # ═══════════════ دیپ‌لینک بازی → ارسال web_app در PM
     if is_pm and payload.startswith("game_"):
-        game = payload[5:]  # بعد از "game_"
-        if not game:
-            # اگر پارامتر خالی بود، به روال عادی برمی‌گردیم
-            pass
-        else:
+        game = payload[5:]
+        if game:
             lang = get_user_lang(uid)
 
-            # اطمینان از وجود کاربر در دیتابیس
             user = await db.get_user(uid)
             if not user:
                 await db.upsert_user(
@@ -309,12 +322,10 @@ async def cmd_start(message: Message, command=None):
                 )
                 user = await db.get_user(uid)
 
-            # بارگذاری زبان از دیتابیس
             if user and user["language"]:
                 set_user_lang(uid, user["language"])
                 lang = user["language"]
 
-            # بررسی forced join — قبل از باز کردن بازی
             try:
                 missing = await check_forced_join(message.bot, uid)
             except Exception:
@@ -328,16 +339,14 @@ async def cmd_start(message: Message, command=None):
                 )
                 return
 
-            game_url = f"{MINI_APP_URL}/?game={game}&uid={uid}"
+            game_url = f"{MINI_APP_URL}/?game={game}&uid={uid}&lang={lang}"
             await message.answer(
                 f"{E.GAME} <b>{t('open_in_pm_title', lang)}</b>\n\n"
                 f"{E.INFO} {t('open_in_pm_body', lang)}",
-                reply_markup=kb([[
-                    primary(
-                        f"{E.PLAY} {t('open_game_btn', lang)}",
-                        web_app_url=game_url,
-                    )
-                ]]),
+                reply_markup=kb([
+                    [success(f"{E.PLAY} {t('open_game_btn', lang)}", web_app_url=game_url)],
+                    [danger(f"{E.ARROW} {t('btn_back', lang)}", "menu")],
+                ]),
                 parse_mode=ParseMode.HTML,
             )
             return
@@ -373,9 +382,9 @@ async def cmd_start(message: Message, command=None):
         )
         return
 
-    # ═══════════════ کاربر جدید یا بدون زبان → انتخاب زبان (فقط PM)
+    # ═══════════════ کاربر جدید یا بدون زبان → انتخاب زبان (با استایل primary و بدون یونیکد ساده)
     if is_pm and (is_new or not user_lang):
-        rows = [[btn(v, f"set_lang:{k}")] for k, v in LANGS.items()]
+        rows = [[primary(_clean_lang_label(v), f"set_lang:{k}")] for k, v in LANGS.items()]
         await message.answer(
             f"{E.WAVE}{E.SPARK} {t('choose_lang', 'fa')}",
             reply_markup=kb(rows),
@@ -394,6 +403,7 @@ async def cmd_start(message: Message, command=None):
         text, markup = await _build_main_menu(
             uid,
             message.from_user.first_name or t("player", get_user_lang(uid)),
+            is_pm=False,
         )
         await message.answer(text, reply_markup=markup, parse_mode=ParseMode.HTML)
 
@@ -401,7 +411,7 @@ async def cmd_start(message: Message, command=None):
 async def set_lang_cb(cb: CallbackQuery):
     lang = cb.data.split(":")[1]
     if lang not in LANGS:
-        await cb.answer("❌", show_alert=True)
+        await cb.answer(t("error", "fa"), show_alert=True)
         return
     set_user_lang(cb.from_user.id, lang)
     try:
@@ -414,7 +424,9 @@ async def set_lang_cb(cb: CallbackQuery):
     if is_pm:
         await _show_pm_welcome(cb, cb.from_user.id, cb.from_user.first_name or "دوست")
     else:
-        text, markup = await _build_main_menu(cb.from_user.id, cb.from_user.first_name or "دوست")
+        text, markup = await _build_main_menu(
+            cb.from_user.id, cb.from_user.first_name or "دوست", is_pm=False
+        )
         try:
             await cb.message.edit_text(text, reply_markup=markup, parse_mode=ParseMode.HTML)
         except Exception:
@@ -422,7 +434,7 @@ async def set_lang_cb(cb: CallbackQuery):
 
 
 async def cmd_lang(message: Message):
-    rows = [[btn(v, f"set_lang:{k}")] for k, v in LANGS.items()]
+    rows = [[primary(_clean_lang_label(v), f"set_lang:{k}")] for k, v in LANGS.items()]
     await message.answer(
         t("choose_lang", get_user_lang(message.from_user.id)),
         reply_markup=kb(rows),
@@ -496,10 +508,10 @@ async def _start_health_server(port: int = 8080):
         await runner.setup()
         site = web.TCPSite(runner, "0.0.0.0", port)
         await site.start()
-        log.info(f"✅ Health server on :{port}")
+        log.info(f"Health server running on :{port}")
         return runner
     except Exception as e:
-        log.warning(f"⚠️ Health server failed: {e}")
+        log.warning(f"Health server failed: {e}")
         return None
 
 
@@ -509,7 +521,7 @@ async def _start_health_server(port: int = 8080):
 
 async def main():
     if not BOT_TOKEN:
-        log.error("❌ BOT_TOKEN not set!")
+        log.error("BOT_TOKEN not set!")
         return
 
     bot = EmojiBot(
@@ -523,7 +535,7 @@ async def main():
 
     me = await bot.get_me()
     set_bot_username(me.username or "bot")
-    log.info(f"Bot: @{get_bot_username()}")
+    log.info(f"Bot connected: @{get_bot_username()}")
 
     register_all_games(dp)
     dp.include_router(anon_router)
@@ -556,6 +568,17 @@ async def main():
     async def _setlang(cb: CallbackQuery):
         await set_lang_cb(cb)
 
+    @dp.callback_query(F.data == "open_pm_games")
+    async def _open_pm_games(cb: CallbackQuery):
+        await cb.answer()
+        uid = cb.from_user.id
+        name = cb.from_user.first_name or "دوست"
+        text, markup = await _build_main_menu(uid, name, is_pm=True)
+        try:
+            await cb.message.edit_text(text, reply_markup=markup, parse_mode=ParseMode.HTML)
+        except Exception:
+            await cb.message.answer(text, reply_markup=markup, parse_mode=ParseMode.HTML)
+
     @dp.callback_query(F.data == "check_join")
     async def _check_join(cb: CallbackQuery):
         lang = get_user_lang(cb.from_user.id)
@@ -572,7 +595,7 @@ async def main():
                 pass
             return
 
-        await cb.answer("✅")
+        await cb.answer(t("lang_saved", lang))
         user = await db.get_user(cb.from_user.id)
         if not user:
             await db.upsert_user(
@@ -584,7 +607,9 @@ async def main():
         if cb.message.chat.type == "private":
             await _show_pm_welcome(cb, cb.from_user.id, cb.from_user.first_name or "دوست")
         else:
-            text, markup = await _build_main_menu(cb.from_user.id, cb.from_user.first_name or "دوست")
+            text, markup = await _build_main_menu(
+                cb.from_user.id, cb.from_user.first_name or "دوست", is_pm=False
+            )
             try:
                 await cb.message.edit_text(text, reply_markup=markup, parse_mode=ParseMode.HTML)
             except Exception:
@@ -598,7 +623,7 @@ async def main():
         if cb.message.chat.type == "private":
             await _show_pm_welcome(cb, uid, name)
         else:
-            text, markup = await _build_main_menu(uid, name)
+            text, markup = await _build_main_menu(uid, name, is_pm=False)
             try:
                 await cb.message.edit_text(text, reply_markup=markup, parse_mode=ParseMode.HTML)
             except TelegramBadRequest as e:
@@ -609,8 +634,8 @@ async def main():
     async def _lang_menu(cb: CallbackQuery):
         await cb.answer()
         lang = get_user_lang(cb.from_user.id)
-        rows = [[btn(v, f"set_lang:{k}")] for k, v in LANGS.items()]
-        rows.append([primary(f"{E.ARROW} {t('btn_back', lang)}", "menu")])
+        rows = [[primary(_clean_lang_label(v), f"set_lang:{k}")] for k, v in LANGS.items()]
+        rows.append([danger(f"{E.ARROW} {t('btn_back', lang)}", "menu")])
         try:
             await cb.message.edit_text(
                 t("choose_lang", lang),
@@ -631,7 +656,7 @@ async def main():
             if not (1 <= amount <= 10000):
                 raise ValueError
         except (ValueError, IndexError):
-            await cb.answer("❌", show_alert=True)
+            await cb.answer("Invalid amount", show_alert=True)
             return
         await cb.answer()
         try:
@@ -705,7 +730,7 @@ async def main():
     asyncio.create_task(cleanup_loop(bot))
     health_runner = await _start_health_server(int(os.getenv("PORT", "8080")))
 
-    log.info("🚀 Bot starting…")
+    log.info("Bot starting polling...")
     try:
         await bot.delete_webhook(drop_pending_updates=True)
         await dp.start_polling(
