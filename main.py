@@ -52,7 +52,7 @@ def _strip_btn_icons(markup):
         return markup
     try:
         new_rows = [
-            [b.model_copy(update={"icon_custom_emoji_id": None}) for b in row]
+            [b.model_copy(update={"icon_custom__id": None}) for b in row]
             for row in markup.inline_keyboard
         ]
         return InlineKeyboardMarkup(inline_keyboard=new_rows)
@@ -77,15 +77,9 @@ class EmojiBot(Bot):
         except TelegramBadRequest as e:
             if "DOCUMENT_INVALID" not in str(e) or not rendered:
                 raise
-            bad_ids: set[str] = set()
-            for attr in ("text", "caption"):
-                val = getattr(method, attr, None)
-                if isinstance(val, str):
-                    bad_ids.update(extract_emoji_ids(val))
-            log.warning(
-                f"⚠️ DOCUMENT_INVALID در {method.__class__.__name__} — "
-                f"retry بدون ایموجی پریمیوم. IDهای مشکوک: {sorted(bad_ids)}"
-            )
+            
+            log.warning(f"⚠️ DOCUMENT_INVALID — fallback به یونیکد خام")
+            
             for attr in ("text", "caption"):
                 val = getattr(method, attr, None)
                 if isinstance(val, str) and "<tg-emoji" in val:
@@ -93,13 +87,24 @@ class EmojiBot(Bot):
                         setattr(method, attr, strip_custom_emoji_tags(val))
                     except Exception:
                         pass
+                        
             try:
                 rm = getattr(method, "reply_markup", None)
                 if rm is not None:
                     setattr(method, "reply_markup", _strip_btn_icons(rm))
             except Exception:
                 pass
-            return await super().__call__(method, request_timeout)
+                
+            try:
+                return await super().__call__(method, request_timeout)
+            except Exception as e2:
+                log.error(f"Fallback 1 failed: {e2}")
+                try:
+                    setattr(method, "reply_markup", None)
+                    return await super().__call__(method, request_timeout)
+                except Exception as e3:
+                    log.error(f"Fallback 2 failed: {e3}")
+                    raise e3
 
 
 # ═══════════════════════════════════════════════
