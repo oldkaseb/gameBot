@@ -211,19 +211,23 @@ async def _build_main_menu(uid: int, name: str):
         f"{E.PARTY}{E.SPARK} <b>{t('welcome', lang, name=name)}</b>\n\n"
         f"{E.GAME} {t('game_panel', lang)}\n\n{t('choose_game_hint', lang)}"
     )
+    # در گروه — فقط callback
+    def gbtn(txt, game):
+        return primary(txt, f"open_game_{game}_{uid}")
+
     rows = [
-        [webapp_btn(f"{E.PUZZLE} {t('game_2048_title', lang)}", "2048", uid),
-         webapp_btn(f"{E.PUZZLE} {t('game_spuzzle', lang)}", "spuzzle", uid)],
-        [webapp_btn(f"{E.SPARK} {t('game_samegame', lang)}", "samegame", uid)],
+        [gbtn(f"{E.PUZZLE} {t('game_2048_title', lang)}", "2048"),
+         gbtn(f"{E.PUZZLE} {t('game_spuzzle', lang)}", "spuzzle")],
+        [gbtn(f"{E.SPARK} {t('game_samegame', lang)}", "samegame")],
         [primary(f"{E.TARGET} {t('game_dooz', lang)}", f"lobby_dooz_{uid}"),
          primary(f"{E.TARGET} {t('game_doz4p', lang)}", f"lobby_doz4p_{uid}")],
         [success(f"{E.GAME} {t('game_connect4', lang)}", f"lobby_connect4_{uid}"),
          success(f"{E.CARD} {t('game_hokm_4p', lang)}", f"lobby_hokm_{uid}")],
         [primary(f"{E.PUZZLE} {t('game_rps', lang)}", f"lobby_rps_{uid}"),
          primary(f"{E.BRAIN} {t('game_memory', lang)}", f"lobby_memory_{uid}")],
-        [webapp_btn(f"{E.MIC} {t('game_typing', lang)}", "typing", uid),
-         webapp_btn(f"{E.BRAIN} {t('game_hangman', lang)}", "hangman", uid)],
-        [webapp_btn(f"{E.TARGET} {t('game_guess_num', lang)}", "guess", uid)],
+        [gbtn(f"{E.MIC} {t('game_typing', lang)}", "typing"),
+         gbtn(f"{E.BRAIN} {t('game_hangman', lang)}", "hangman")],
+        [gbtn(f"{E.TARGET} {t('game_guess_num', lang)}", "guess")],
         [success(f"{E.TARGET} {t('game_gardone', lang)}", f"gardone_start_{uid}")],
         [danger(f"{E.CROSS} {t('btn_close', lang)}", f"rsgame_close_{uid}")],
     ]
@@ -284,9 +288,63 @@ async def cmd_start(message: Message, command=None):
     is_pm = message.chat.type == "private"
     payload = (command.args if command else "") or ""
 
+    # ═══════════════ دیپ‌لینک بازی‌های ناشناس → رد به anon_router
     if payload.startswith("gharch_") or payload.startswith("eteraf_"):
         return
 
+    # ═══════════════ دیپ‌لینک بازی → ارسال web_app فقط در PM
+    if is_pm and payload.startswith("game_"):
+        game = payload[5:]  # بعد از "game_"
+        if not game:
+            # اگر پارامتر خالی بود، به روال عادی برمی‌گردیم
+            pass
+        else:
+            lang = get_user_lang(uid)
+
+            # اطمینان از وجود کاربر در دیتابیس
+            user = await db.get_user(uid)
+            if not user:
+                await db.upsert_user(
+                    uid,
+                    message.from_user.username or "",
+                    message.from_user.first_name or "",
+                )
+                user = await db.get_user(uid)
+
+            # بارگذاری زبان از دیتابیس
+            if user and user["language"]:
+                set_user_lang(uid, user["language"])
+                lang = user["language"]
+
+            # بررسی forced join — قبل از باز کردن بازی
+            try:
+                missing = await check_forced_join(message.bot, uid)
+            except Exception:
+                missing = []
+
+            if missing:
+                await message.answer(
+                    t("force_join_msg", lang),
+                    reply_markup=_join_kb(missing, lang),
+                    parse_mode=ParseMode.HTML,
+                )
+                return
+
+            game_url = f"{MINI_APP_URL}/?game={game}&uid={uid}"
+            await message.answer(
+                f"{E.GAME} <b>{t('open_in_pm_title', lang)}</b>\n\n"
+                f"{E.INFO} {t('open_in_pm_body', lang)}",
+                reply_markup=kb([[
+                    primary(
+                        f"{E.PLAY} {t('open_game_btn', lang)}",
+                        web_app_url=game_url,
+                    )
+                ]]),
+                parse_mode=ParseMode.HTML,
+            )
+            return
+
+    # ═══════════════ ثبت کاربر جدید
     user = await db.get_user(uid)
     is_new = user is None
     if is_new:
@@ -295,11 +353,14 @@ async def cmd_start(message: Message, command=None):
             message.from_user.username or "",
             message.from_user.first_name or "",
         )
+        user = await db.get_user(uid)
 
+    # ═══════════════ بارگذاری زبان کاربر
     user_lang = user["language"] if user else None
     if user_lang:
         set_user_lang(uid, user_lang)
 
+    # ═══════════════ بررسی عضویت اجباری
     try:
         missing = await check_forced_join(message.bot, uid)
     except Exception:
@@ -314,6 +375,7 @@ async def cmd_start(message: Message, command=None):
         )
         return
 
+    # ═══════════════ کاربر جدید یا بدون زبان → انتخاب زبان (فقط PM)
     if is_pm and (is_new or not user_lang):
         rows = [[btn(v, f"set_lang:{k}")] for k, v in LANGS.items()]
         await message.answer(
@@ -323,10 +385,18 @@ async def cmd_start(message: Message, command=None):
         )
         return
 
+    # ═══════════════ نمایش منو
     if is_pm:
-        await _show_pm_welcome(message, uid, message.from_user.first_name or "دوست", edit=False)
+        await _show_pm_welcome(
+            message, uid,
+            message.from_user.first_name or t("player", get_user_lang(uid)),
+            edit=False,
+        )
     else:
-        text, markup = await _build_main_menu(uid, message.from_user.first_name or "دوست")
+        text, markup = await _build_main_menu(
+            uid,
+            message.from_user.first_name or t("player", get_user_lang(uid)),
+        )
         await message.answer(text, reply_markup=markup, parse_mode=ParseMode.HTML)
 
 
