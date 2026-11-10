@@ -19,15 +19,23 @@ function App() {
 
   if (!gameData) return <div className="glass-bg h-screen text-white flex items-center justify-center">در حال بارگذاری...</div>;
 
-  const isMulti = ['hokm', 'dooz', 'connect4'].includes(gameData.game);
+  // بازی‌های چت‌محور
   const isChat = ['typing', 'hangman', 'guess'].includes(gameData.game);
+  
+  // بازی حکم (فعلاً تنها بازی چندنفره‌ای که فرانت‌اند کامل دارد)
+  const isHokm = gameData.game === 'hokm';
 
   return (
     <div className="glass-bg min-h-screen text-white font-sans">
-      {isMulti && <HokmGame session={gameData.session} uid={gameData.uid} />}
+      {isHokm && <HokmGame session={gameData.session} uid={gameData.uid} />}
       {isChat && <ChatGame game={gameData.game} session={gameData.session} uid={gameData.uid} />}
-      {!isMulti && !isChat && (
-         <div className="flex items-center justify-center h-screen">بازی در حال توسعه است...</div>
+      
+      {/* بازی‌های دیگر که هنوز فرانت‌اند کامل ندارند */}
+      {!isHokm && !isChat && (
+         <div className="flex flex-col items-center justify-center h-screen text-center px-4">
+            <h1 className="text-2xl font-bold mb-4">🎮 بازی در حال توسعه است</h1>
+            <p className="text-gray-300">به زودی می‌توانید این بازی را در همین صفحه انجام دهید.</p>
+         </div>
       )}
     </div>
   );
