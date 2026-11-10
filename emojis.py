@@ -152,8 +152,8 @@ def render_emojis(text: str) -> str:
     return EMOJI_ID_RE.sub(repl, text)
 
 
-def strip_custom_emoji_tags(text: str, keep_unicode: bool = True) -> str:
-    """حذف تگ‌های tg-emoji. اگر keep_unicode=False، حتی fallback یونیکد هم حذف می‌شود"""
+def strip_custom_emoji_tags(text: str, keep_unicode: bool = False) -> str:
+    """حذف تگ‌های tg-emoji. پیش‌فرض: حذف کامل بدون fallback یونیکد"""
     if not text or "<tg-emoji" not in text:
         return text
     if keep_unicode:
