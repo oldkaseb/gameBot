@@ -1,7 +1,8 @@
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Query
 from fastapi.middleware.cors import CORSMiddleware
 import json
 from game_logic.hokm import HokmGame
+from auth import validate_init_data
 
 app = FastAPI()
 
@@ -18,7 +19,31 @@ active_rooms = {}
 connections = {}
 
 @app.websocket("/ws/{game_type}/{session_id}/{user_id}")
-async def websocket_endpoint(websocket: WebSocket, game_type: str, session_id: str, user_id: int):
+async def websocket_endpoint(
+    websocket: WebSocket, 
+    game_type: str, 
+    session_id: str, 
+    user_id: int,
+    init_data: str = Query(None)  # ✅ دریافت دیتای احراز هویت
+):
+    # ✅ اعتبارسنجی امنیتی کاربر
+    if not init_data:
+        await websocket.close(code=1008)
+        return
+        
+    try:
+        tg_user = validate_init_data(init_data)
+        real_user_id = tg_user.get("id")
+        
+        # چک کردن اینکه کاربری که در URL است با کاربر واقعی تلگرام یکی است
+        if real_user_id != user_id:
+            await websocket.close(code=1008)
+            return
+    except Exception as e:
+        print(f"Auth error: {e}")
+        await websocket.close(code=1008)
+        return
+
     await websocket.accept()
     
     if session_id not in connections:
@@ -38,8 +63,7 @@ async def websocket_endpoint(websocket: WebSocket, game_type: str, session_id: s
             
             if game_type == "hokm":
                 game = active_rooms[session_id]
-                # پردازش حرکت
-                response = game.handle_action(user_id, msg)
+                game.handle_action(user_id, msg)
                 
                 # ارسال وضعیت جدید به همه
                 for conn in connections[session_id]:
