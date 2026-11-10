@@ -14,10 +14,10 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import (
-    CallbackQuery, LabeledPrice, Message, PreCheckoutQuery,
+    CallbackQuery, InlineKeyboardMarkup, LabeledPrice, Message, PreCheckoutQuery,
 )
 
-from emojis import E, render_emojis
+from emojis import E, render_emojis, strip_custom_emoji_tags, extract_emoji_ids
 from langs import LANGS, t, get_user_lang, set_user_lang
 from utils.premium import btn, success, primary, danger, kb
 from utils.commands import router as persian_cmd_router
@@ -39,19 +39,77 @@ OWNER_IDS = {7662192190, 6041119040}
 
 
 # ═══════════════════════════════════════════════
-# Bot با پارسر خودکار
+# Bot با پارسر خودکار + Fallback هوشمند ایموجی پریمیوم
 # ═══════════════════════════════════════════════
 
+def _strip_btn_icons(markup):
+    """حذف آیکون ایموجی پریمیوم از همه دکمه‌ها — برای fallback."""
+    if not isinstance(markup, InlineKeyboardMarkup):
+        return markup
+    try:
+        new_rows = [
+            [b.model_copy(update={"icon_custom_emoji_id": None}) for b in row]
+            for row in markup.inline_keyboard
+        ]
+        return InlineKeyboardMarkup(inline_keyboard=new_rows)
+    except Exception:
+        return markup
+
+
 class EmojiBot(Bot):
+    """
+    Bot با پردازش خودکار [id] → <tg-emoji>.
+    اگر تلگرام به هر دلیلی DOCUMENT_INVALID برگرداند
+    (مثلاً ID ایموجی نامعتبر/غیرقابل‌دسترس باشد)،
+    پیام به‌طور خودکار بدون ایموجی پریمیوم دوباره ارسال می‌شود
+    تا ربات هیچ‌وقت به خاطر یک ایموجی خراب ساکت نشود.
+    """
     async def __call__(self, method, request_timeout=None):
+        rendered = False
         for attr in ("text", "caption"):
             val = getattr(method, attr, None)
             if isinstance(val, str) and "[" in val and "<tg-emoji" not in val:
                 try:
                     setattr(method, attr, render_emojis(val))
+                    rendered = True
                 except Exception:
                     pass
-        return await super().__call__(method, request_timeout)
+
+        try:
+            return await super().__call__(method, request_timeout)
+        except TelegramBadRequest as e:
+            if "DOCUMENT_INVALID" not in str(e) or not rendered:
+                raise
+
+            # ── لاگ دیباگ: کدام IDها در پیام مشکل‌دار بودند؟
+            bad_ids: set[str] = set()
+            for attr in ("text", "caption"):
+                val = getattr(method, attr, None)
+                if isinstance(val, str):
+                    bad_ids.update(extract_emoji_ids(val))
+            log.warning(
+                f"⚠️ DOCUMENT_INVALID در {method.__class__.__name__} — "
+                f"retry بدون ایموجی پریمیوم. IDهای مشکوک: {sorted(bad_ids)}"
+            )
+
+            # ── Fallback: تگ‌های <tg-emoji> را با ایموجی یونیکد ساده جایگزین کن
+            for attr in ("text", "caption"):
+                val = getattr(method, attr, None)
+                if isinstance(val, str) and "<tg-emoji" in val:
+                    try:
+                        setattr(method, attr, strip_custom_emoji_tags(val))
+                    except Exception:
+                        pass
+
+            # ── Fallback: آیکون دکمه‌ها را هم پاک کن
+            try:
+                rm = getattr(method, "reply_markup", None)
+                if rm is not None:
+                    setattr(method, "reply_markup", _strip_btn_icons(rm))
+            except Exception:
+                pass
+
+            return await super().__call__(method, request_timeout)
 
 
 # ═══════════════════════════════════════════════
@@ -247,7 +305,6 @@ async def cmd_start(message: Message, command=None):
     if user_lang:
         set_user_lang(uid, user_lang)
 
-    # انتخاب زبان فقط در PV
     if is_pm and (is_new or not user_lang):
         rows = [[btn(v, f"set_lang:{k}")] for k, v in LANGS.items()]
         await message.answer(
@@ -442,7 +499,6 @@ async def main():
             return
 
         await cb.answer("✅")
-        # کاربر عضو شد → ادامه
         user = await db.get_user(cb.from_user.id)
         if not user:
             await db.upsert_user(
