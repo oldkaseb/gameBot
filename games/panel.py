@@ -1,5 +1,8 @@
-"""پنل بازی‌ها — گروه: callback / پیوی: web_app"""
+# -*- coding: utf-8 -*-
+"""پنل بازی‌ها — تمام بازی‌ها متصل به مینی‌اپ با حفظ استایل primary / success / danger"""
 
+import os
+from urllib.parse import urlencode
 from aiogram import Router, F
 from aiogram.types import CallbackQuery, Message
 from aiogram.enums import ParseMode, ChatType
@@ -11,12 +14,18 @@ from utils.premium import success, primary, danger, kb
 from runtime import get_bot_username
 
 router = Router(name="panel")
-MINI_APP_URL = "https://games.rhinokaseb.abrdns.com"
+MINI_APP_URL = os.environ.get("MINI_APP_URL", "https://games.rhinokaseb.abrdns.com").rstrip("/")
 
 
-def _group_game_btn(text: str, game: str, uid: int):
-    """دکمه امن برای گروه — callback به جای web_app"""
-    return primary(text, f"open_game_{game}_{uid}")
+def _group_game_btn(text: str, game: str, uid: int, style_fn=primary):
+    """دکمه امن برای گروه — هدایت به مینی‌اپ بازی"""
+    return style_fn(text, f"open_game_{game}_{uid}")
+
+
+def _pm_game_btn(text: str, game: str, uid: int, lang: str, style_fn=primary):
+    """دکمه مستقیم WebApp برای پیوی"""
+    params = urlencode({"game": game, "uid": uid, "lang": lang})
+    return style_fn(text, web_app_url=f"{MINI_APP_URL}/?{params}")
 
 
 @router.message(Command("rsgame"))
@@ -35,40 +44,47 @@ async def show_panel(message: Message):
         f"{t('choose_game_hint', lang)}"
     )
     rows = [
-        [_group_game_btn(f"{E.PUZZLE} {t('game_2048_title', lang)}", "2048", uid),
-         _group_game_btn(f"{E.PUZZLE} {t('game_spuzzle', lang)}", "spuzzle", uid)],
-        [_group_game_btn(f"{E.SPARK} {t('game_samegame', lang)}", "samegame", uid)],
-        [primary(f"{E.TARGET} {t('game_dooz', lang)}", f"lobby_dooz_{uid}"),
-         primary(f"{E.TARGET} {t('game_doz4p', lang)}", f"lobby_doz4p_{uid}")],
-        [success(f"{E.GAME} {t('game_connect4', lang)}", f"lobby_connect4_{uid}"),
-         success(f"{E.CARD} {t('game_hokm_4p', lang)}", f"lobby_hokm_{uid}")],
-        [primary(f"{E.PUZZLE} {t('game_rps', lang)}", f"lobby_rps_{uid}"),
-         primary(f"{E.BRAIN} {t('game_memory', lang)}", f"lobby_memory_{uid}")],
-        [_group_game_btn(f"{E.MIC} {t('game_typing', lang)}", "typing", uid),
-         _group_game_btn(f"{E.BRAIN} {t('game_hangman', lang)}", "hangman", uid)],
-        [_group_game_btn(f"{E.TARGET} {t('game_guess_num', lang)}", "guess", uid)],
-        [success(f"{E.TARGET} {t('game_gardone', lang)}", f"gardone_start_{uid}")],
+        [_group_game_btn(f"{E.PUZZLE} {t('game_2048_title', lang)}", "2048", uid, primary),
+         _group_game_btn(f"{E.PUZZLE} {t('game_spuzzle', lang)}", "spuzzle", uid, primary)],
+        [_group_game_btn(f"{E.SPARK} {t('game_samegame', lang)}", "samegame", uid, primary)],
+        [_group_game_btn(f"{E.TARGET} {t('game_dooz', lang)}", "dooz", uid, primary),
+         _group_game_btn(f"{E.TARGET} {t('game_doz4p', lang)}", "doz4p", uid, primary)],
+        [_group_game_btn(f"{E.GAME} {t('game_connect4', lang)}", "connect4", uid, success),
+         _group_game_btn(f"{E.CARD} {t('game_hokm_4p', lang)}", "hokm", uid, success)],
+        [_group_game_btn(f"{E.PUZZLE} {t('game_rps', lang)}", "rps", uid, primary),
+         _group_game_btn(f"{E.BRAIN} {t('game_memory', lang)}", "memory", uid, primary)],
+        [_group_game_btn(f"{E.MIC} {t('game_typing', lang)}", "typing", uid, primary),
+         _group_game_btn(f"{E.BRAIN} {t('game_hangman', lang)}", "hangman", uid, primary)],
+        [_group_game_btn(f"{E.TARGET} {t('game_guess_num', lang)}", "guess", uid, primary)],
+        [_group_game_btn(f"{E.TARGET} {t('game_gardone', lang)}", "gardone", uid, success)],
         [danger(f"{E.CROSS} {t('btn_close', lang)}", f"rsgame_close_{uid}")],
     ]
     await message.answer(text, reply_markup=kb(rows), parse_mode=ParseMode.HTML)
 
 
 async def _send_pm_panel(message: Message, uid: int, lang: str, name: str):
-    """نسخه پیوی — web_app مجاز است"""
-    def wa(text, game):
-        return primary(text, web_app_url=f"{MINI_APP_URL}/?game={game}&uid={uid}")
+    """نسخه پیوی — تمام بازی‌ها با WebApp مستقیم باز می‌شوند"""
+    def wa(text, game, style_fn=primary):
+        return _pm_game_btn(text, game, uid, lang, style_fn=style_fn)
 
     text = (
         f"{E.GAME}{E.PARTY} <b>{t('game_panel', lang, name=name)}</b>\n\n"
         f"{t('choose_game_hint', lang)}"
     )
     rows = [
-        [wa(f"{E.PUZZLE} {t('game_2048_title', lang)}", "2048"),
-         wa(f"{E.PUZZLE} {t('game_spuzzle', lang)}", "spuzzle")],
-        [wa(f"{E.SPARK} {t('game_samegame', lang)}", "samegame")],
-        [wa(f"{E.MIC} {t('game_typing', lang)}", "typing"),
-         wa(f"{E.BRAIN} {t('game_hangman', lang)}", "hangman")],
-        [wa(f"{E.TARGET} {t('game_guess_num', lang)}", "guess")],
+        [wa(f"{E.PUZZLE} {t('game_2048_title', lang)}", "2048", primary),
+         wa(f"{E.PUZZLE} {t('game_spuzzle', lang)}", "spuzzle", primary)],
+        [wa(f"{E.SPARK} {t('game_samegame', lang)}", "samegame", primary)],
+        [wa(f"{E.TARGET} {t('game_dooz', lang)}", "dooz", primary),
+         wa(f"{E.TARGET} {t('game_doz4p', lang)}", "doz4p", primary)],
+        [wa(f"{E.GAME} {t('game_connect4', lang)}", "connect4", success),
+         wa(f"{E.CARD} {t('game_hokm_4p', lang)}", "hokm", success)],
+        [wa(f"{E.PUZZLE} {t('game_rps', lang)}", "rps", primary),
+         wa(f"{E.BRAIN} {t('game_memory', lang)}", "memory", primary)],
+        [wa(f"{E.MIC} {t('game_typing', lang)}", "typing", primary),
+         wa(f"{E.BRAIN} {t('game_hangman', lang)}", "hangman", primary)],
+        [wa(f"{E.TARGET} {t('game_guess_num', lang)}", "guess", primary)],
+        [wa(f"{E.TARGET} {t('game_gardone', lang)}", "gardone", success)],
         [danger(f"{E.CROSS} {t('btn_close', lang)}", f"rsgame_close_{uid}")],
     ]
     await message.answer(text, reply_markup=kb(rows), parse_mode=ParseMode.HTML)
@@ -81,7 +97,7 @@ async def open_game_redirect(cb: CallbackQuery):
         game = parts[2]
         target_uid = int(parts[3])
     except (IndexError, ValueError):
-        await cb.answer("❌", show_alert=True)
+        await cb.answer("Invalid request", show_alert=True)
         return
 
     uid = cb.from_user.id
@@ -91,10 +107,10 @@ async def open_game_redirect(cb: CallbackQuery):
         await cb.answer(t("not_your_panel", lang), show_alert=True)
         return
 
-    await cb.answer()
-
     bot_name = get_bot_username()
     deep_link = f"https://t.me/{bot_name}?start=game_{game}"
+    chat_id = cb.message.chat.id if cb.message else 0
+    game_url = f"{MINI_APP_URL}/?game={game}&uid={uid}&chat_id={chat_id}&lang={lang}"
 
     try:
         await cb.bot.send_message(
@@ -102,9 +118,9 @@ async def open_game_redirect(cb: CallbackQuery):
             f"{E.GAME} <b>{t('open_in_pm_title', lang)}</b>\n\n"
             f"{E.INFO} {t('open_in_pm_body', lang)}",
             reply_markup=kb([[
-                primary(
+                success(
                     f"{E.PLAY} {t('open_game_btn', lang)}",
-                    web_app_url=f"{MINI_APP_URL}/?game={game}&uid={uid}",
+                    web_app_url=game_url,
                 )
             ]]),
             parse_mode=ParseMode.HTML,
