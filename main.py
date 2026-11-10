@@ -1,7 +1,8 @@
 # -*- coding: utf-8 -*-
-"""main.py — ربات بازی راینو (نسخه دیباگ‌شده و متصل به مینی‌اپ)"""
+"""main.py — ربات بازی راینو (نسخه نهایی و بدون خطای ENTITY_TEXT_INVALID)"""
 
 import asyncio
+import html
 import logging
 import os
 from urllib.parse import urlencode
@@ -48,25 +49,21 @@ MINI_APP_URL = os.environ.get("MINI_APP_URL", "https://games.rhinokaseb.abrdns.c
 # ═══════════════════════════════════════════════
 
 def _clean_lang_label(label: str) -> str:
-    """حذف ایموجی‌های یونیکد پرچم از ابتدای نام زبان و جایگزینی با کاستوم ایموجی"""
     parts = (label or "").split(" ", 1)
     clean_name = parts[1] if len(parts) > 1 else label
-    globe_emoji = getattr(E, "GLOBE", getattr(E, "SPARK", ""))
-    return f"{globe_emoji} {clean_name}".strip()
+    return f"{E.GLOBE} {clean_name}".strip()
 
 
-def _clean_btn_text(text: str) -> str:
-    if not text:
-        return "·"
-    return EMOJI_ID_RE.sub(lambda m: BASE_MAP.get(m.group(1), ""), text).strip() or "·"
+def _safe_name(name: str) -> str:
+    return html.escape(name or "Player")
 
 
 class EmojiBot(Bot):
     async def __call__(self, method, request_timeout=None):
-        # رندر ایموجی‌های پریمیوم برای متن و کپشن
+        # رندر توکن‌های [E:ID] به <tg-emoji> برای متن و کپشن
         for attr in ("text", "caption"):
             val = getattr(method, attr, None)
-            if isinstance(val, str) and "[" in val and "<tg-emoji" not in val:
+            if isinstance(val, str) and "[E:" in val:
                 try:
                     setattr(method, attr, render_emojis(val))
                 except Exception:
@@ -76,12 +73,12 @@ class EmojiBot(Bot):
             return await super().__call__(method, request_timeout)
         except TelegramBadRequest as e:
             err = str(e)
-            # اگر DOCUMENT_INVALID رخ داد، تگ‌های کاستوم ایموجی نامعتبر را بدون گذاشتن یونیکد ساده پاک کن
-            if "DOCUMENT_INVALID" in err or "CUSTOM_EMOJI" in err:
-                log.warning("DOCUMENT_INVALID — stripping invalid custom emoji tags")
+            # مدیریت خطاهای مربوط به تگ ایموجی یا دکمه‌ها
+            if any(k in err for k in ("DOCUMENT_INVALID", "ENTITY_TEXT_INVALID", "CUSTOM_EMOJI", "BUTTON_ICON")):
+                log.warning(f"Telegram emoji/button fallback triggered ({err}) — retrying cleanly")
                 for attr in ("text", "caption"):
                     val = getattr(method, attr, None)
-                    if isinstance(val, str) and "<tg-emoji" in val:
+                    if isinstance(val, str) and ("<tg-emoji" in val or "[E:" in val):
                         try:
                             setattr(method, attr, strip_custom_emoji_tags(val, keep_unicode=False))
                         except Exception:
@@ -200,7 +197,7 @@ class GameGuard(BaseMiddleware):
 
 
 # ═══════════════════════════════════════════════
-# منوی اصلی (تمام بازی‌ها متصل به Mini App با حفظ استایل‌ها)
+# منوی اصلی
 # ═══════════════════════════════════════════════
 
 def webapp_btn(text: str, game: str, uid: int, style_fn=primary) -> InlineKeyboardButton:
@@ -211,12 +208,12 @@ def webapp_btn(text: str, game: str, uid: int, style_fn=primary) -> InlineKeyboa
 
 async def _build_main_menu(uid: int, name: str, is_pm: bool = False):
     lang = get_user_lang(uid)
+    safe_n = _safe_name(name)
     text = (
-        f"{E.PARTY}{E.SPARK} <b>{t('welcome', lang, name=name)}</b>\n\n"
-        f"{E.GAME} {t('game_panel', lang, name=name)}\n\n{t('choose_game_hint', lang)}"
+        f"{E.PARTY}{E.SPARK} <b>{t('welcome', lang, name=safe_n)}</b>\n\n"
+        f"{E.GAME} {t('game_panel', lang, name=safe_n)}\n\n{t('choose_game_hint', lang)}"
     )
 
-    # در پیوی مستقیماً WebApp باز می‌شود؛ در گروه از طریق open_game_ لینک مینی‌اپ/لابی ساخته می‌شود
     def gbtn(txt, game, style_fn=primary):
         if is_pm:
             return webapp_btn(txt, game, uid, style_fn=style_fn)
@@ -246,19 +243,20 @@ async def _build_main_menu(uid: int, name: str, is_pm: bool = False):
 async def _build_pm_welcome(uid: int, name: str):
     lang = get_user_lang(uid)
     bot_username = get_bot_username()
+    safe_n = _safe_name(name)
 
     text = (
-        f"{E.WAVE}{E.SPARK} <b>{t('pm_welcome_title', lang, name=name)}</b>\n\n"
+        f"{E.WAVE}{E.SPARK} <b>{t('pm_welcome_title', lang, name=safe_n)}</b>\n\n"
         f"{E.GAME} {t('pm_welcome_body', lang)}\n\n"
         f"{E.HEART} {t('pm_welcome_donate_hint', lang)}"
     )
     rows = [
         [success(
-            f"{E.GAME} {t('game_panel', lang, name=name)}",
+            f"{E.GAME} {t('open_game_btn', lang)}",
             web_app_url=f"{MINI_APP_URL}/?uid={uid}&lang={lang}",
         )],
         [primary(
-            f"{E.SPARK} {t('open_game_btn', lang)}",
+            f"{E.SPARK} پنل انتخاب بازی‌ها",
             "open_pm_games",
         )],
         [success(
@@ -266,7 +264,7 @@ async def _build_pm_welcome(uid: int, name: str):
             url=f"https://t.me/{bot_username}?startgroup=true",
         )],
         [primary(f"{E.HEART} {t('btn_donate', lang)}", "donate")],
-        [primary(f"{E.SPARK} {t('btn_change_lang', lang)}", "lang_menu")],
+        [primary(f"{E.GLOBE} {t('btn_change_lang', lang)}", "lang_menu")],
     ]
     if uid in OWNER_IDS:
         rows.append([success(f"{E.CROWN} {t('admin_panel', lang)}", "adm:panel")])
@@ -291,7 +289,7 @@ async def _show_pm_welcome(cb_or_msg, uid: int, name: str, edit: bool = True):
     try:
         await target_msg.answer(text, reply_markup=markup, parse_mode=ParseMode.HTML)
     except Exception as e:
-        log.debug(f"_show_pm_welcome: {e}")
+        log.error(f"_show_pm_welcome error: {e}")
 
 
 # ═══════════════════════════════════════════════
@@ -303,11 +301,9 @@ async def cmd_start(message: Message, command=None):
     is_pm = message.chat.type == "private"
     payload = (command.args if command else "") or ""
 
-    # ═══════════════ دیپ‌لینک بازی‌های ناشناس → رد به anon_router
     if payload.startswith("gharch_") or payload.startswith("eteraf_"):
         return
 
-    # ═══════════════ دیپ‌لینک بازی → ارسال web_app در PM
     if is_pm and payload.startswith("game_"):
         game = payload[5:]
         if game:
@@ -351,7 +347,6 @@ async def cmd_start(message: Message, command=None):
             )
             return
 
-    # ═══════════════ ثبت کاربر جدید
     user = await db.get_user(uid)
     is_new = user is None
     if is_new:
@@ -362,12 +357,10 @@ async def cmd_start(message: Message, command=None):
         )
         user = await db.get_user(uid)
 
-    # ═══════════════ بارگذاری زبان کاربر
     user_lang = user["language"] if user else None
     if user_lang:
         set_user_lang(uid, user_lang)
 
-    # ═══════════════ بررسی عضویت اجباری
     try:
         missing = await check_forced_join(message.bot, uid)
     except Exception:
@@ -382,7 +375,6 @@ async def cmd_start(message: Message, command=None):
         )
         return
 
-    # ═══════════════ کاربر جدید یا بدون زبان → انتخاب زبان (با استایل primary و بدون یونیکد ساده)
     if is_pm and (is_new or not user_lang):
         rows = [[primary(_clean_lang_label(v), f"set_lang:{k}")] for k, v in LANGS.items()]
         await message.answer(
@@ -392,7 +384,6 @@ async def cmd_start(message: Message, command=None):
         )
         return
 
-    # ═══════════════ نمایش منو
     if is_pm:
         await _show_pm_welcome(
             message, uid,
@@ -490,11 +481,10 @@ async def _send_stars_invoice(bot: Bot, chat_id: int, amount: int, uid: int):
 
 
 # ═══════════════════════════════════════════════
-# Health server
+# Health & MiniApp Server
 # ═══════════════════════════════════════════════
 
-async def _start_health_server(port: int = 8000):
-    """اجرای همزمان سرور FastAPI مینی‌اپ و WebSocket در کنار ربات تلگرام"""
+async def _start_health_server(port: int = 8080):
     try:
         import uvicorn
         from webapp.backend.main import app as webapp_fastapi
@@ -719,7 +709,7 @@ async def main():
                 await msg.bot.send_message(
                     oid,
                     t("donate_owner_notify", "fa",
-                      name=msg.from_user.first_name or "—",
+                      name=_safe_name(msg.from_user.first_name or "—"),
                       uid=msg.from_user.id, n=amount),
                     parse_mode=ParseMode.HTML,
                 )
@@ -742,7 +732,7 @@ async def main():
         )
     finally:
         if health_runner:
-            await health_runner.cleanup()
+            health_runner.should_exit = True
         await db.close()
         await bot.session.close()
 
