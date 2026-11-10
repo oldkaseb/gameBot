@@ -1,14 +1,57 @@
-"""langs.py — سیستم ۷ زبانه با لحن صمیمی"""
+# -*- coding: utf-8 -*-
+"""langs.py — سیستم ۷ زبانه با کاستوم ایموجی پریمیوم (بدون ایموجی یونیکد ساده)"""
+
+import re
+from emojis import E
 
 LANGS = {
-    "fa": "🇮🇷 فارسی",
-    "en": "🇬🇧 English",
-    "ar": "🇸🇦 العربية",
-    "tr": "🇹🇷 Türkçe",
-    "ru": "🇷🇺 Русский",
-    "de": "🇩🇪 Deutsch",
-    "zh": "🇨🇳 中文",
+    "fa": f"{E.GLOBE} فارسی",
+    "en": f"{E.GLOBE} English",
+    "ar": f"{E.GLOBE} العربية",
+    "tr": f"{E.GLOBE} Türkçe",
+    "ru": f"{E.GLOBE} Русский",
+    "de": f"{E.GLOBE} Deutsch",
+    "zh": f"{E.GLOBE} 中文",
 }
+
+# جایگزینی خودکار ایموجی‌های یونیکد با کاستوم ایموجی پریمیوم در متن‌ها
+_UNICODE_TO_CUSTOM = {
+    "✅": E.CHECK,
+    "❌": E.CROSS,
+    "🔒": E.LOCK,
+    "🏆": E.TROPHY,
+    "💀": E.SKULL,
+    "❤️": E.HEART,
+    "👋": E.WAVE,
+    "⭐": E.STAR,
+    "🎮": E.GAME,
+    "🚫": E.BLOCK,
+    "❗": E.WARN,
+    "👇": E.ARROW,
+    "✏️": E.SPARK,
+    "🙏": E.HEART,
+    "💡": E.SPARK,
+    "💰": E.TROPHY,
+    "👤": E.USER,
+    "🆔": E.INFO,
+    "📝": E.INFO,
+    "📜": E.INFO,
+    "🍄": E.SPARK,
+    "🤫": E.LOCK,
+    "🤝": E.HEART,
+    "⚔️": E.FIRE,
+}
+
+_STRIP_RE = re.compile(
+    "["
+    "\U0001F1E0-\U0001F1FF"
+    "\U0001F300-\U0001F9FF"
+    "\U00002600-\U000027BF"
+    "\U0001FA00-\U0001FAFF"
+    "\u200d\ufe0f\u20e3"
+    "]+",
+    flags=re.UNICODE,
+)
 
 T = {
 # ═══════════════════ عمومی
@@ -61,7 +104,7 @@ T = {
 "btn_anon":       {"fa": "ناشناس", "en": "Anonymous", "ar": "مجهول", "tr": "Anonim", "ru": "Анонимно", "de": "Anonym", "zh": "匿名"},
 
 # ═══════════════════ پنل بازی
-"game_panel":         {"fa": "خب رفیق، پنل بازه. کدوم دسته؟", "en": "Panel's open. Which category?", "ar": "اللوحة مفتوحة. اختر فئة:", "tr": "Panel açık. Kategori seç:", "ru": "Панель открыта. Выбери:", "de": "Panel offen. Kategorie?", "zh": "面板开了，选个分类："},
+"game_panel":         {"fa": "خب رفیق، پنل بازه. کدوم بازی رو می‌خوای؟", "en": "Panel's open. Pick a game:", "ar": "اللوحة مفتوحة. اختر لعبة:", "tr": "Panel açık. Oyun seç:", "ru": "Панель открыта. Выбери:", "de": "Panel offen. Spiel wählen:", "zh": "面板开了，选个游戏："},
 "group_games_title":  {"fa": "بازی‌های کارتی و گروهی", "en": "Card & Group Games", "ar": "ألعاب جماعية", "tr": "Kart & Grup", "ru": "Карточные и групповые", "de": "Karten & Gruppe", "zh": "卡牌与群组"},
 "single_games_title": {"fa": "بازی‌های تنهایی", "en": "Solo Games", "ar": "ألعاب فردية", "tr": "Tek Oyunlar", "ru": "Одиночные", "de": "Solo-Spiele", "zh": "单人游戏"},
 "typing_games_title": {"fa": "بازی‌های تایپی و سرعتی", "en": "Typing & Speed", "ar": "ألعاب الكتابة والسرعة", "tr": "Yazma & Hız", "ru": "Печать и скорость", "de": "Tippen & Tempo", "zh": "打字与速度"},
@@ -269,6 +312,7 @@ T = {
 "need_active_sub": {"fa": "اشتراکت تموم شده", "en": "Subscription expired", "ar": "انتهى اشتراكك", "tr": "Aboneliğin bitti", "ru": "Подписка истекла", "de": "Abo abgelaufen", "zh": "订阅已过期"},
 "not_member":      {"fa": "هنوز عضو نشدی!", "en": "Not a member yet!", "ar": "لست عضواً بعد!", "tr": "Henüz üye değilsin!", "ru": "Ты ещё не вступил!", "de": "Noch nicht dabei!", "zh": "还不是成员！"},
 "error_occured":   {"fa": "یه مشکلی پیش اومد، دوباره امتحان کن", "en": "Something broke, try again", "ar": "حدث خطأ، جرب مجدداً", "tr": "Bir sorun oldu, tekrar dene", "ru": "Что-то сломалось, попробуй ещё", "de": "Etwas ist schief, versuch nochmal", "zh": "出错了，再试试"},
+"error":           {"fa": "خطا رخ داد", "en": "Error", "ar": "خطأ", "tr": "Hata", "ru": "Ошибка", "de": "Fehler", "zh": "错误"},
 
 # ═══════════════════ پنل ادمین
 "admin_panel":    {"fa": "پنل ادمین", "en": "Admin Panel", "ar": "لوحة المشرف", "tr": "Yönetici Paneli", "ru": "Панель админа", "de": "Admin-Panel", "zh": "管理面板"},
@@ -285,16 +329,16 @@ T = {
 "admin_backup":   {"fa": "بکاپ و ریستور", "en": "Backup & Restore", "ar": "نسخ احتياطي", "tr": "Yedekle", "ru": "Бэкап", "de": "Backup", "zh": "备份与恢复"},
 
 # ═══════════════════ PM Welcome
-"pm_welcome_title":       {"fa": "سلام {name}! خوش اومدی 👋", "en": "Hey {name}! Welcome aboard 👋", "ar": "أهلاً {name}! نورت 👋", "tr": "Selam {name}! Hoş geldin 👋", "ru": "Привет, {name}! Заходи 👋", "de": "Hey {name}! Willkommen 👋", "zh": "嘿 {name}！欢迎 👋"},
-"pm_welcome_body":        {"fa": "برای شروع بازی، ربات رو ببر تو یه گروه. بازی‌ها فقط تو گروه کار می‌کنن.", "en": "To start playing, add the bot to a group. Games only work in groups.", "ar": "لبدء اللعب، أضف البوت لمجموعة. الألعاب تعمل في المجموعات فقط.", "tr": "Oynamak için botu gruba ekle. Oyunlar sadece gruplarda çalışır.", "ru": "Чтобы играть, добавь бота в группу. Игры работают только в группах.", "de": "Um zu spielen, füge den Bot einer Gruppe hinzu. Spiele laufen nur in Gruppen.", "zh": "要玩游戏，把机器人加到群组。游戏只在群里运行。"},
-"pm_welcome_donate_hint": {"fa": "اگه دوست داشتی، با استارز حمایت کن ❤️", "en": "If you feel like it, support with Stars ❤️", "ar": "لو حابب، ادعم بالنجوم ❤️", "tr": "İstersen Yıldızla destekle ❤️", "ru": "Если хочешь, поддержи звёздами ❤️", "de": "Wenn du magst, unterstütz mit Sternen ❤️", "zh": "喜欢的话，用星星支持 ❤️"},
+"pm_welcome_title":       {"fa": "سلام {name}! خوش اومدی", "en": "Hey {name}! Welcome aboard", "ar": "أهلاً {name}! نورت", "tr": "Selam {name}! Hoş geldin", "ru": "Привет, {name}! Заходи", "de": "Hey {name}! Willkommen", "zh": "嘿 {name}！欢迎"},
+"pm_welcome_body":        {"fa": "می‌تونی همینجا مینی‌اپ بازی‌ها رو باز کنی یا ربات رو ببری تو گروه و با دوستات رقابت کنی.", "en": "Open the Mini App right here or add the bot to a group to play with friends.", "ar": "افتح التطبيق المصغر هنا أو أضف البوت لمجموعة للعب مع أصدقائك.", "tr": "Mini uygulamayı buradan aç یا da botu gruba ekle.", "ru": "Открой мини-апп здесь или добавь бота в группу.", "de": "Öffne die Mini-App hier oder füge den Bot einer Gruppe hinzu.", "zh": "在这里打开小程序或把机器人加到群组。"},
+"pm_welcome_donate_hint": {"fa": "اگه دوست داشتی، با استارز حمایت کن", "en": "If you feel like it, support with Stars", "ar": "لو حابب، ادعم بالنجوم", "tr": "İstersen Yıldızla destekle", "ru": "Если хочешь, поддержи звёздами", "de": "Wenn du magst, unterstütz mit Sternen", "zh": "喜欢的话，用星星支持"},
 "btn_add_to_group":       {"fa": "ببر تو گروه", "en": "Add to Group", "ar": "أضف لمجموعة", "tr": "Gruba Ekle", "ru": "Добавить в группу", "de": "Zur Gruppe", "zh": "添加到群组"},
 "btn_change_lang":        {"fa": "تغییر زبان", "en": "Change Language", "ar": "تغيير اللغة", "tr": "Dili Değiştir", "ru": "Сменить язык", "de": "Sprache ändern", "zh": "更改语言"},
 "btn_donate":             {"fa": "حمایت با استارز", "en": "Support with Stars", "ar": "ادعم بالنجوم", "tr": "Yıldızla Destekle", "ru": "Поддержать звёздами", "de": "Mit Sternen unterstützen", "zh": "用星星支持"},
 
 # ═══════════════════ Donate
 "donate_title":           {"fa": "❤️ حمایت از راینوبازی\n\nممنون که هستی رفیق! 🙏\n\nچند تا ستاره می‌خوای هدیه بدی؟\n\n💡 پرداخت امن و سریع از تلگرام", "en": "❤️ Support Rhino Games\n\nThanks for being here, buddy! 🙏\n\nHow many Stars you wanna give?\n\n💡 Safe and fast via Telegram", "ar": "❤️ ادعم ألعاب رينو\n\nشكراً لوجودك يا صاحبي! 🙏\n\nكم نجمة تحب تهدي؟\n\n💡 آمن وسريع عبر تلغرام", "tr": "❤️ Rhino Oyunları'nı Destekle\n\nBurada olduğun için sağol! 🙏\n\nKaç Yıldız vermek istersin?\n\n💡 Telegram üzerinden güvenli", "ru": "❤️ Поддержи Rhino Games\n\nСпасибо, что ты здесь! 🙏\n\nСколько звёзд подаришь?\n\n💡 Безопасно через Telegram", "de": "❤️ Rhino Games unterstützen\n\nDanke, dass du da bist! 🙏\n\nWie viele Sterne willst du geben?\n\n💡 Sicher über Telegram", "zh": "❤️ 支持 Rhino Games\n\n感谢你的陪伴！🙏\n\n你想送几颗星星？\n\n💡 通过 Telegram 安全支付"},
-"donate_custom":          {"fa": "✏️ مقدار دلخواه", "en": "✏️ Custom amount", "ar": "✏️ مبلغ مخصص", "tr": "✏️ Özel miktar", "ru": "✏️ Своя сумма", "de": "✏️ Eigener Betrag", "zh": "✏️ 自定义金额"},
+"donate_custom":          {"fa": "مقدار دلخواه", "en": "Custom amount", "ar": "مبلغ مخصص", "tr": "Özel miktar", "ru": "Своя сумма", "de": "Eigener Betrag", "zh": "自定义金额"},
 "donate_custom_prompt":   {"fa": "چند تا ستاره؟ (۱ تا ۱۰۰۰۰)\nبرای لغو /cancel", "en": "How many Stars? (1-10000)\n/cancel to cancel", "ar": "كم نجمة؟ (1-10000)\n/cancel للإلغاء", "tr": "Kaç Yıldız? (1-10000)\n/cancel iptal", "ru": "Сколько звёзд? (1-10000)\n/cancel отмена", "de": "Wie viele Sterne? (1-10000)\n/cancel abbrechen", "zh": "多少星星？（1-10000）\n/cancel 取消"},
 "donate_invoice_title":   {"fa": "حمایت از راینوبازی", "en": "Support Rhino Games", "ar": "ادعم ألعاب رينو", "tr": "Rhino Oyunları'nı Destekle", "ru": "Поддержать Rhino Games", "de": "Rhino Games unterstützen", "zh": "支持 Rhino Games"},
 "donate_invoice_desc":    {"fa": "اهدا {n} ستاره", "en": "Donate {n} Stars", "ar": "تبرع بـ{n} نجمة", "tr": "{n} Yıldız bağışla", "ru": "Пожертвовать {n} звёзд", "de": "{n} Sterne spenden", "zh": "捐赠 {n} 星星"},
@@ -334,7 +378,7 @@ T = {
     "zh": "游戏已在私聊打开",
 },
 "open_in_pm_body": {
-    "fa": "روی دکمه زیر بزن تا بازی باز شود",
+    "fa": "روی دکمه زیر بزن تا مینی‌اپ بازی باز شود",
     "en": "Tap the button below to open the game",
     "ar": "اضغط الزر أدناه لفتح اللعبة",
     "tr": "Oyunu açmak için aşağıdaki butona bas",
@@ -343,13 +387,13 @@ T = {
     "zh": "点下面的按钮打开游戏",
 },
 "open_game_btn": {
-    "fa": "باز کن",
-    "en": "Open",
-    "ar": "افتح",
-    "tr": "Aç",
-    "ru": "Открыть",
-    "de": "Öffnen",
-    "zh": "打开",
+    "fa": "لیست بازی‌ها",
+    "en": "Games List",
+    "ar": "قائمة الألعاب",
+    "tr": "Oyun Listesi",
+    "ru": "Список игр",
+    "de": "Spieleliste",
+    "zh": "游戏列表",
 },
 "check_pm": {
     "fa": "به پیوی رفتم ✅",
@@ -459,15 +503,6 @@ T = {
     "de": "Zum Spieltisch",
     "zh": "进入游戏桌",
 },
-"enter_game_table": {
-    "fa": "ورود به میز بازی",
-    "en": "Enter Game Table",
-    "ar": "ادخل طاولة اللعب",
-    "tr": "Oyun Masasına Gir",
-    "ru": "Зайти за стол",
-    "de": "Zum Spieltisch",
-    "zh": "进入游戏桌",
-},
 
 # ═══════════════════ Typing
 "typing_prompt": {"fa": "جمله رو سریع و درست تایپ کن!", "en": "Type the sentence fast and correct!", "ar": "اكتب الجملة بسرعة وصح!", "tr": "Cümleyi hızlı ve doğru yaz!", "ru": "Напечатай предложение быстро и точно!", "de": "Tippe den Satz schnell und richtig!", "zh": "快速准确地打出这句话！"},
@@ -477,10 +512,20 @@ T = {
 _user_lang_cache: dict[int, str] = {}
 
 
+def _replace_unicode_with_custom(text: str) -> str:
+    if not text:
+        return text
+    for uni, custom in _UNICODE_TO_CUSTOM.items():
+        if uni in text:
+            text = text.replace(uni, custom)
+    return _STRIP_RE.sub("", text)
+
+
 def t(key: str, lang: str = "fa", **kwargs) -> str:
     row = T.get(key, {})
     text = row.get(lang) or row.get("fa") or key
-    return text.format(**kwargs) if kwargs else text
+    formatted = text.format(**kwargs) if kwargs else text
+    return _replace_unicode_with_custom(formatted)
 
 
 def get_user_lang(user_id: int) -> str:
