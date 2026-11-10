@@ -324,6 +324,15 @@ T = {
     "de": "👇 Wähl ein Spiel:",
     "zh": "👇 选个游戏：",
 },
+"enter_game_table": {
+    "fa": "ورود به میز بازی",
+    "en": "Enter Game Table",
+    "ar": "ادخل طاولة اللعب",
+    "tr": "Oyun Masasına Gir",
+    "ru": "Зайти за стол",
+    "de": "Zum Spieltisch",
+    "zh": "进入游戏桌",
+},
 
 # ═══════════════════ Typing
 "typing_prompt": {"fa": "جمله رو سریع و درست تایپ کن!", "en": "Type the sentence fast and correct!", "ar": "اكتب الجملة بسرعة وصح!", "tr": "Cümleyi hızlı ve doğru yaz!", "ru": "Напечатай предложение быстро и точно!", "de": "Tippe den Satz schnell und richtig!", "zh": "快速准确地打出这句话！"},
