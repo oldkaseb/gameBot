@@ -52,15 +52,21 @@ async def show_panel(message: Message):
     )
 
     rows = [
+        # ۳ بازی اعتیادآور جدید (Core Loop)
+        [primary(f"{E.FIRE} شکارچی سیاه‌چال", f"gcard_dungeon_{uid}"),
+         primary(f"{E.SPARK} هک گاوصندوق", f"gcard_cybervault_{uid}")],
+        [primary(f"{E.TROPHY} برج شیاطین (RPG)", f"gcard_demontower_{uid}")],
+
+        # حکم ۲ نفره و ۴ نفره
+        [primary(f"{E.CARD} {t('game_hokm', lang)}", f"lobby_hokm2p_{uid}"),
+         primary(f"{E.CARD} {t('game_hokm_4p', lang)}", f"lobby_hokm_{uid}")],
         [primary(f"{E.PUZZLE} {t('game_2048_title', lang)}", f"gcard_2048_{uid}"),
          primary(f"{E.PUZZLE} {t('game_spuzzle', lang)}", f"gcard_spuzzle_{uid}")],
         [primary(f"{E.SPARK} {t('game_samegame', lang)}", f"gcard_samegame_{uid}")],
 
         [primary(f"{E.TARGET} {t('game_dooz', lang)}", f"lobby_dooz_{uid}"),
          primary(f"{E.TARGET} {t('game_doz4p', lang)}", f"lobby_doz4p_{uid}")],
-        [success(f"{E.CARD} {t('game_hokm', lang)}", f"lobby_hokm2p_{uid}"),
-         success(f"{E.CARD} {t('game_hokm_4p', lang)}", f"lobby_hokm_{uid}")],
-        [success(f"{E.GAME} {t('game_connect4', lang)}", f"lobby_connect4_{uid}")],
+        [primary(f"{E.GAME} {t('game_connect4', lang)}", f"lobby_connect4_{uid}")],
         [primary(f"{E.PUZZLE} {t('game_rps', lang)}", f"lobby_rps_{uid}"),
          primary(f"{E.BRAIN} {t('game_memory', lang)}", f"lobby_memory_{uid}")],
 
@@ -68,7 +74,7 @@ async def show_panel(message: Message):
          primary(f"{E.BRAIN} {t('game_hangman', lang)}", f"gcard_hangman_{uid}")],
         [primary(f"{E.TARGET} {t('game_guess_num', lang)}", f"gcard_guess_{uid}")],
 
-        [success(f"{E.TARGET} {t('game_gardone', lang)}", f"gardone_start_{uid}")],
+        [primary(f"{E.TARGET} {t('game_gardone', lang)}", f"gardone_start_{uid}")],
         [danger(f"{E.CROSS} {t('btn_close', lang)}", f"rsgame_close_{uid}")],
     ]
     await message.answer(text, reply_markup=kb(rows), parse_mode=ParseMode.HTML)
