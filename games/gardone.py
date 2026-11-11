@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""games/gardone.py — گردونه شانس گروهی با بنر تصویری، مدیریت یوزرنیم، انتخاب تعداد برنده و انیمیشن زنده"""
+"""games/gardone.py — گردونه شانس ۷ زبانه گروهی با بنر تصویری، افزودن/حذف با یوزرنیم و انیمیشن زنده"""
 
 import html
 import os
@@ -14,8 +14,7 @@ from emojis import E
 from langs import t, get_user_lang
 from utils.premium import primary, success, danger, kb
 from database import db
-from games.panel import make_miniapp_btn
-from webapp.backend.main import generate_game_banner
+from games.panel import make_miniapp_btn, _resolve_lang
 
 router = Router(name="gardone")
 MINI_APP_URL = os.environ.get("MINI_APP_URL", "https://games.rhinokaseb.abrdns.com").rstrip("/")
@@ -24,7 +23,7 @@ active_gardones: dict[int, dict] = {}
 
 
 def _safe(name: str) -> str:
-    return html.escape(name or "کاربر")
+    return html.escape(name or "Player")
 
 
 def _fa_to_en(s: str) -> str:
@@ -44,16 +43,15 @@ def _render_gardone_lobby(g: dict, lang: str) -> tuple[str, list]:
 
     text = (
         f"{E.TARGET}{E.SPARK} <b>{t('gardone_title', lang)}</b>\n\n"
-        f"{E.CROWN} درخواست‌کننده: <b>{_safe(g['host_name'])}</b>\n"
+        f"{E.CROWN} {t('player', lang)}: <b>{_safe(g['host_name'])}</b>\n"
         f"{E.PEOPLE} {t('gardone_participants', lang, n=len(parts))}:\n{p_lines}\n\n"
-        f"{E.INFO} <i>افزودن/حذف کاربر توسط درخواست‌کننده با ارسال یوزرنیم:</i>\n"
-        f"<code>+@username</code> یا <code>-@username</code>"
+        f"{E.INFO} <code>+@username</code> | <code>-@username</code>"
     )
 
     rows = [
         [success(f"{E.PLUS} {t('gardone_join', lang)}", "gjoin_btn")],
         [
-            primary(f"{E.SPARK} شروع قرعه‌کشی", f"gspin_ask_{host_id}"),
+            primary(f"{E.SPARK} {t('gardone_spin', lang)}", f"gspin_ask_{host_id}"),
             danger(f"{E.CROSS} {t('gardone_cancel', lang)}", f"gspin_cancel_{host_id}"),
         ],
     ]
@@ -84,9 +82,11 @@ async def _edit_gardone_msg(bot, g: dict, text: str, markup):
 
 @router.callback_query(F.data.startswith("gardone_start_"))
 async def gardone_start(cb: CallbackQuery):
+    from webapp.backend.main import generate_game_banner
+
     chat_id = cb.message.chat.id
     uid = cb.from_user.id
-    lang = get_user_lang(uid)
+    lang = await _resolve_lang(uid)
 
     parts = cb.data.split("_")
     try:
@@ -115,7 +115,6 @@ async def gardone_start(cb: CallbackQuery):
 
     await cb.answer()
 
-    # حذف منوی اصلی و ارسال کارت تصویری گردونه شانس
     try:
         await cb.message.delete()
     except Exception:
@@ -143,7 +142,7 @@ async def gardone_start(cb: CallbackQuery):
 async def gardone_join(cb: CallbackQuery):
     chat_id = cb.message.chat.id
     uid = cb.from_user.id
-    lang = get_user_lang(uid)
+    lang = await _resolve_lang(uid)
 
     g = active_gardones.get(chat_id)
     if not g or g["status"] != "collecting":
@@ -160,7 +159,8 @@ async def gardone_join(cb: CallbackQuery):
         "username": (cb.from_user.username or "").lstrip("@"),
     }
     await cb.answer(t("gardone_joined", lang))
-    txt, rows = _render_gardone_lobby(g, get_user_lang(g["host_id"]))
+    host_lang = await _resolve_lang(g["host_id"])
+    txt, rows = _render_gardone_lobby(g, host_lang)
     await _edit_gardone_msg(cb.bot, g, txt, kb(rows))
 
 
@@ -196,7 +196,7 @@ async def gardone_manage_user_by_username(msg: Message):
             "name": f"@{uname}",
             "username": uname,
         }
-        await msg.reply(f"{E.CHECK} کاربر <b>@{_safe(uname)}</b> به گردونه اضافه شد.", parse_mode=ParseMode.HTML)
+        await msg.reply(f"{E.CHECK} <b>@{_safe(uname)}</b> +", parse_mode=ParseMode.HTML)
     else:
         removed = False
         for k in list(g["participants"].keys()):
@@ -205,11 +205,10 @@ async def gardone_manage_user_by_username(msg: Message):
                 del g["participants"][k]
                 removed = True
         if removed:
-            await msg.reply(f"{E.CROSS} کاربر <b>@{_safe(uname)}</b> از گردونه حذف شد.", parse_mode=ParseMode.HTML)
-        else:
-            await msg.reply(f"{E.WARN} کاربری با یوزرنیم @{_safe(uname)} در لیست نبود.", parse_mode=ParseMode.HTML)
+            await msg.reply(f"{E.CROSS} <b>@{_safe(uname)}</b> -", parse_mode=ParseMode.HTML)
 
-    txt, rows = _render_gardone_lobby(g, get_user_lang(g["host_id"]))
+    host_lang = await _resolve_lang(g["host_id"])
+    txt, rows = _render_gardone_lobby(g, host_lang)
     await _edit_gardone_msg(msg.bot, g, txt, kb(rows))
 
 
@@ -217,7 +216,7 @@ async def gardone_manage_user_by_username(msg: Message):
 async def gardone_ask_winner_count(cb: CallbackQuery):
     chat_id = cb.message.chat.id
     uid = cb.from_user.id
-    lang = get_user_lang(uid)
+    lang = await _resolve_lang(uid)
     g = active_gardones.get(chat_id)
 
     if not g:
@@ -234,15 +233,15 @@ async def gardone_ask_winner_count(cb: CallbackQuery):
     await cb.answer()
 
     max_w = min(10, len(g["participants"]))
-    btns = [primary(f"{E.TROPHY} {i} نفر", f"gspin_run_{i}") for i in range(1, min(6, max_w + 1))]
+    btns = [primary(f"{E.TROPHY} {i}", f"gspin_run_{i}") for i in range(1, min(6, max_w + 1))]
     rows = [btns[:3]]
     if btns[3:]:
         rows.append(btns[3:])
-    rows.append([danger(f"{E.ARROW} بازگشت به لابی", "gspin_back")])
+    rows.append([danger(f"{E.ARROW} {t('btn_back', lang)}", "gspin_back")])
 
     ask_text = (
         f"{E.TROPHY}{E.SPARK} <b>{t('gardone_title', lang)}</b>\n\n"
-        f"{E.PEOPLE} شرکت‌کنندگان آماده: <b>{len(g['participants'])} نفر</b>\n"
+        f"{E.PEOPLE} {t('gardone_participants', lang, n=len(g['participants']))}\n"
         f"{E.INFO} {t('gardone_ask_count', lang)}"
     )
     await _edit_gardone_msg(cb.bot, g, ask_text, kb(rows))
@@ -257,7 +256,8 @@ async def gardone_back_to_lobby(cb: CallbackQuery):
         return
     g["status"] = "collecting"
     await cb.answer()
-    txt, rows = _render_gardone_lobby(g, get_user_lang(g["host_id"]))
+    host_lang = await _resolve_lang(g["host_id"])
+    txt, rows = _render_gardone_lobby(g, host_lang)
     await _edit_gardone_msg(cb.bot, g, txt, kb(rows))
 
 
@@ -271,12 +271,13 @@ async def gardone_back_to_lobby(cb: CallbackQuery):
 )
 async def gardone_count_by_text(msg: Message):
     chat_id = msg.chat.id
+    lang = await _resolve_lang(msg.from_user.id)
     raw = _fa_to_en(msg.text.strip())
     if not raw.isdigit():
         return
     cnt = int(raw)
     if not (1 <= cnt <= 10):
-        await msg.reply(f"{E.WARN} عددی بین ۱ تا ۱۰ بفرستید.")
+        await msg.reply(f"{E.WARN} {t('gardone_invalid_count', lang)}")
         return
     await _execute_gardone_draw(msg.bot, chat_id, cnt)
 
@@ -284,12 +285,13 @@ async def gardone_count_by_text(msg: Message):
 @router.callback_query(F.data.startswith("gspin_run_"))
 async def gardone_count_by_btn(cb: CallbackQuery):
     chat_id = cb.message.chat.id
+    lang = await _resolve_lang(cb.from_user.id)
     g = active_gardones.get(chat_id)
     if not g or cb.from_user.id != g["host_id"]:
-        await cb.answer("فقط سازنده گردونه!", show_alert=True)
+        await cb.answer(t("gardone_only_starter", lang), show_alert=True)
         return
     cnt = int(cb.data.split("_")[2])
-    await cb.answer("قرعه‌کشی آغاز شد!")
+    await cb.answer(t("gardone_spinning", lang))
     await _execute_gardone_draw(cb.bot, chat_id, cnt)
 
 
@@ -298,6 +300,7 @@ async def _execute_gardone_draw(bot, chat_id: int, count: int):
     if not g:
         return
 
+    host_lang = await _resolve_lang(g["host_id"])
     players = list(g["participants"].values())
     win_count = min(count, len(players))
     winners = random.sample(players, win_count)
@@ -312,7 +315,7 @@ async def _execute_gardone_draw(bot, chat_id: int, count: int):
             except Exception:
                 pass
 
-    start_param = f"gardone_anim__{chat_id}"
+    start_param = f"gardone_anim__{chat_id}__{host_lang}"
 
     winners_ordered = "\n".join(
         f"  {idx}. {E.TROPHY} <b>{_safe(w['name'])}</b>" + (f" (@{w['username']})" if w.get("username") else "")
@@ -320,16 +323,15 @@ async def _execute_gardone_draw(bot, chat_id: int, count: int):
     )
 
     group_text = (
-        f"{E.PARTY}{E.TROPHY} <b>نتایج قرعه‌کشی گردونه شانس راینو</b>\n\n"
-        f"{E.CROWN} برگزارکننده: <b>{_safe(g['host_name'])}</b>\n"
-        f"{E.PEOPLE} کل شرکت‌کنندگان: <b>{len(players)} نفر</b>\n"
-        f"{E.STAR} تعداد برندگان: <b>{win_count} نفر</b>\n\n"
-        f"<b>لیست برندگان به ترتیب قرعه:</b>\n{winners_ordered}\n\n"
-        f"{E.SPARK} برای تماشای انیمیشن چرخش گردونه و بیرون آمدن تک‌تک برندگان در همین گروه، روی دکمه زیر بزنید:"
+        f"{E.PARTY}{E.TROPHY} <b>{t('gardone_title', host_lang)} — {t('gardone_winner', host_lang)}</b>\n\n"
+        f"{E.PEOPLE} {t('gardone_participants', host_lang, n=len(players))}\n"
+        f"{E.STAR} {t('gardone_winner_count', host_lang, n=win_count)}\n\n"
+        f"{winners_ordered}\n\n"
+        f"{E.SPARK} {t('open_in_pm_body', host_lang)}"
     )
 
     rows = [
-        [make_miniapp_btn(f"{E.PLAY} تماشای انیمیشن قرعه‌کشی در مینی‌اپ", start_param, g["is_pm"], success)],
+        [make_miniapp_btn(f"{E.PLAY} {t('gardone_spin', host_lang)} (Mini-App)", start_param, g["is_pm"], success)],
     ]
 
     await _edit_gardone_msg(bot, g, group_text, kb(rows))
@@ -339,8 +341,7 @@ async def _execute_gardone_draw(bot, chat_id: int, count: int):
         await bot.send_message(
             chat_id=g["host_id"],
             text=(
-                f"{E.TROPHY}{E.SPARK} <b>گزارش قرعه‌کشی شما</b>\n\n"
-                f"<b>برندگان به ترتیب قرعه ({win_count} نفر از {len(players)} نفر):</b>\n"
+                f"{E.TROPHY}{E.SPARK} <b>{t('gardone_title', host_lang)} — {t('gardone_winner', host_lang)}</b>\n\n"
                 f"{winners_ordered}"
             ),
             parse_mode=ParseMode.HTML,
@@ -353,12 +354,13 @@ async def _execute_gardone_draw(bot, chat_id: int, count: int):
 async def gardone_cancel(cb: CallbackQuery):
     chat_id = cb.message.chat.id
     uid = cb.from_user.id
+    lang = await _resolve_lang(uid)
     g = active_gardones.get(chat_id)
     if not g:
         await cb.answer()
         return
     if uid != g["host_id"] and not await db.is_admin(uid):
-        await cb.answer(t("gardone_only_starter", get_user_lang(uid)), show_alert=True)
+        await cb.answer(t("gardone_only_starter", lang), show_alert=True)
         return
     active_gardones.pop(chat_id, None)
     await cb.answer()
