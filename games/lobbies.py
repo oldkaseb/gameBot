@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""games/lobbies.py — لابی چندنفره تصویری داخل گروه و ورود مستقیم به RhinoGamesApp"""
+"""games/lobbies.py — لابی چندنفره ۷ زبانه با بنر تصویری و ورود مستقیم به مینی‌اپ در گروه"""
 
 import os
 import uuid
@@ -10,8 +10,7 @@ from aiogram.enums import ParseMode, ChatType
 from emojis import E
 from langs import t, get_user_lang
 from utils.premium import success, primary, danger, kb
-from games.panel import make_miniapp_btn
-from webapp.backend.main import generate_game_banner
+from games.panel import make_miniapp_btn, _resolve_lang
 
 router = Router(name="lobbies")
 MINI_APP_URL = os.environ.get("MINI_APP_URL", "https://games.rhinokaseb.abrdns.com").rstrip("/")
@@ -48,21 +47,23 @@ def _build_lobby_content(lobby: dict, lobby_id: str, lang: str):
             [danger(f"{E.CROSS} {t('btn_cancel', lang)}", f"cancel_lobby_{lobby_id}")],
         ]
     else:
-        start_param = f"{lobby['game_type']}__{lobby_id}"
+        start_param = f"{lobby['game_type']}__{lobby_id}__{lang}"
         caption = (
             f"{E.PARTY}{config['icon']} <b>{t('lobby_full_title', lang)} ({game_name})</b>\n\n"
-            f"{E.PEOPLE} <b>بازیکنان میز:</b>\n{players_list}\n\n"
-            f"{E.PLAY} روی دکمه زیر بزنید تا وارد مینی‌اپ بازی در همین گروه شوید:"
+            f"{E.PEOPLE} <b>{t('lobby_players', lang, cur=current_p, max=max_p)}:</b>\n{players_list}\n\n"
+            f"{E.PLAY} {t('open_in_pm_body', lang)}"
         )
         rows = [
             [make_miniapp_btn(f"{E.PLAY} {t('enter_game_table', lang)}", start_param, lobby["is_pm"], success)],
-            [danger(f"{E.CROSS} بستن میز", f"cancel_lobby_{lobby_id}")],
+            [danger(f"{E.CROSS} {t('btn_close', lang)}", f"cancel_lobby_{lobby_id}")],
         ]
     return caption, kb(rows)
 
 
 @router.callback_query(F.data.startswith("lobby_"))
 async def create_lobby(cb: CallbackQuery):
+    from webapp.backend.main import generate_game_banner
+
     parts = cb.data.split("_")
     try:
         game_type = parts[1]
@@ -72,7 +73,7 @@ async def create_lobby(cb: CallbackQuery):
         return
 
     uid = cb.from_user.id
-    lang = get_user_lang(uid)
+    lang = await _resolve_lang(uid)
 
     if uid != host_id:
         await cb.answer(t("not_your_panel", lang), show_alert=True)
@@ -98,7 +99,6 @@ async def create_lobby(cb: CallbackQuery):
 
     await cb.answer()
 
-    # حذف منوی اصلی و ارسال کارت لابی با پیش‌نمایش تصویری
     try:
         await cb.message.delete()
     except Exception:
@@ -157,7 +157,7 @@ async def _update_lobby_message(bot, lobby_id: str, lang: str):
 async def join_lobby(cb: CallbackQuery):
     lobby_id = cb.data.replace("join_lobby_", "")
     lobby = active_lobbies.get(lobby_id)
-    lang = get_user_lang(cb.from_user.id)
+    lang = await _resolve_lang(cb.from_user.id)
 
     if not lobby:
         await cb.answer(t("lobby_expired", lang), show_alert=True)
@@ -174,14 +174,15 @@ async def join_lobby(cb: CallbackQuery):
         "name": cb.from_user.first_name or f"P{len(lobby['players']) + 1}",
     })
     await cb.answer(t("lobby_joined", lang))
-    await _update_lobby_message(cb.bot, lobby_id, lang)
+    host_lang = await _resolve_lang(lobby["host_id"])
+    await _update_lobby_message(cb.bot, lobby_id, host_lang)
 
 
 @router.callback_query(F.data.startswith("cancel_lobby_"))
 async def cancel_lobby(cb: CallbackQuery):
     lobby_id = cb.data.replace("cancel_lobby_", "")
     lobby = active_lobbies.get(lobby_id)
-    lang = get_user_lang(cb.from_user.id)
+    lang = await _resolve_lang(cb.from_user.id)
 
     if not lobby:
         await cb.answer(t("lobby_expired", lang), show_alert=True)
