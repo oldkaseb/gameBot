@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""webapp/backend/main.py — سرور کامل FastAPI + WebSocket + رابط تضمین‌شده بدون صفحه سفید"""
+"""webapp/backend/main.py — سرور کامل مینی‌اپ و وب‌سوکت با تضمین عدم نمایش صفحه سفید"""
 
 import json
 from pathlib import Path
@@ -13,8 +13,12 @@ try:
     from webapp.backend.game_logic.hokm import HokmGame
     from webapp.backend.auth import validate_init_data
 except ImportError:
-    from game_logic.hokm import HokmGame
-    from auth import validate_init_data
+    try:
+        from game_logic.hokm import HokmGame
+        from auth import validate_init_data
+    except Exception:
+        HokmGame = None
+        validate_init_data = None
 
 from database import db
 
@@ -66,7 +70,7 @@ async def websocket_endpoint(
     connections[session_id].append({"ws": websocket, "user_id": user_id})
 
     if session_id not in active_rooms:
-        if game_type == "hokm":
+        if game_type == "hokm" and HokmGame:
             active_rooms[session_id] = HokmGame(session_id)
         else:
             active_rooms[session_id] = {
@@ -80,7 +84,7 @@ async def websocket_endpoint(
             data = await websocket.receive_text()
             msg = json.loads(data)
 
-            if game_type == "hokm":
+            if game_type == "hokm" and HokmGame:
                 game = active_rooms[session_id]
                 game.handle_action(user_id, msg)
                 for conn in list(connections.get(session_id, [])):
@@ -103,8 +107,7 @@ async def websocket_endpoint(
             ]
 
 
-# ═══════════ Fallback کامل و مستقل مینی‌اپ (تضمین عدم نمایش صفحه سفید) ═══════════
-
+# رابط مستقل با استایل و بازی‌های داخلی
 FALLBACK_MINIAPP_HTML = """<!DOCTYPE html>
 <html lang="fa" dir="rtl">
 <head>
@@ -117,7 +120,7 @@ FALLBACK_MINIAPP_HTML = """<!DOCTYPE html>
     body {
       background: radial-gradient(circle at top, #1e1b4b 0%, #0f172a 60%, #020617 100%);
       color: #fff;
-      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      font-family: system-ui, -apple-system, sans-serif;
       min-height: 100vh;
       margin: 0;
       user-select: none;
@@ -151,18 +154,6 @@ FALLBACK_MINIAPP_HTML = """<!DOCTYPE html>
     const params = new URLSearchParams(window.location.search);
     let currentGame = params.get('game') || 'hub';
     const uid = tg?.initDataUnsafe?.user?.id || params.get('uid') || 0;
-    const session = params.get('session') || 'solo';
-
-    async function reportWin(gameType, bestTime = null) {
-      if (!uid) return;
-      try {
-        await fetch('/api/win', {
-          method: 'POST',
-          headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({ uid: Number(uid), game_type: gameType, best_time: bestTime })
-        });
-      } catch (e) {}
-    }
 
     function nav(game) {
       currentGame = game;
@@ -182,7 +173,6 @@ FALLBACK_MINIAPP_HTML = """<!DOCTYPE html>
       if (currentGame === 'typing') return renderTyping(root);
       if (currentGame === 'hangman') return renderHangman(root);
       if (currentGame === 'guess') return renderGuess(root);
-      if (currentGame === 'hokm') return renderHokm(root);
       return renderHub(root);
     }
 
@@ -199,7 +189,6 @@ FALLBACK_MINIAPP_HTML = """<!DOCTYPE html>
           <button onclick="nav('dooz')" class="btn-primary py-3 px-4 rounded-xl font-bold active:scale-95 transition">دوز ۲ نفره</button>
           <button onclick="nav('doz4p')" class="btn-primary py-3 px-4 rounded-xl font-bold active:scale-95 transition">دوز ۴ نفره</button>
           <button onclick="nav('connect4')" class="btn-success py-3 px-4 rounded-xl font-bold active:scale-95 transition">چهار در ردیف</button>
-          <button onclick="nav('hokm')" class="btn-success py-3 px-4 rounded-xl font-bold active:scale-95 transition">حکم ۴ نفره</button>
           <button onclick="nav('rps')" class="btn-primary py-3 px-4 rounded-xl font-bold active:scale-95 transition">سنگ کاغذ قیچی</button>
           <button onclick="nav('memory')" class="btn-primary py-3 px-4 rounded-xl font-bold active:scale-95 transition">بازی حافظه</button>
           <button onclick="nav('typing')" class="btn-primary py-3 px-4 rounded-xl font-bold active:scale-95 transition">تایپ سرعتی</button>
@@ -209,7 +198,6 @@ FALLBACK_MINIAPP_HTML = """<!DOCTYPE html>
       `;
     }
 
-    /* ─── 1. 2048 ─── */
     let b2048 = null, s2048 = 0;
     function init2048() {
       b2048 = Array(4).fill(0).map(() => Array(4).fill(0));
@@ -246,7 +234,6 @@ FALLBACK_MINIAPP_HTML = """<!DOCTYPE html>
       if (dir==='down') b = rot(rot(rot(b)));
       if (moved) {
         b2048 = b; addTile2048();
-        if (b2048.some(r => r.includes(2048))) reportWin('2048');
         render2048(document.getElementById('app'));
       }
     };
@@ -272,17 +259,13 @@ FALLBACK_MINIAPP_HTML = """<!DOCTYPE html>
       `;
     }
 
-    /* ─── 2. Sliding Puzzle ─── */
     let spz = null;
-    function initSpz() {
-      spz = [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,0].sort(() => Math.random()-0.5);
-    }
+    function initSpz() { spz = [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,0].sort(() => Math.random()-0.5); }
     window.clickSpz = function(i) {
       const emp = spz.indexOf(0);
       const r1 = Math.floor(i/4), c1 = i%4, r2 = Math.floor(emp/4), c2 = emp%4;
       if (Math.abs(r1-r2)+Math.abs(c1-c2)===1) {
         [spz[i], spz[emp]] = [spz[emp], spz[i]];
-        if (spz.slice(0,15).every((v,idx)=>v===idx+1)) reportWin('spuzzle');
         renderSpuzzle(document.getElementById('app'));
       }
     };
@@ -301,49 +284,6 @@ FALLBACK_MINIAPP_HTML = """<!DOCTYPE html>
       `;
     }
 
-    /* ─── 3. SameGame ─── */
-    let sgGrid = null, sgScore = 0;
-    const sgCls = ['btn-danger', 'btn-primary', 'btn-success', 'bg-amber-500'];
-    function initSg() {
-      sgGrid = Array(8).fill(0).map(()=>Array(8).fill(0).map(()=>Math.floor(Math.random()*4)));
-      sgScore = 0;
-    }
-    window.clickSg = function(r0, c0) {
-      const target = sgGrid[r0][c0], q = [[r0,c0]], vis = new Set([r0+','+c0]), grp = [[r0,c0]];
-      while (q.length) {
-        const [r,c] = q.pop();
-        for (const [dr,dc] of [[0,1],[0,-1],[1,0],[-1,0]]) {
-          const nr=r+dr, nc=c+dc, k=nr+','+nc;
-          if (nr>=0 && nr<8 && nc>=0 && nc<8 && !vis.has(k) && sgGrid[nr][nc]===target) {
-            vis.add(k); grp.push([nr,nc]); q.push([nr,nc]);
-          }
-        }
-      }
-      if (grp.length < 2) return;
-      grp.forEach(([r,c]) => sgGrid[r][c] = Math.floor(Math.random()*4));
-      sgScore += grp.length * 10;
-      if (sgScore >= 300) reportWin('samegame');
-      renderSameGame(document.getElementById('app'));
-    };
-    function renderSameGame(root) {
-      if (!sgGrid) initSg();
-      const cells = sgGrid.map((row,r)=>row.map((v,c)=>`
-        <button onclick="clickSg(${r},${c})" class="aspect-square rounded-lg ${sgCls[v]}"></button>
-      `).join('')).join('');
-      root.innerHTML = `
-        <div class="flex justify-between items-center mb-4">
-          <h2 class="text-xl font-extrabold">بازی جفت‌ها</h2>
-          <span class="glass-card px-3 py-1 rounded-lg font-bold">امتیاز: ${sgScore}</span>
-        </div>
-        <div class="grid grid-cols-8 gap-1.5 glass-card p-3 rounded-2xl mb-4">${cells}</div>
-        <div class="flex gap-2">
-          <button onclick="initSg();render()" class="btn-success flex-1 py-3 rounded-xl font-bold">شروع مجدد</button>
-          <button onclick="nav('hub')" class="btn-danger flex-1 py-3 rounded-xl font-bold">بازگشت</button>
-        </div>
-      `;
-    }
-
-    /* ─── 4. Dooz 2P & 4P ─── */
     let doozB = null, doozTurn = 0, doozWin = null, doozMode = 'dooz';
     function initDooz(m) {
       doozMode = m;
@@ -368,8 +308,7 @@ FALLBACK_MINIAPP_HTML = """<!DOCTYPE html>
           if (ok) doozWin = sym;
         }
       }
-      if (doozWin) reportWin(doozMode);
-      else doozTurn = (doozTurn + 1) % syms.length;
+      if (!doozWin) doozTurn = (doozTurn + 1) % syms.length;
       renderDooz(document.getElementById('app'), doozMode);
     };
     function renderDooz(root, mode) {
@@ -392,7 +331,6 @@ FALLBACK_MINIAPP_HTML = """<!DOCTYPE html>
       `;
     }
 
-    /* ─── 5. Connect 4 ─── */
     let c4B = null, c4Turn = 1, c4Win = 0;
     function initC4() { c4B = Array(6).fill(0).map(()=>Array(7).fill(0)); c4Turn = 1; c4Win = 0; }
     window.dropC4 = function(col) {
@@ -410,8 +348,7 @@ FALLBACK_MINIAPP_HTML = """<!DOCTYPE html>
               if (ok) c4Win = c4Turn;
             }
           }
-          if (c4Win) reportWin('connect4');
-          else c4Turn = c4Turn===1?2:1;
+          if (!c4Win) c4Turn = c4Turn===1?2:1;
           renderConnect4(document.getElementById('app'));
           return;
         }
@@ -435,7 +372,6 @@ FALLBACK_MINIAPP_HTML = """<!DOCTYPE html>
       `;
     }
 
-    /* ─── 6. RPS ─── */
     let rpsU = 0, rpsB = 0, rpsMsg = 'یکی از گزینه‌ها را انتخاب کنید';
     window.playRPS = function(c) {
       const opts = ['rock','paper','scissors'];
@@ -444,7 +380,6 @@ FALLBACK_MINIAPP_HTML = """<!DOCTYPE html>
       if (c===b) rpsMsg = `مساوی! هر دو ${names[c]} آوردید.`;
       else if ((c==='rock'&&b==='scissors')||(c==='paper'&&b==='rock')||(c==='scissors'&&b==='paper')) {
         rpsU++; rpsMsg = `بردی! شما ${names[c]} و حریف ${names[b]}`;
-        if (rpsU===3) reportWin('rps');
       } else {
         rpsB++; rpsMsg = `حریف برد! حریف ${names[b]} آورد`;
       }
@@ -466,7 +401,6 @@ FALLBACK_MINIAPP_HTML = """<!DOCTYPE html>
       `;
     }
 
-    /* ─── 7. Memory ─── */
     let memCards = null, memFlip = [], memMatch = [];
     function initMem() {
       const s = ['A','B','C','D','E','F','G','H'];
@@ -481,7 +415,6 @@ FALLBACK_MINIAPP_HTML = """<!DOCTYPE html>
         const [a,b] = memFlip;
         if (memCards[a]===memCards[b]) {
           memMatch.push(a,b); memFlip = [];
-          if (memMatch.length===16) reportWin('memory');
           renderMemory(document.getElementById('app'));
         } else {
           setTimeout(()=>{ memFlip=[]; renderMemory(document.getElementById('app')); }, 650);
@@ -507,12 +440,7 @@ FALLBACK_MINIAPP_HTML = """<!DOCTYPE html>
       `;
     }
 
-    /* ─── 8. Typing Race ─── */
-    const sentences = [
-      "سرعت و دقت در تایپ نشانه مهارت بالای شماست",
-      "راینوبازی بهترین پلتفرم رقابت آنلاین با دوستان",
-      "برنده کسی است که سریعتر و بدون غلط تایپ کند"
-    ];
+    const sentences = ["سرعت و دقت در تایپ نشانه مهارت است", "راینوبازی بهترین تجربه مسابقه آنلاین", "تمرکز بالا رمز پیروزی در رقابت‌هاست"];
     let targetSentence = sentences[0], typeStart = 0, typeMsg = '';
     function initTyping() {
       targetSentence = sentences[Math.floor(Math.random()*sentences.length)];
@@ -523,10 +451,9 @@ FALLBACK_MINIAPP_HTML = """<!DOCTYPE html>
       if (val === targetSentence) {
         const sec = ((Date.now() - typeStart)/1000).toFixed(1);
         typeMsg = `آفرین! در ${sec} ثانیه تایپ کردی!`;
-        reportWin('typing', Number(sec));
         renderTyping(document.getElementById('app'));
       } else {
-        typeMsg = 'متن وارد شده هنوز کامل یا دقیق نیست!';
+        typeMsg = 'متن وارد شده هنوز دقیق نیست!';
         renderTyping(document.getElementById('app'));
       }
     };
@@ -547,8 +474,7 @@ FALLBACK_MINIAPP_HTML = """<!DOCTYPE html>
       `;
     }
 
-    /* ─── 9. Hangman (حدس کلمه) ─── */
-    const wordsList = ["تلگرام", "راینو", "پایتون", "امپراتور", "کهکشان", "قهرمان"];
+    const wordsList = ["تلگرام", "راینو", "پایتون", "امپراتور", "کهکشان"];
     let hmWord = "", hmGuessed = [], hmLives = 6;
     function initHangman() {
       hmWord = wordsList[Math.floor(Math.random()*wordsList.length)];
@@ -558,8 +484,6 @@ FALLBACK_MINIAPP_HTML = """<!DOCTYPE html>
       if (hmGuessed.includes(ch) || hmLives <= 0) return;
       hmGuessed.push(ch);
       if (!hmWord.includes(ch)) hmLives--;
-      const won = hmWord.split('').every(c => hmGuessed.includes(c));
-      if (won) reportWin('hangman');
       renderHangman(document.getElementById('app'));
     };
     function renderHangman(root) {
@@ -576,8 +500,8 @@ FALLBACK_MINIAPP_HTML = """<!DOCTYPE html>
             <h2 class="text-xl font-extrabold">حدس کلمه</h2>
             <span class="px-3 py-1 rounded-lg bg-rose-600/30 font-bold">جان: ${hmLives}</span>
           </div>
-          <div class="text-3xl font-extrabold tracking-widest my-4" dir="rtl">${display}</div>
-          ${won ? '<p class="text-emerald-400 font-bold">تبریک! کلمه را درست حدس زدی!</p>' : ''}
+          <div class="text-3xl font-extrabold tracking-widest my-4">${display}</div>
+          ${won ? '<p class="text-emerald-400 font-bold">تبریک! درست حدس زدی!</p>' : ''}
           ${hmLives <= 0 ? `<p class="text-rose-400 font-bold">باختی! کلمه: ${hmWord}</p>` : ''}
         </div>
         <div class="grid grid-cols-7 gap-1.5 glass-card p-3 rounded-2xl mb-4">${kbHtml}</div>
@@ -588,13 +512,12 @@ FALLBACK_MINIAPP_HTML = """<!DOCTYPE html>
       `;
     }
 
-    /* ─── 10. Guess Number (حدس عدد) ─── */
     let secretNum = 0, guessHint = 'یک عدد بین ۱ تا ۱۰۰ حدس بزنید';
     function initGuess() { secretNum = Math.floor(Math.random()*100)+1; guessHint = 'یک عدد بین ۱ تا ۱۰۰ حدس بزنید'; }
     window.submitGuess = function() {
       const v = Number(document.getElementById('guessInp').value);
       if (!v) return;
-      if (v === secretNum) { guessHint = `آفرین! عدد ${secretNum} درست بود!`; reportWin('number_guess'); }
+      if (v === secretNum) guessHint = `آفرین! عدد ${secretNum} درست بود!`;
       else if (v < secretNum) guessHint = 'برو بالاتر!';
       else guessHint = 'بیا پایین‌تر!';
       renderGuess(document.getElementById('app'));
@@ -605,42 +528,13 @@ FALLBACK_MINIAPP_HTML = """<!DOCTYPE html>
         <div class="glass-card p-5 rounded-2xl text-center mb-4">
           <h2 class="text-xl font-extrabold mb-2">حدس عدد</h2>
           <p class="font-bold text-amber-400 mb-4">${guessHint}</p>
-          <input id="guessInp" type="number" min="1" max="100" placeholder="عدد بین ۱ تا ۱۰۰" class="w-full p-3 rounded-xl bg-slate-800 text-white text-center text-xl font-bold mb-3" />
-          <button onclick="submitGuess()" class="btn-success w-full py-3 rounded-xl font-bold">بررسی حدس</button>
+          <input id="guessInp" type="number" min="1" max="100" placeholder="عدد ۱ تا ۱۰۰" class="w-full p-3 rounded-xl bg-slate-800 text-white text-center text-xl font-bold mb-3" />
+          <button onclick="submitGuess()" class="btn-success w-full py-3 rounded-xl font-bold">بررسی</button>
         </div>
         <div class="flex gap-2">
           <button onclick="initGuess();render()" class="btn-primary flex-1 py-3 rounded-xl font-bold">شروع مجدد</button>
           <button onclick="nav('hub')" class="btn-danger flex-1 py-3 rounded-xl font-bold">بازگشت</button>
         </div>
-      `;
-    }
-
-    /* ─── 11. Hokm ─── */
-    let hokmHand = ['A♠','K♠','Q♥','J♦','10♣','9♠','8♥'], hokmTable = [], hokmScore = {us: 0, them: 0};
-    window.playHokmCard = function(idx) {
-      const card = hokmHand.splice(idx, 1)[0];
-      const botCards = ['K♥','10♠','J♣'];
-      hokmTable = [card, ...botCards];
-      if (Math.random() > 0.4) hokmScore.us++; else hokmScore.them++;
-      if (hokmScore.us >= 7) reportWin('hokm');
-      if (hokmHand.length === 0) hokmHand = ['A♥','K♦','Q♠','J♥','10♦','9♣','7♠'];
-      renderHokm(document.getElementById('app'));
-    };
-    function renderHokm(root) {
-      const handHtml = hokmHand.map((c,i)=>`
-        <button onclick="playHokmCard(${i})" class="btn-primary py-4 px-2 rounded-xl font-extrabold text-lg">${c}</button>
-      `).join('');
-      root.innerHTML = `
-        <div class="flex justify-between items-center mb-4">
-          <h2 class="text-xl font-extrabold">میز حکم راینو</h2>
-          <span class="glass-card px-3 py-1 rounded-lg font-bold">ما: ${hokmScore.us} | حریف: ${hokmScore.them}</span>
-        </div>
-        <div class="glass-card p-6 rounded-2xl text-center mb-4 min-h-[140px] flex flex-col justify-center">
-          <p class="text-slate-400 text-sm mb-2">کارت‌های روی زمین:</p>
-          <div class="flex justify-center gap-3 text-xl font-extrabold">${hokmTable.length ? hokmTable.map(c=>`<span class="px-3 py-2 rounded-lg bg-slate-800">${c}</span>`).join('') : 'کارت خود را انتخاب کنید'}</div>
-        </div>
-        <div class="grid grid-cols-4 gap-2 mb-4">${handHtml}</div>
-        <button onclick="nav('hub')" class="btn-danger w-full py-3 rounded-xl font-bold">بازگشت به منو</button>
       `;
     }
 
@@ -664,5 +558,5 @@ if FRONTEND_DIST.exists() and (FRONTEND_DIST / "index.html").exists():
         return FileResponse(str(FRONTEND_DIST / "index.html"))
 else:
     @app.get("/{full_path:path}")
-    async def serve_fallback_spa(full_path: str):
+    async def serve_fallback(full_path: str):
         return HTMLResponse(content=FALLBACK_MINIAPP_HTML, status_code=200)
