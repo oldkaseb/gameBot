@@ -13,7 +13,6 @@ from emojis import E
 from langs import t, get_user_lang
 from utils.premium import success, primary, danger, kb
 from runtime import get_bot_username
-from webapp.backend.main import generate_game_banner
 
 router = Router(name="panel")
 MINI_APP_URL = os.environ.get("MINI_APP_URL", "https://games.rhinokaseb.abrdns.com").rstrip("/")
@@ -71,6 +70,8 @@ async def show_panel(message: Message):
 @router.callback_query(F.data.startswith("gcard_"))
 async def send_group_game_card(cb: CallbackQuery):
     """حذف منوی اصلی و ارسال کارت تصویری گرافیکی بازی در گروه"""
+    from webapp.backend.main import generate_game_banner
+
     parts = cb.data.split("_")
     try:
         game = parts[1]
@@ -112,13 +113,11 @@ async def send_group_game_card(cb: CallbackQuery):
         [danger(f"{E.CROSS} {t('btn_close', lang)}", f"rsgame_close_{uid}")],
     ]
 
-    # حذف منوی اصلی پس از انتخاب بازی
     try:
         await cb.message.delete()
     except Exception:
         pass
 
-    # ارسال کارت بازی با بنر تصویری گرافیکی
     try:
         png_bytes = generate_game_banner(game)
         photo = BufferedInputFile(png_bytes, filename=f"{game}.png")
