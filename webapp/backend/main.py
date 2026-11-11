@@ -1,14 +1,15 @@
 # -*- coding: utf-8 -*-
-"""webapp/backend/main.py — سرور مینی‌اپ و استیج انیمیشن قرعه‌کشی رنگارنگ و پیش‌نمایش‌ها"""
+"""webapp/backend/main.py — بک‌اند و فرانت‌اند کامل مینی‌اپ با پشتیبانی از startapp گروهی و انیمیشن قرعه‌کشی"""
 
 import json
 from pathlib import Path
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Query
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
+
 from database import db
+from games.gardone import active_gardones
 
 app = FastAPI(title="Rhino Games Mini App")
 
@@ -40,33 +41,60 @@ async def record_win(payload: WinPayload):
         return {"ok": False, "error": str(e)}
 
 
-MINIAPP_HTML = """<!DOCTYPE html>
+@app.get("/api/gardone/{chat_id}")
+async def get_gardone_data(chat_id: int):
+    g = active_gardones.get(chat_id)
+    if not g:
+        return {"ok": False, "names": ["شرکت‌کننده ۱", "شرکت‌کننده ۲", "شرکت‌کننده ۳"], "winners": ["شرکت‌کننده ۱"]}
+    names = [p["name"] for p in g["participants"].values()]
+    winners = [w["name"] for w in g.get("winners", [])]
+    return {"ok": True, "names": names, "winners": winners, "host": g.get("host_name", "")}
+
+
+MINIAPP_FULL_HTML = """<!DOCTYPE html>
 <html lang="fa" dir="rtl">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-  <title>RHINO GAMES</title>
+  <title>مینی‌اپ بازی‌های راینو</title>
+  <meta property="og:title" content="مینی‌اپ بازی‌های راینو (RHINO GAMES)" />
+  <meta property="og:description" content="ورود به میز بازی آنلاین، پازل، رقابت گروهی و گردونه شانس" />
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
   <script src="https://cdn.tailwindcss.com"></script>
   <style>
     body {
-      background: radial-gradient(circle at top, #0f172a 0%, #020617 100%);
+      background: radial-gradient(circle at top, #1e1b4b 0%, #0f172a 60%, #020617 100%);
       color: #fff;
-      font-family: system-ui, sans-serif;
+      font-family: system-ui, -apple-system, sans-serif;
       min-height: 100vh;
       margin: 0;
       user-select: none;
     }
-    .btn-primary { background: linear-gradient(135deg, #2563eb, #4f46e5); }
-    .btn-success { background: linear-gradient(135deg, #059669, #10b981); }
-    .btn-danger { background: linear-gradient(135deg, #e11d48, #ef4444); }
-    .glass { background: rgba(15, 23, 42, 0.85); backdrop-filter: blur(14px); border: 1px solid rgba(255, 255, 255, 0.1); }
-    .ltr-box { direction: ltr !important; }
-    @keyframes pulseGlow {
-      0%, 100% { box-shadow: 0 0 25px rgba(236, 72, 153, 0.6), 0 0 50px rgba(59, 130, 246, 0.5); }
-      50% { box-shadow: 0 0 45px rgba(16, 185, 129, 0.8), 0 0 80px rgba(245, 158, 11, 0.6); }
+    .btn-primary {
+      background: linear-gradient(135deg, #2563eb, #4f46e5);
+      box-shadow: 0 4px 15px rgba(37, 99, 235, 0.35);
     }
-    .anim-wheel { animation: pulseGlow 1.2s infinite alternate; }
+    .btn-success {
+      background: linear-gradient(135deg, #059669, #10b981);
+      box-shadow: 0 4px 15px rgba(16, 185, 129, 0.35);
+    }
+    .btn-danger {
+      background: linear-gradient(135deg, #e11d48, #ef4444);
+      box-shadow: 0 4px 15px rgba(225, 29, 72, 0.35);
+    }
+    .glass-card {
+      background: rgba(15, 23, 42, 0.82);
+      backdrop-filter: blur(14px);
+      border: 1px solid rgba(255, 255, 255, 0.14);
+    }
+    .game-grid-container {
+      direction: ltr !important;
+    }
+    @keyframes neonPulse {
+      0%, 100% { box-shadow: 0 0 25px rgba(236, 72, 153, 0.65), 0 0 50px rgba(59, 130, 246, 0.5); }
+      50% { box-shadow: 0 0 45px rgba(16, 185, 129, 0.85), 0 0 80px rgba(245, 158, 11, 0.7); }
+    }
+    .wheel-stage { animation: neonPulse 1.1s infinite alternate; }
   </style>
 </head>
 <body class="p-4 flex flex-col items-center">
@@ -77,109 +105,565 @@ MINIAPP_HTML = """<!DOCTYPE html>
     if (tg) { tg.ready(); tg.expand(); }
 
     const params = new URLSearchParams(window.location.search);
-    const game = params.get('game') || 'hub';
+    const startParam = tg?.initDataUnsafe?.start_param || params.get('startapp') || params.get('tgWebAppStartParam') || '';
+    let parsedGame = params.get('game') || '';
+    let parsedChat = params.get('chat') || params.get('session') || '';
+
+    if (startParam) {
+      const parts = startParam.split('__');
+      if (parts[0]) parsedGame = parts[0];
+      if (parts[1]) parsedChat = parts[1];
+    }
+
+    let currentGame = parsedGame || 'hub';
+    const uid = tg?.initDataUnsafe?.user?.id || params.get('uid') || 0;
+
+    window.nav = function(g) {
+      currentGame = g;
+      render();
+    };
+
+    async function reportWin(gameType, bestTime = null) {
+      if (!uid) return;
+      try {
+        await fetch('/api/win', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({ uid: Number(uid), game_type: gameType, best_time: bestTime })
+        });
+      } catch (e) {}
+    }
 
     function render() {
       const root = document.getElementById('app');
-      if (game === 'gardone_anim') return renderGardoneAnim(root);
-      if (game === '2048') return render2048(root);
-      if (game === 'spuzzle') return renderSpuzzle(root);
-      if (game === 'samegame') return renderSameGame(root);
-      if (game === 'typing') return renderTyping(root);
-      if (game === 'hangman') return renderHangman(root);
-      if (game === 'guess') return renderGuess(root);
-      root.innerHTML = `<div class="glass p-6 rounded-2xl text-center"><h2 class="text-xl font-bold mb-2">اتاق بازی راینو</h2><p class="text-slate-300">در حال اجرای بازی گروهی...</p></div>`;
+      if (!root) return;
+      if (currentGame === 'gardone_anim' || currentGame === 'gardone') return renderGardoneAnim(root);
+      if (currentGame === '2048') return render2048(root);
+      if (currentGame === 'spuzzle') return renderSpuzzle(root);
+      if (currentGame === 'samegame') return renderSameGame(root);
+      if (currentGame === 'dooz' || currentGame === 'doz4p') return renderDooz(root, currentGame);
+      if (currentGame === 'connect4') return renderConnect4(root);
+      if (currentGame === 'rps') return renderRPS(root);
+      if (currentGame === 'memory') return renderMemory(root);
+      if (currentGame === 'typing') return renderTyping(root);
+      if (currentGame === 'hangman') return renderHangman(root);
+      if (currentGame === 'guess') return renderGuess(root);
+      if (currentGame === 'hokm') return renderHokm(root);
+      return renderHub(root);
     }
 
-    /* استیج قرعه‌کشی انیمیشنی زنده */
-    function renderGardoneAnim(root) {
-      const allNames = (params.get('names') || 'کاربر ۱,کاربر ۲').split(',');
-      const winNames = (params.get('winners') || '').split(',').filter(Boolean);
-      
+    function renderHub(root) {
       root.innerHTML = `
-        <div class="glass p-5 rounded-2xl text-center mb-4 border border-fuchsia-500/30">
-          <h2 class="text-2xl font-black text-transparent bg-clip-text bg-gradient-to-r from-pink-400 via-purple-300 to-indigo-400 mb-2">گردونه شانس و هیجان راینو</h2>
-          <p class="text-xs text-slate-300">در حال چرخش زنده اسامی برای کشیدن برندگان...</p>
+        <div class="glass-card rounded-2xl p-5 text-center mb-4">
+          <h1 class="text-2xl font-extrabold mb-1">مینی‌اپ بازی‌های راینو</h1>
+          <p class="text-slate-300 text-sm">بازی مورد نظر خود را انتخاب کنید</p>
         </div>
-
-        <div class="glass rounded-3xl p-8 text-center my-6 anim-wheel border-2 border-indigo-400 flex flex-col items-center justify-center min-h-[200px]">
-          <div id="slotName" class="text-3xl font-extrabold text-amber-300 tracking-wider">آماده‌باش...</div>
-        </div>
-
-        <div class="glass p-4 rounded-2xl">
-          <h3 class="text-sm font-bold text-emerald-400 mb-2">برندگان تعیین‌شده:</h3>
-          <div id="winnersList" class="flex flex-col gap-1.5 text-sm"></div>
+        <div class="grid grid-cols-2 gap-3">
+          <button onclick="nav('2048')" class="btn-primary py-3 px-4 rounded-xl font-bold">پازل 2048</button>
+          <button onclick="nav('spuzzle')" class="btn-primary py-3 px-4 rounded-xl font-bold">پازل کشویی</button>
+          <button onclick="nav('samegame')" class="btn-primary py-3 px-4 rounded-xl font-bold">جفت‌ها</button>
+          <button onclick="nav('dooz')" class="btn-primary py-3 px-4 rounded-xl font-bold">دوز ۲ نفره</button>
+          <button onclick="nav('doz4p')" class="btn-primary py-3 px-4 rounded-xl font-bold">دوز ۴ نفره</button>
+          <button onclick="nav('connect4')" class="btn-success py-3 px-4 rounded-xl font-bold">چهار در ردیف</button>
+          <button onclick="nav('hokm')" class="btn-success py-3 px-4 rounded-xl font-bold">حکم ۴ نفره</button>
+          <button onclick="nav('rps')" class="btn-primary py-3 px-4 rounded-xl font-bold">سنگ کاغذ قیچی</button>
+          <button onclick="nav('memory')" class="btn-primary py-3 px-4 rounded-xl font-bold">بازی حافظه</button>
+          <button onclick="nav('typing')" class="btn-primary py-3 px-4 rounded-xl font-bold">تایپ سرعتی</button>
+          <button onclick="nav('hangman')" class="btn-primary py-3 px-4 rounded-xl font-bold">حدس کلمه</button>
+          <button onclick="nav('guess')" class="btn-primary py-3 px-4 rounded-xl font-bold">حدس عدد</button>
         </div>
       `;
+    }
 
-      let timer;
-      let revealed = 0;
-      const slot = document.getElementById('slotName');
-      const wList = document.getElementById('winnersList');
+    /* ─── انیمیشن قرعه‌کشی و گردونه شانس ─── */
+    async function renderGardoneAnim(root) {
+      root.innerHTML = `
+        <div class="glass-card p-5 rounded-2xl text-center mb-4">
+          <h2 class="text-2xl font-black text-transparent bg-clip-text bg-gradient-to-r from-pink-400 via-amber-300 to-emerald-400 mb-1">گردونه شانس راینو</h2>
+          <p class="text-xs text-slate-300">قرعه‌کشی زنده بین شرکت‌کنندگان</p>
+        </div>
+        <div class="glass-card wheel-stage rounded-3xl p-8 text-center my-5 border-2 border-indigo-400 flex flex-col items-center justify-center min-h-[190px]">
+          <div id="wheelSlot" class="text-3xl font-extrabold text-amber-300">در حال آماده‌سازی...</div>
+        </div>
+        <div class="glass-card p-4 rounded-2xl mb-4">
+          <h3 class="text-sm font-bold text-emerald-400 mb-2">برندگان مشخص‌شده به ترتیب:</h3>
+          <div id="wheelWinners" class="flex flex-col gap-2 text-sm"></div>
+        </div>
+        <button onclick="nav('hub')" class="btn-danger w-full py-3 rounded-xl font-bold">سایر بازی‌ها</button>
+      `;
 
-      function spinStep() {
-        if (revealed >= winNames.length) {
-          slot.innerHTML = "🏆 قرعه‌کشی به پایان رسید!";
+      let allNames = (params.get('names') || '').split(',').filter(Boolean);
+      let winNames = (params.get('winners') || '').split(',').filter(Boolean);
+
+      if ((!allNames.length || !winNames.length) && parsedChat) {
+        try {
+          const res = await fetch('/api/gardone/' + parsedChat);
+          const data = await res.json();
+          if (data.names?.length) allNames = data.names;
+          if (data.winners?.length) winNames = data.winners;
+        } catch (e) {}
+      }
+      if (!allNames.length) allNames = ['شرکت‌کننده ۱', 'شرکت‌کننده ۲', 'شرکت‌کننده ۳'];
+      if (!winNames.length) winNames = [allNames[0]];
+
+      const slot = document.getElementById('wheelSlot');
+      const wBox = document.getElementById('wheelWinners');
+      const colors = ['text-pink-400', 'text-amber-300', 'text-cyan-400', 'text-emerald-400', 'text-purple-400'];
+      let idx = 0;
+
+      function nextWinner() {
+        if (idx >= winNames.length) {
+          slot.className = "text-2xl font-black text-emerald-400";
+          slot.innerText = "قرعه‌کشی تکمیل شد!";
           return;
         }
-
-        let speed = 50;
-        let counter = 0;
-        const currentWinner = winNames[revealed];
-
-        const shuffle = setInterval(() => {
-          slot.innerText = allNames[Math.floor(Math.random() * allNames.length)];
-          counter += speed;
-          if (counter > 1500) {
-            clearInterval(shuffle);
-            slot.innerHTML = `<span class="text-emerald-400">🎉 ${currentWinner} 🎉</span>`;
-            revealed++;
-            const item = document.createElement('div');
-            item.className = "p-2 rounded-xl bg-slate-800/80 font-bold border border-emerald-500/30 text-white";
-            item.innerText = `🥇 برنده شماره ${revealed}: ${currentWinner}`;
-            wList.appendChild(item);
-            setTimeout(spinStep, 1400);
+        let elapsed = 0;
+        const target = winNames[idx];
+        const timer = setInterval(() => {
+          const rnd = allNames[Math.floor(Math.random() * allNames.length)];
+          const clr = colors[Math.floor(Math.random() * colors.length)];
+          slot.className = `text-3xl font-extrabold ${clr} transition-all scale-105`;
+          slot.innerText = rnd;
+          elapsed += 65;
+          if (elapsed >= 1800) {
+            clearInterval(timer);
+            idx++;
+            slot.className = "text-3xl font-black text-emerald-400 scale-110";
+            slot.innerText = `برنده ${idx}: ${target}`;
+            const row = document.createElement('div');
+            row.className = "p-2.5 rounded-xl bg-slate-800/90 border border-emerald-500/40 font-bold text-white";
+            row.innerText = `رتبه ${idx}: ${target}`;
+            wBox.appendChild(row);
+            setTimeout(nextWinner, 1400);
           }
-        }, speed);
+        }, 65);
       }
-
-      setTimeout(spinStep, 700);
+      setTimeout(nextWinner, 500);
     }
 
-    /* بازی 2048 با جهت اصلاح‌شده */
-    let b2048 = Array(4).fill(0).map(()=>Array(4).fill(0));
-    b2048[0][0]=2; b2048[1][1]=4;
+    /* ─── 2048 ─── */
+    let b2048 = null, s2048 = 0;
+    function init2048() {
+      b2048 = Array(4).fill(0).map(() => Array(4).fill(0));
+      s2048 = 0; addTile2048(); addTile2048();
+    }
+    function addTile2048() {
+      const emp = [];
+      for (let r=0;r<4;r++) for (let c=0;c<4;c++) if (!b2048[r][c]) emp.push([r,c]);
+      if (emp.length) {
+        const [r,c] = emp[Math.floor(Math.random()*emp.length)];
+        b2048[r][c] = Math.random() < 0.9 ? 2 : 4;
+      }
+    }
+    window.move2048 = function(dir) {
+      const rot = m => m[0].map((_, i) => m.map(row => row[i]).reverse());
+      let b = b2048.map(r => [...r]);
+      if (dir==='up') b = rot(rot(rot(b)));
+      if (dir==='right') b = b.map(r => r.reverse());
+      if (dir==='down') b = rot(b);
+      let moved = false;
+      b = b.map(row => {
+        let arr = row.filter(Boolean), out = [];
+        for (let i=0;i<arr.length;i++) {
+          if (arr[i]===arr[i+1]) { out.push(arr[i]*2); s2048+=arr[i]*2; i++; }
+          else out.push(arr[i]);
+        }
+        while (out.length<4) out.push(0);
+        if (out.join(',') !== row.join(',')) moved = true;
+        return out;
+      });
+      if (dir==='up') b = rot(b);
+      if (dir==='right') b = b.map(r => r.reverse());
+      if (dir==='down') b = rot(rot(rot(b)));
+      if (moved) {
+        b2048 = b; addTile2048();
+        if (b2048.some(r => r.includes(2048))) reportWin('2048');
+        render2048(document.getElementById('app'));
+      }
+    };
     function render2048(root) {
-      const cells = b2048.flat().map(v=>`<div class="aspect-square rounded-xl flex items-center justify-center font-bold text-xl ${v?'btn-primary':'bg-slate-800'}">${v||''}</div>`).join('');
+      if (!b2048) init2048();
+      const cells = b2048.flat().map(v => `
+        <div class="aspect-square rounded-xl flex items-center justify-center font-extrabold text-xl ${v ? 'btn-primary' : 'bg-slate-800/70 text-transparent'}">${v || 0}</div>
+      `).join('');
       root.innerHTML = `
-        <h2 class="text-xl font-bold mb-3 text-center">پازل ۲۰۴۸</h2>
-        <div class="ltr-box grid grid-cols-4 gap-2 glass p-3 rounded-2xl mb-4">${cells}</div>
-        <div class="ltr-box grid grid-cols-3 gap-2">
-          <div></div><button class="btn-primary py-3 rounded-xl">بالا</button><div></div>
-          <button class="btn-primary py-3 rounded-xl">چپ</button>
-          <div></div>
-          <button class="btn-primary py-3 rounded-xl">راست</button>
-          <div></div><button class="btn-primary py-3 rounded-xl">پایین</button><div></div>
+        <div class="flex justify-between items-center mb-4">
+          <h2 class="text-xl font-extrabold">بازی 2048</h2>
+          <span class="glass-card px-3 py-1 rounded-lg font-bold">امتیاز: ${s2048}</span>
+        </div>
+        <div class="game-grid-container grid grid-cols-4 gap-2 glass-card p-3 rounded-2xl mb-4">${cells}</div>
+        <div class="game-grid-container grid grid-cols-3 gap-2 mb-4">
+          <div></div><button onclick="move2048('up')" class="btn-primary py-3 rounded-xl font-bold">بالا</button><div></div>
+          <button onclick="move2048('left')" class="btn-primary py-3 rounded-xl font-bold">چپ</button>
+          <button onclick="init2048();render()" class="btn-success py-3 rounded-xl font-bold">جدید</button>
+          <button onclick="move2048('right')" class="btn-primary py-3 rounded-xl font-bold">راست</button>
+          <div></div><button onclick="move2048('down')" class="btn-primary py-3 rounded-xl font-bold">پایین</button><div></div>
+        </div>
+        <button onclick="nav('hub')" class="btn-danger w-full py-3 rounded-xl font-bold">سایر بازی‌ها</button>
+      `;
+    }
+
+    /* ─── Sliding Puzzle ─── */
+    let spz = null;
+    function initSpz() { spz = [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,0].sort(() => Math.random()-0.5); }
+    window.clickSpz = function(i) {
+      const emp = spz.indexOf(0);
+      const r1 = Math.floor(i/4), c1 = i%4, r2 = Math.floor(emp/4), c2 = emp%4;
+      if (Math.abs(r1-r2)+Math.abs(c1-c2)===1) {
+        [spz[i], spz[emp]] = [spz[emp], spz[i]];
+        if (spz.slice(0,15).every((v,idx)=>v===idx+1)) reportWin('spuzzle');
+        renderSpuzzle(document.getElementById('app'));
+      }
+    };
+    function renderSpuzzle(root) {
+      if (!spz) initSpz();
+      const cells = spz.map((v,i) => `
+        <button onclick="clickSpz(${i})" class="aspect-square rounded-xl font-extrabold text-xl ${v ? 'btn-primary' : 'bg-slate-800/40'}">${v || ''}</button>
+      `).join('');
+      root.innerHTML = `
+        <div class="flex justify-between items-center mb-4">
+          <h2 class="text-xl font-extrabold">پازل کشویی</h2>
+          <button onclick="initSpz();render()" class="btn-success px-3 py-1.5 rounded-lg font-bold text-sm">چینش مجدد</button>
+        </div>
+        <div class="game-grid-container grid grid-cols-4 gap-2 glass-card p-3 rounded-2xl mb-4">${cells}</div>
+        <button onclick="nav('hub')" class="btn-danger w-full py-3 rounded-xl font-bold">سایر بازی‌ها</button>
+      `;
+    }
+
+    /* ─── SameGame ─── */
+    let sgGrid = null, sgScore = 0;
+    const sgCls = ['btn-danger', 'btn-primary', 'btn-success', 'bg-amber-500'];
+    function initSg() {
+      sgGrid = Array(8).fill(0).map(()=>Array(8).fill(0).map(()=>Math.floor(Math.random()*4)));
+      sgScore = 0;
+    }
+    window.clickSg = function(r0, c0) {
+      const target = sgGrid[r0][c0], q = [[r0,c0]], vis = new Set([r0+','+c0]), grp = [[r0,c0]];
+      while (q.length) {
+        const [r,c] = q.pop();
+        for (const [dr,dc] of [[0,1],[0,-1],[1,0],[-1,0]]) {
+          const nr=r+dr, nc=c+dc, k=nr+','+nc;
+          if (nr>=0 && nr<8 && nc>=0 && nc<8 && !vis.has(k) && sgGrid[nr][nc]===target) {
+            vis.add(k); grp.push([nr,nc]); q.push([nr,nc]);
+          }
+        }
+      }
+      if (grp.length < 2) return;
+      grp.forEach(([r,c]) => sgGrid[r][c] = Math.floor(Math.random()*4));
+      sgScore += grp.length * 10;
+      renderSameGame(document.getElementById('app'));
+    };
+    function renderSameGame(root) {
+      if (!sgGrid) initSg();
+      const cells = sgGrid.map((row,r)=>row.map((v,c)=>`
+        <button onclick="clickSg(${r},${c})" class="aspect-square rounded-lg ${sgCls[v]}"></button>
+      `).join('')).join('');
+      root.innerHTML = `
+        <div class="flex justify-between items-center mb-4">
+          <h2 class="text-xl font-extrabold">بازی جفت‌ها</h2>
+          <span class="glass-card px-3 py-1 rounded-lg font-bold">امتیاز: ${sgScore}</span>
+        </div>
+        <div class="game-grid-container grid grid-cols-8 gap-1.5 glass-card p-3 rounded-2xl mb-4">${cells}</div>
+        <div class="flex gap-2">
+          <button onclick="initSg();render()" class="btn-success flex-1 py-3 rounded-xl font-bold">شروع مجدد</button>
+          <button onclick="nav('hub')" class="btn-danger flex-1 py-3 rounded-xl font-bold">سایر بازی‌ها</button>
         </div>
       `;
     }
 
-    /* تایپ سرعتی */
+    /* ─── Dooz 2P & 4P ─── */
+    let doozB = null, doozTurn = 0, doozWin = null, doozMode = 'dooz';
+    function initDooz(m) {
+      doozMode = m;
+      const sz = m === 'doz4p' ? 5 : 3;
+      doozB = Array(sz*sz).fill('');
+      doozTurn = 0; doozWin = null;
+    }
+    window.clickDooz = function(i) {
+      if (doozB[i] || doozWin) return;
+      const syms = doozMode === 'doz4p' ? ['X','O','A','B'] : ['X','O'];
+      const sz = doozMode === 'doz4p' ? 5 : 3;
+      const need = doozMode === 'doz4p' ? 4 : 3;
+      const sym = syms[doozTurn];
+      doozB[i] = sym;
+      for (let r=0;r<sz;r++) for (let c=0;c<sz;c++) {
+        for (const [dr,dc] of [[0,1],[1,0],[1,1],[1,-1]]) {
+          let ok = true;
+          for (let k=0;k<need;k++) {
+            const nr=r+dr*k, nc=c+dc*k;
+            if (nr<0||nr>=sz||nc<0||nc>=sz||doozB[nr*sz+nc]!==sym) { ok=false; break; }
+          }
+          if (ok) doozWin = sym;
+        }
+      }
+      if (doozWin) reportWin(doozMode);
+      else doozTurn = (doozTurn + 1) % syms.length;
+      renderDooz(document.getElementById('app'), doozMode);
+    };
+    function renderDooz(root, mode) {
+      if (!doozB || doozMode !== mode) initDooz(mode);
+      const sz = mode === 'doz4p' ? 5 : 3;
+      const syms = mode === 'doz4p' ? ['X','O','A','B'] : ['X','O'];
+      const cells = doozB.map((v,i)=>`
+        <button onclick="clickDooz(${i})" class="aspect-square rounded-xl font-extrabold text-2xl ${v==='X'?'btn-primary':v==='O'?'btn-success':v?'btn-danger':'bg-slate-800/80'}">${v}</button>
+      `).join('');
+      root.innerHTML = `
+        <div class="flex justify-between items-center mb-4">
+          <h2 class="text-xl font-extrabold">${mode==='doz4p'?'دوز ۴ نفره':'دوز ۲ نفره'}</h2>
+          <span class="glass-card px-3 py-1 rounded-lg font-bold">${doozWin ? 'برنده: '+doozWin : 'نوبت: '+syms[doozTurn]}</span>
+        </div>
+        <div class="game-grid-container grid ${sz===5?'grid-cols-5':'grid-cols-3'} gap-2 glass-card p-3 rounded-2xl mb-4">${cells}</div>
+        <div class="flex gap-2">
+          <button onclick="initDooz('${mode}');render()" class="btn-success flex-1 py-3 rounded-xl font-bold">بازی مجدد</button>
+          <button onclick="nav('hub')" class="btn-danger flex-1 py-3 rounded-xl font-bold">سایر بازی‌ها</button>
+        </div>
+      `;
+    }
+
+    /* ─── Connect 4 ─── */
+    let c4B = null, c4Turn = 1, c4Win = 0;
+    function initC4() { c4B = Array(6).fill(0).map(()=>Array(7).fill(0)); c4Turn = 1; c4Win = 0; }
+    window.dropC4 = function(col) {
+      if (c4Win) return;
+      for (let r=5;r>=0;r--) {
+        if (!c4B[r][col]) {
+          c4B[r][col] = c4Turn;
+          for (let rr=0;rr<6;rr++) for (let cc=0;cc<7;cc++) {
+            for (const [dr,dc] of [[0,1],[1,0],[1,1],[1,-1]]) {
+              let ok=true;
+              for (let k=0;k<4;k++) {
+                const nr=rr+dr*k, nc=cc+dc*k;
+                if (nr<0||nr>=6||nc<0||nc>=7||c4B[nr][nc]!==c4Turn){ok=false;break;}
+              }
+              if (ok) c4Win = c4Turn;
+            }
+          }
+          if (c4Win) reportWin('connect4');
+          else c4Turn = c4Turn===1?2:1;
+          renderConnect4(document.getElementById('app'));
+          return;
+        }
+      }
+    };
+    function renderConnect4(root) {
+      if (!c4B) initC4();
+      const cells = c4B.map(row=>row.map((v,c)=>`
+        <button onclick="dropC4(${c})" class="aspect-square rounded-full ${v===1?'btn-danger':v===2?'btn-success':'bg-slate-800'}"></button>
+      `).join('')).join('');
+      root.innerHTML = `
+        <div class="flex justify-between items-center mb-4">
+          <h2 class="text-xl font-extrabold">چهار در ردیف</h2>
+          <span class="glass-card px-3 py-1 rounded-lg font-bold">${c4Win ? 'برنده: بازیکن '+c4Win : 'نوبت بازیکن '+c4Turn}</span>
+        </div>
+        <div class="game-grid-container grid grid-cols-7 gap-1.5 glass-card p-3 rounded-2xl mb-4">${cells}</div>
+        <div class="flex gap-2">
+          <button onclick="initC4();render()" class="btn-success flex-1 py-3 rounded-xl font-bold">شروع مجدد</button>
+          <button onclick="nav('hub')" class="btn-danger flex-1 py-3 rounded-xl font-bold">سایر بازی‌ها</button>
+        </div>
+      `;
+    }
+
+    /* ─── RPS ─── */
+    let rpsU = 0, rpsB = 0, rpsMsg = 'یکی از گزینه‌ها را انتخاب کنید';
+    window.playRPS = function(c) {
+      const opts = ['rock','paper','scissors'];
+      const b = opts[Math.floor(Math.random()*3)];
+      const names = {rock:'سنگ', paper:'کاغذ', scissors:'قیچی'};
+      if (c===b) rpsMsg = `مساوی! هر دو ${names[c]} آوردید.`;
+      else if ((c==='rock'&&b==='scissors')||(c==='paper'&&b==='rock')||(c==='scissors'&&b==='paper')) {
+        rpsU++; rpsMsg = `بردی! شما ${names[c]} و حریف ${names[b]}`;
+        if (rpsU===3) reportWin('rps');
+      } else {
+        rpsB++; rpsMsg = `حریف برد! حریف ${names[b]} آورد`;
+      }
+      renderRPS(document.getElementById('app'));
+    };
+    function renderRPS(root) {
+      root.innerHTML = `
+        <div class="glass-card p-5 rounded-2xl text-center mb-4">
+          <h2 class="text-xl font-extrabold mb-2">سنگ، کاغذ، قیچی</h2>
+          <p class="font-bold text-slate-300 mb-3">شما: ${rpsU} — حریف: ${rpsB}</p>
+          <div class="p-3 rounded-xl bg-slate-900/90 font-bold">${rpsMsg}</div>
+        </div>
+        <div class="grid grid-cols-3 gap-3 mb-4">
+          <button onclick="playRPS('rock')" class="btn-primary py-3 rounded-xl font-bold">سنگ</button>
+          <button onclick="playRPS('paper')" class="btn-success py-3 rounded-xl font-bold">کاغذ</button>
+          <button onclick="playRPS('scissors')" class="btn-danger py-3 rounded-xl font-bold">قیچی</button>
+        </div>
+        <button onclick="nav('hub')" class="btn-danger w-full py-3 rounded-xl font-bold">سایر بازی‌ها</button>
+      `;
+    }
+
+    /* ─── Memory ─── */
+    let memCards = null, memFlip = [], memMatch = [];
+    function initMem() {
+      const s = ['A','B','C','D','E','F','G','H'];
+      memCards = [...s,...s].sort(()=>Math.random()-0.5);
+      memFlip = []; memMatch = [];
+    }
+    window.clickMem = function(i) {
+      if (memFlip.length===2 || memFlip.includes(i) || memMatch.includes(i)) return;
+      memFlip.push(i);
+      renderMemory(document.getElementById('app'));
+      if (memFlip.length===2) {
+        const [a,b] = memFlip;
+        if (memCards[a]===memCards[b]) {
+          memMatch.push(a,b); memFlip = [];
+          if (memMatch.length===16) reportWin('memory');
+          renderMemory(document.getElementById('app'));
+        } else {
+          setTimeout(()=>{ memFlip=[]; renderMemory(document.getElementById('app')); }, 650);
+        }
+      }
+    };
+    function renderMemory(root) {
+      if (!memCards) initMem();
+      const cells = memCards.map((v,i)=>{
+        const open = memFlip.includes(i) || memMatch.includes(i);
+        return `<button onclick="clickMem(${i})" class="aspect-square rounded-xl font-extrabold text-xl ${open?'btn-success':'btn-primary'}">${open?v:'?'}</button>`;
+      }).join('');
+      root.innerHTML = `
+        <div class="flex justify-between items-center mb-4">
+          <h2 class="text-xl font-extrabold">بازی حافظه</h2>
+          <span class="glass-card px-3 py-1 rounded-lg font-bold">${memMatch.length/2} / 8</span>
+        </div>
+        <div class="game-grid-container grid grid-cols-4 gap-2 glass-card p-3 rounded-2xl mb-4">${cells}</div>
+        <div class="flex gap-2">
+          <button onclick="initMem();render()" class="btn-success flex-1 py-3 rounded-xl font-bold">شروع مجدد</button>
+          <button onclick="nav('hub')" class="btn-danger flex-1 py-3 rounded-xl font-bold">سایر بازی‌ها</button>
+        </div>
+      `;
+    }
+
+    /* ─── Typing ─── */
+    const sentences = ["سرعت و دقت در تایپ نشانه مهارت است", "راینوبازی بهترین تجربه مسابقه آنلاین", "تمرکز بالا رمز پیروزی در رقابت‌هاست"];
+    let targetSentence = sentences[0], typeStart = 0, typeMsg = '';
+    function initTyping() {
+      targetSentence = sentences[Math.floor(Math.random()*sentences.length)];
+      typeStart = Date.now(); typeMsg = '';
+    }
+    window.checkTyping = function() {
+      const val = document.getElementById('typeInput').value.trim();
+      if (val === targetSentence) {
+        const sec = ((Date.now() - typeStart)/1000).toFixed(1);
+        typeMsg = `آفرین! در ${sec} ثانیه تایپ کردی!`;
+        reportWin('typing', Number(sec));
+        renderTyping(document.getElementById('app'));
+      } else {
+        typeMsg = 'متن وارد شده هنوز دقیق نیست!';
+        renderTyping(document.getElementById('app'));
+      }
+    };
     function renderTyping(root) {
+      if (!typeStart) initTyping();
       root.innerHTML = `
-        <div class="glass p-5 rounded-2xl text-center">
-          <h2 class="text-xl font-bold mb-2">مسابقه تایپ گروهی</h2>
-          <p class="p-3 bg-slate-900 rounded-xl font-bold text-emerald-400 mb-3">سرعت بالا رمز برنده شدن است</p>
-          <input type="text" placeholder="اینجا بنویسید..." class="w-full p-3 rounded-xl bg-slate-800 mb-3 text-center" />
-          <button class="btn-success w-full py-3 rounded-xl font-bold">ارسال رکورد</button>
+        <div class="glass-card p-5 rounded-2xl mb-4">
+          <h2 class="text-xl font-extrabold mb-3">مسابقه تایپ سرعتی</h2>
+          <p class="p-3 rounded-xl bg-slate-900 font-bold text-emerald-400 mb-4">${targetSentence}</p>
+          <input id="typeInput" type="text" placeholder="جمله بالا را اینجا تایپ کنید..." class="w-full p-3 rounded-xl bg-slate-800 text-white border border-slate-600 mb-3" />
+          ${typeMsg ? `<p class="font-bold text-amber-400 mb-2">${typeMsg}</p>` : ''}
+          <button onclick="checkTyping()" class="btn-success w-full py-3 rounded-xl font-bold">ثبت و بررسی</button>
+        </div>
+        <div class="flex gap-2">
+          <button onclick="initTyping();render()" class="btn-primary flex-1 py-3 rounded-xl font-bold">جمله جدید</button>
+          <button onclick="nav('hub')" class="btn-danger flex-1 py-3 rounded-xl font-bold">سایر بازی‌ها</button>
         </div>
       `;
     }
 
-    function renderSpuzzle(root) { root.innerHTML = `<div class="glass p-6 rounded-2xl text-center">پازل کشویی آماده بازی است.</div>`; }
-    function renderSameGame(root) { root.innerHTML = `<div class="glass p-6 rounded-2xl text-center">بازی جفت‌ها آماده بازی است.</div>`; }
-    function renderHangman(root) { root.innerHTML = `<div class="glass p-6 rounded-2xl text-center">حدس کلمه در گروه در دسترس است.</div>`; }
-    function renderGuess(root) { root.innerHTML = `<div class="glass p-6 rounded-2xl text-center">حدس عدد در گروه در دسترس است.</div>`; }
+    /* ─── Hangman ─── */
+    const wordsList = ["تلگرام", "راینو", "پایتون", "امپراتور", "کهکشان"];
+    let hmWord = "", hmGuessed = [], hmLives = 6;
+    function initHangman() {
+      hmWord = wordsList[Math.floor(Math.random()*wordsList.length)];
+      hmGuessed = []; hmLives = 6;
+    }
+    window.guessLetter = function(ch) {
+      if (hmGuessed.includes(ch) || hmLives <= 0) return;
+      hmGuessed.push(ch);
+      if (!hmWord.includes(ch)) hmLives--;
+      if (hmWord.split('').every(c => hmGuessed.includes(c))) reportWin('hangman');
+      renderHangman(document.getElementById('app'));
+    };
+    function renderHangman(root) {
+      if (!hmWord) initHangman();
+      const display = hmWord.split('').map(c => hmGuessed.includes(c) ? c : '_').join(' ');
+      const won = hmWord.split('').every(c => hmGuessed.includes(c));
+      const letters = "آابپتثجچحخدذرزژسشصضطظعغفقکگلمنوهی".split('');
+      const kbHtml = letters.map(ch => `
+        <button onclick="guessLetter('${ch}')" class="py-2 rounded-lg font-bold ${hmGuessed.includes(ch) ? 'bg-slate-800 text-slate-500' : 'btn-primary'}">${ch}</button>
+      `).join('');
+      root.innerHTML = `
+        <div class="glass-card p-5 rounded-2xl text-center mb-4">
+          <div class="flex justify-between items-center mb-3">
+            <h2 class="text-xl font-extrabold">حدس کلمه</h2>
+            <span class="px-3 py-1 rounded-lg bg-rose-600/30 font-bold">جان: ${hmLives}</span>
+          </div>
+          <div class="text-3xl font-extrabold tracking-widest my-4">${display}</div>
+          ${won ? '<p class="text-emerald-400 font-bold">تبریک! درست حدس زدی!</p>' : ''}
+          ${hmLives <= 0 ? `<p class="text-rose-400 font-bold">باختی! کلمه: ${hmWord}</p>` : ''}
+        </div>
+        <div class="grid grid-cols-7 gap-1.5 glass-card p-3 rounded-2xl mb-4">${kbHtml}</div>
+        <div class="flex gap-2">
+          <button onclick="initHangman();render()" class="btn-success flex-1 py-3 rounded-xl font-bold">کلمه جدید</button>
+          <button onclick="nav('hub')" class="btn-danger flex-1 py-3 rounded-xl font-bold">سایر بازی‌ها</button>
+        </div>
+      `;
+    }
+
+    /* ─── Guess Number ─── */
+    let secretNum = 0, guessHint = 'یک عدد بین ۱ تا ۱۰۰ حدس بزنید';
+    function initGuess() { secretNum = Math.floor(Math.random()*100)+1; guessHint = 'یک عدد بین ۱ تا ۱۰۰ حدس بزنید'; }
+    window.submitGuess = function() {
+      const v = Number(document.getElementById('guessInp').value);
+      if (!v) return;
+      if (v === secretNum) { guessHint = `آفرین! عدد ${secretNum} درست بود!`; reportWin('number_guess'); }
+      else if (v < secretNum) guessHint = 'برو بالاتر!';
+      else guessHint = 'بیا پایین‌تر!';
+      renderGuess(document.getElementById('app'));
+    };
+    function renderGuess(root) {
+      if (!secretNum) initGuess();
+      root.innerHTML = `
+        <div class="glass-card p-5 rounded-2xl text-center mb-4">
+          <h2 class="text-xl font-extrabold mb-2">حدس عدد</h2>
+          <p class="font-bold text-amber-400 mb-4">${guessHint}</p>
+          <input id="guessInp" type="number" min="1" max="100" placeholder="عدد ۱ تا ۱۰۰" class="w-full p-3 rounded-xl bg-slate-800 text-white text-center text-xl font-bold mb-3" />
+          <button onclick="submitGuess()" class="btn-success w-full py-3 rounded-xl font-bold">بررسی</button>
+        </div>
+        <div class="flex gap-2">
+          <button onclick="initGuess();render()" class="btn-primary flex-1 py-3 rounded-xl font-bold">شروع مجدد</button>
+          <button onclick="nav('hub')" class="btn-danger flex-1 py-3 rounded-xl font-bold">سایر بازی‌ها</button>
+        </div>
+      `;
+    }
+
+    /* ─── Hokm ─── */
+    let hokmHand = ['A♠','K♠','Q♥','J♦','10♣','9♠','8♥'], hokmTable = [], hokmScore = {us: 0, them: 0};
+    window.playHokmCard = function(idx) {
+      const card = hokmHand.splice(idx, 1)[0];
+      hokmTable = [card, 'K♥', '10♠', 'J♣'];
+      if (Math.random() > 0.4) hokmScore.us++; else hokmScore.them++;
+      if (hokmScore.us >= 7) reportWin('hokm');
+      if (!hokmHand.length) hokmHand = ['A♥','K♦','Q♠','J♥','10♦','9♣','7♠'];
+      renderHokm(document.getElementById('app'));
+    };
+    function renderHokm(root) {
+      const handHtml = hokmHand.map((c,i)=>`
+        <button onclick="playHokmCard(${i})" class="btn-primary py-4 px-2 rounded-xl font-extrabold text-lg">${c}</button>
+      `).join('');
+      root.innerHTML = `
+        <div class="flex justify-between items-center mb-4">
+          <h2 class="text-xl font-extrabold">میز حکم ۴ نفره</h2>
+          <span class="glass-card px-3 py-1 rounded-lg font-bold">ما: ${hokmScore.us} | حریف: ${hokmScore.them}</span>
+        </div>
+        <div class="glass-card p-6 rounded-2xl text-center mb-4 min-h-[130px] flex flex-col justify-center">
+          <div class="flex justify-center gap-3 text-xl font-extrabold">${hokmTable.length ? hokmTable.map(c=>`<span class="px-3 py-2 rounded-lg bg-slate-800">${c}</span>`).join('') : 'کارت خود را انتخاب کنید'}</div>
+        </div>
+        <div class="game-grid-container grid grid-cols-4 gap-2 mb-4">${handHtml}</div>
+        <button onclick="nav('hub')" class="btn-danger w-full py-3 rounded-xl font-bold">سایر بازی‌ها</button>
+      `;
+    }
 
     render();
   </script>
@@ -187,13 +671,7 @@ MINIAPP_HTML = """<!DOCTYPE html>
 </html>
 """
 
-FRONTEND_DIST = Path(__file__).resolve().parent.parent / "frontend" / "dist"
-if FRONTEND_DIST.exists():
-    assets_dir = FRONTEND_DIST / "assets"
-    if assets_dir.exists():
-        app.mount("/assets", StaticFiles(directory=str(assets_dir)), name="assets")
-
 
 @app.get("/{full_path:path}")
 async def serve_entry(full_path: str):
-    return HTMLResponse(content=MINIAPP_HTML, status_code=200)
+    return HTMLResponse(content=MINIAPP_FULL_HTML, status_code=200)
