@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""webapp/backend/main.py — سرور یکپارچه مینی‌اپ و وب‌سوکت با تضمین رندر کامل رابط کاربری"""
+"""webapp/backend/main.py — سرور کامل مینی‌اپ و وب‌سوکت با اصلاح جهت چپ/راست در زبان‌های RTL"""
 
 import json
 from pathlib import Path
@@ -107,7 +107,6 @@ async def websocket_endpoint(
             ]
 
 
-# رابط کاربری یکپارچه کلاینت — استایل‌های primary / success / danger و تمام بازی‌ها
 MINIAPP_STANDALONE_HTML = """<!DOCTYPE html>
 <html lang="fa" dir="rtl">
 <head>
@@ -141,6 +140,10 @@ MINIAPP_STANDALONE_HTML = """<!DOCTYPE html>
       background: rgba(15, 23, 42, 0.78);
       backdrop-filter: blur(12px);
       border: 1px solid rgba(255, 255, 255, 0.12);
+    }
+    /* کانتینر ریاضی بازی‌ها به صورت LTR حفظ می‌شود تا ستون‌ها جابه‌جا نشوند */
+    .game-grid-container {
+      direction: ltr !important;
     }
   </style>
 </head>
@@ -211,7 +214,7 @@ MINIAPP_STANDALONE_HTML = """<!DOCTYPE html>
         `;
       }
 
-      /* 2048 */
+      /* ─── 1. 2048 با جهت‌گیری تصحیح‌شده ─── */
       let b2048 = null, s2048 = 0;
       function init2048() {
         b2048 = Array(4).fill(0).map(() => Array(4).fill(0));
@@ -262,19 +265,19 @@ MINIAPP_STANDALONE_HTML = """<!DOCTYPE html>
             <h2 class="text-xl font-extrabold">بازی 2048</h2>
             <span class="glass-card px-3 py-1 rounded-lg font-bold">امتیاز: ${s2048}</span>
           </div>
-          <div class="grid grid-cols-4 gap-2 glass-card p-3 rounded-2xl mb-4">${cells}</div>
-          <div class="grid grid-cols-3 gap-2 mb-4">
+          <div class="game-grid-container grid grid-cols-4 gap-2 glass-card p-3 rounded-2xl mb-4">${cells}</div>
+          <div class="game-grid-container grid grid-cols-3 gap-2 mb-4">
             <div></div><button onclick="move2048('up')" class="btn-primary py-3 rounded-xl font-bold">بالا</button><div></div>
-            <button onclick="move2048('right')" class="btn-primary py-3 rounded-xl font-bold">راست</button>
-            <button onclick="init2048();render()" class="btn-success py-3 rounded-xl font-bold">جدید</button>
             <button onclick="move2048('left')" class="btn-primary py-3 rounded-xl font-bold">چپ</button>
+            <button onclick="init2048();render()" class="btn-success py-3 rounded-xl font-bold">جدید</button>
+            <button onclick="move2048('right')" class="btn-primary py-3 rounded-xl font-bold">راست</button>
             <div></div><button onclick="move2048('down')" class="btn-primary py-3 rounded-xl font-bold">پایین</button><div></div>
           </div>
           <button onclick="nav('hub')" class="btn-danger w-full py-3 rounded-xl font-bold">بازگشت به منو</button>
         `;
       }
 
-      /* Sliding Puzzle */
+      /* ─── 2. Sliding Puzzle ─── */
       let spz = null;
       function initSpz() { spz = [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,0].sort(() => Math.random()-0.5); }
       window.clickSpz = function(i) {
@@ -295,12 +298,12 @@ MINIAPP_STANDALONE_HTML = """<!DOCTYPE html>
             <h2 class="text-xl font-extrabold">پازل کشویی</h2>
             <button onclick="initSpz();render()" class="btn-success px-3 py-1.5 rounded-lg font-bold text-sm">چینش مجدد</button>
           </div>
-          <div class="grid grid-cols-4 gap-2 glass-card p-3 rounded-2xl mb-4">${cells}</div>
+          <div class="game-grid-container grid grid-cols-4 gap-2 glass-card p-3 rounded-2xl mb-4">${cells}</div>
           <button onclick="nav('hub')" class="btn-danger w-full py-3 rounded-xl font-bold">بازگشت به منو</button>
         `;
       }
 
-      /* SameGame */
+      /* ─── 3. SameGame ─── */
       let sgGrid = null, sgScore = 0;
       const sgCls = ['btn-danger', 'btn-primary', 'btn-success', 'bg-amber-500'];
       function initSg() {
@@ -333,7 +336,7 @@ MINIAPP_STANDALONE_HTML = """<!DOCTYPE html>
             <h2 class="text-xl font-extrabold">بازی جفت‌ها</h2>
             <span class="glass-card px-3 py-1 rounded-lg font-bold">امتیاز: ${sgScore}</span>
           </div>
-          <div class="grid grid-cols-8 gap-1.5 glass-card p-3 rounded-2xl mb-4">${cells}</div>
+          <div class="game-grid-container grid grid-cols-8 gap-1.5 glass-card p-3 rounded-2xl mb-4">${cells}</div>
           <div class="flex gap-2">
             <button onclick="initSg();render()" class="btn-success flex-1 py-3 rounded-xl font-bold">شروع مجدد</button>
             <button onclick="nav('hub')" class="btn-danger flex-1 py-3 rounded-xl font-bold">بازگشت</button>
@@ -341,7 +344,7 @@ MINIAPP_STANDALONE_HTML = """<!DOCTYPE html>
         `;
       }
 
-      /* Dooz */
+      /* ─── 4. Dooz ─── */
       let doozB = null, doozTurn = 0, doozWin = null, doozMode = 'dooz';
       function initDooz(m) {
         doozMode = m;
@@ -381,7 +384,7 @@ MINIAPP_STANDALONE_HTML = """<!DOCTYPE html>
             <h2 class="text-xl font-extrabold">${mode==='doz4p'?'دوز ۴ نفره':'دوز ۲ نفره'}</h2>
             <span class="glass-card px-3 py-1 rounded-lg font-bold">${doozWin ? 'برنده: '+doozWin : 'نوبت: '+syms[doozTurn]}</span>
           </div>
-          <div class="grid ${sz===5?'grid-cols-5':'grid-cols-3'} gap-2 glass-card p-3 rounded-2xl mb-4">${cells}</div>
+          <div class="game-grid-container grid ${sz===5?'grid-cols-5':'grid-cols-3'} gap-2 glass-card p-3 rounded-2xl mb-4">${cells}</div>
           <div class="flex gap-2">
             <button onclick="initDooz('${mode}');render()" class="btn-success flex-1 py-3 rounded-xl font-bold">بازی مجدد</button>
             <button onclick="nav('hub')" class="btn-danger flex-1 py-3 rounded-xl font-bold">بازگشت</button>
@@ -389,7 +392,7 @@ MINIAPP_STANDALONE_HTML = """<!DOCTYPE html>
         `;
       }
 
-      /* Connect 4 */
+      /* ─── 5. Connect 4 ─── */
       let c4B = null, c4Turn = 1, c4Win = 0;
       function initC4() { c4B = Array(6).fill(0).map(()=>Array(7).fill(0)); c4Turn = 1; c4Win = 0; }
       window.dropC4 = function(col) {
@@ -423,7 +426,7 @@ MINIAPP_STANDALONE_HTML = """<!DOCTYPE html>
             <h2 class="text-xl font-extrabold">چهار در ردیف</h2>
             <span class="glass-card px-3 py-1 rounded-lg font-bold">${c4Win ? 'برنده: بازیکن '+c4Win : 'نوبت بازیکن '+c4Turn}</span>
           </div>
-          <div class="grid grid-cols-7 gap-1.5 glass-card p-3 rounded-2xl mb-4">${cells}</div>
+          <div class="game-grid-container grid grid-cols-7 gap-1.5 glass-card p-3 rounded-2xl mb-4">${cells}</div>
           <div class="flex gap-2">
             <button onclick="initC4();render()" class="btn-success flex-1 py-3 rounded-xl font-bold">شروع مجدد</button>
             <button onclick="nav('hub')" class="btn-danger flex-1 py-3 rounded-xl font-bold">بازگشت</button>
@@ -431,7 +434,7 @@ MINIAPP_STANDALONE_HTML = """<!DOCTYPE html>
         `;
       }
 
-      /* RPS */
+      /* ─── 6. RPS ─── */
       let rpsU = 0, rpsB = 0, rpsMsg = 'یکی از گزینه‌ها را انتخاب کنید';
       window.playRPS = function(c) {
         const opts = ['rock','paper','scissors'];
@@ -462,7 +465,7 @@ MINIAPP_STANDALONE_HTML = """<!DOCTYPE html>
         `;
       }
 
-      /* Memory */
+      /* ─── 7. Memory ─── */
       let memCards = null, memFlip = [], memMatch = [];
       function initMem() {
         const s = ['A','B','C','D','E','F','G','H'];
@@ -494,7 +497,7 @@ MINIAPP_STANDALONE_HTML = """<!DOCTYPE html>
             <h2 class="text-xl font-extrabold">بازی حافظه</h2>
             <span class="glass-card px-3 py-1 rounded-lg font-bold">${memMatch.length/2} / 8</span>
           </div>
-          <div class="grid grid-cols-4 gap-2 glass-card p-3 rounded-2xl mb-4">${cells}</div>
+          <div class="game-grid-container grid grid-cols-4 gap-2 glass-card p-3 rounded-2xl mb-4">${cells}</div>
           <div class="flex gap-2">
             <button onclick="initMem();render()" class="btn-success flex-1 py-3 rounded-xl font-bold">شروع مجدد</button>
             <button onclick="nav('hub')" class="btn-danger flex-1 py-3 rounded-xl font-bold">بازگشت</button>
@@ -502,7 +505,7 @@ MINIAPP_STANDALONE_HTML = """<!DOCTYPE html>
         `;
       }
 
-      /* Typing */
+      /* ─── 8. Typing Race ─── */
       const sentences = ["سرعت و دقت در تایپ نشانه مهارت است", "راینوبازی بهترین تجربه مسابقه آنلاین", "تمرکز بالا رمز پیروزی در رقابت‌هاست"];
       let targetSentence = sentences[0], typeStart = 0, typeMsg = '';
       function initTyping() {
@@ -537,7 +540,7 @@ MINIAPP_STANDALONE_HTML = """<!DOCTYPE html>
         `;
       }
 
-      /* Hangman */
+      /* ─── 9. Hangman ─── */
       const wordsList = ["تلگرام", "راینو", "پایتون", "امپراتور", "کهکشان"];
       let hmWord = "", hmGuessed = [], hmLives = 6;
       function initHangman() {
@@ -576,7 +579,7 @@ MINIAPP_STANDALONE_HTML = """<!DOCTYPE html>
         `;
       }
 
-      /* Guess Number */
+      /* ─── 10. Guess Number ─── */
       let secretNum = 0, guessHint = 'یک عدد بین ۱ تا ۱۰۰ حدس بزنید';
       function initGuess() { secretNum = Math.floor(Math.random()*100)+1; guessHint = 'یک عدد بین ۱ تا ۱۰۰ حدس بزنید'; }
       window.submitGuess = function() {
@@ -617,7 +620,6 @@ MINIAPP_STANDALONE_HTML = """<!DOCTYPE html>
 </html>
 """
 
-# مسیر خروجی بیلد Vite
 FRONTEND_DIST = Path(__file__).resolve().parent.parent / "frontend" / "dist"
 if FRONTEND_DIST.exists():
     assets_dir = FRONTEND_DIST / "assets"
@@ -627,8 +629,4 @@ if FRONTEND_DIST.exists():
 
 @app.get("/{full_path:path}")
 async def serve_entrypoint(full_path: str):
-    """
-    سرو کردن تضمین‌شده رابط کاربری مینی‌اپ:
-    ارائه مستقیم کلاینت مستقل جهت پیشگیری از خطای رندر یا سفید ماندن صفحه در کلاینت تلگرام
-    """
     return HTMLResponse(content=MINIAPP_STANDALONE_HTML, status_code=200)
