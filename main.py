@@ -42,7 +42,7 @@ log = logging.getLogger("rhino")
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "")
 OWNER_IDS = {7662192190, 6041119040}
 MINI_APP_URL = os.environ.get("MINI_APP_URL", "https://games.rhinokaseb.abrdns.com").rstrip("/")
-MINI_APP_SHORT_NAME = os.environ.get("MINI_APP_SHORT_NAME", "").strip()
+MINI_APP_SHORT_NAME = os.environ.get("MINI_APP_SHORT_NAME", "RhinoGamesApp").strip() or "RhinoGamesApp"
 
 
 # ═══════════════════════════════════════════════
