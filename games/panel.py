@@ -111,6 +111,9 @@ async def send_group_game_card(cb: CallbackQuery):
         "typing": t("game_typing", lang),
         "hangman": t("game_hangman", lang),
         "guess": t("game_guess_num", lang),
+        "dungeon": "شکارچی سیاه‌چال (Dungeon Heist)",
+        "cybervault": "هک گاوصندوق سایبری",
+        "demontower": "برج شیاطین (Demon Tower)",
     }
     gtitle = game_titles.get(game, game)
 
