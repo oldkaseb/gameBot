@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""games/panel.py — ارسال کارت بازی با بنر تصویری گرافیکی در گروه و باز کردن مستقیم مینی‌اپ RhinoGamesApp"""
+"""games/panel.py — پنل ۷ زبانه بازی‌ها با ارسال بنر تصویری و باز شدن مستقیم مینی‌اپ RhinoGamesApp"""
 
 import os
 from aiogram import Router, F
@@ -10,21 +10,27 @@ from aiogram.enums import ParseMode, ChatType
 from aiogram.filters import Command
 
 from emojis import E
-from langs import t, get_user_lang
+from langs import t, get_user_lang, load_lang_from_db
 from utils.premium import success, primary, danger, kb
 from runtime import get_bot_username
+from database import db
 
 router = Router(name="panel")
 MINI_APP_URL = os.environ.get("MINI_APP_URL", "https://games.rhinokaseb.abrdns.com").rstrip("/")
 MINI_APP_SHORT_NAME = os.environ.get("MINI_APP_SHORT_NAME", "RhinoGamesApp").strip() or "RhinoGamesApp"
 
 
+async def _resolve_lang(uid: int) -> str:
+    try:
+        user = await db.get_user(uid)
+        if user and user["language"]:
+            load_lang_from_db(uid, user["language"])
+    except Exception:
+        pass
+    return get_user_lang(uid)
+
+
 def make_miniapp_btn(text: str, start_param: str, is_pm: bool, style_fn=success) -> InlineKeyboardButton:
-    """
-    در پیوی از web_app_url مستقیم استفاده می‌کند.
-    در گروه از لینک رسمی t.me/RhinoGamesBot/RhinoGamesApp?startapp=... استفاده می‌کند
-    تا پنجره مینی‌اپ مستقیماً وسط گروه باز شود و به پیوی نرود.
-    """
     if is_pm:
         return style_fn(text, web_app_url=f"{MINI_APP_URL}/?startapp={start_param}")
 
@@ -37,8 +43,8 @@ def make_miniapp_btn(text: str, start_param: str, is_pm: bool, style_fn=success)
 @router.message(F.text.in_({"بازی", "بازی‌ها", "بازیها", "پنل", "game", "games", "panel"}))
 async def show_panel(message: Message):
     uid = message.from_user.id
-    lang = get_user_lang(uid)
-    name = message.from_user.first_name or "رفیق"
+    lang = await _resolve_lang(uid)
+    name = message.from_user.first_name or t("player", lang)
 
     text = (
         f"{E.GAME}{E.PARTY} <b>{t('game_panel', lang, name=name)}</b>\n\n"
@@ -69,7 +75,6 @@ async def show_panel(message: Message):
 
 @router.callback_query(F.data.startswith("gcard_"))
 async def send_group_game_card(cb: CallbackQuery):
-    """حذف منوی اصلی و ارسال کارت تصویری گرافیکی بازی در گروه"""
     from webapp.backend.main import generate_game_banner
 
     parts = cb.data.split("_")
@@ -81,7 +86,7 @@ async def send_group_game_card(cb: CallbackQuery):
         return
 
     uid = cb.from_user.id
-    lang = get_user_lang(uid)
+    lang = await _resolve_lang(uid)
 
     if uid != host_id:
         await cb.answer(t("not_your_panel", lang), show_alert=True)
@@ -90,7 +95,7 @@ async def send_group_game_card(cb: CallbackQuery):
     await cb.answer()
     is_pm = cb.message.chat.type == ChatType.PRIVATE
     cid = cb.message.chat.id
-    start_param = f"{game}__{cid}__{uid}"
+    start_param = f"{game}__{cid}__{lang}"
 
     game_titles = {
         "2048": t("game_2048_title", lang),
@@ -103,13 +108,13 @@ async def send_group_game_card(cb: CallbackQuery):
     gtitle = game_titles.get(game, game)
 
     caption = (
-        f"{E.GAME}{E.SPARK} <b>میز بازی {gtitle}</b>\n\n"
-        f"{E.USER} بازیکن: <b>{cb.from_user.first_name or 'Player'}</b>\n"
-        f"{E.INFO} برای شروع بازی در همین گروه روی دکمه زیر بزنید:"
+        f"{E.GAME}{E.SPARK} <b>{gtitle}</b>\n\n"
+        f"{E.USER} {t('player', lang)}: <b>{cb.from_user.first_name or 'Player'}</b>\n"
+        f"{E.INFO} {t('open_in_pm_body', lang)}"
     )
 
     rows = [
-        [make_miniapp_btn(f"{E.PLAY} ورود به بازی ({gtitle})", start_param, is_pm, success)],
+        [make_miniapp_btn(f"{E.PLAY} {t('enter_game_table', lang)} ({gtitle})", start_param, is_pm, success)],
         [danger(f"{E.CROSS} {t('btn_close', lang)}", f"rsgame_close_{uid}")],
     ]
 
@@ -128,7 +133,7 @@ async def send_group_game_card(cb: CallbackQuery):
             parse_mode=ParseMode.HTML,
         )
     except Exception:
-        preview_url = f"{MINI_APP_URL}/?game={game}&chat={cid}&uid={uid}"
+        preview_url = f"{MINI_APP_URL}/?game={game}&chat={cid}&lang={lang}"
         await cb.message.answer(
             text=caption,
             reply_markup=kb(rows),
