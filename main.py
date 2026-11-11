@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""main.py — ربات بازی راینو (نسخه نهایی و بدون خطای ENTITY_TEXT_INVALID)"""
+"""main.py — ربات بازی راینو (نسخه اصلاح‌شده: فعال‌سازی قطعی همه دکمه‌های منو در گروه و مینی‌اپ)"""
 
 import asyncio
 import html
@@ -9,9 +9,9 @@ from urllib.parse import urlencode
 
 from aiogram import BaseMiddleware, Bot, Dispatcher, F
 from aiogram.client.default import DefaultBotProperties
-from aiogram.enums import ParseMode
+from aiogram.enums import ParseMode, ChatType
 from aiogram.exceptions import TelegramBadRequest
-from aiogram.filters import CommandStart, StateFilter
+from aiogram.filters import CommandStart, StateFilter, Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
@@ -60,7 +60,6 @@ def _safe_name(name: str) -> str:
 
 class EmojiBot(Bot):
     async def __call__(self, method, request_timeout=None):
-        # رندر توکن‌های [E:ID] به <tg-emoji> برای متن و کپشن
         for attr in ("text", "caption"):
             val = getattr(method, attr, None)
             if isinstance(val, str) and "[E:" in val:
@@ -73,9 +72,8 @@ class EmojiBot(Bot):
             return await super().__call__(method, request_timeout)
         except TelegramBadRequest as e:
             err = str(e)
-            # مدیریت خطاهای مربوط به تگ ایموجی یا دکمه‌ها
             if any(k in err for k in ("DOCUMENT_INVALID", "ENTITY_TEXT_INVALID", "CUSTOM_EMOJI", "BUTTON_ICON")):
-                log.warning(f"Telegram emoji/button fallback triggered ({err}) — retrying cleanly")
+                log.warning(f"Telegram emoji/button fallback triggered ({err})")
                 for attr in ("text", "caption"):
                     val = getattr(method, attr, None)
                     if isinstance(val, str) and ("<tg-emoji" in val or "[E:" in val):
@@ -159,36 +157,20 @@ class ForcedJoinMiddleware(BaseMiddleware):
 
 class GameGuard(BaseMiddleware):
     PREFIXES = {
-        "hokm_start_": "hokm", "dooz_start_": "dooz",
-        "doz4p_start_": "doz4p", "connect4_start_": "connect4",
-        "rps_start_": "rps", "memory_start_": "memory",
-        "2048_start_": "2048", "samegame_start_": "samegame",
-        "spuzzle_start_": "spuzzle", "hads_kalame_start_": "hangman",
-        "type_start_": "typing", "hads_addad_start_": "number_guess",
-        "gardone_start_": "gardone", "gharch_start_": "gharch",
-        "eteraf_start_": "eteraf",
-        "open_game_": "__open__",
-        "lobby_": "__lobby__",
+        "hokm": "hokm", "dooz": "dooz", "doz4p": "doz4p",
+        "connect4": "connect4", "rps": "rps", "memory": "memory",
+        "2048": "2048", "samegame": "samegame", "spuzzle": "spuzzle",
+        "hangman": "hangman", "typing": "typing", "guess": "number_guess",
+        "gardone": "gardone",
     }
 
     async def __call__(self, handler, event, data):
         if isinstance(event, CallbackQuery) and event.data:
-            for prefix, gtype in self.PREFIXES.items():
-                if event.data.startswith(prefix):
-                    if gtype == "__lobby__":
-                        break
-                    if gtype == "__open__":
-                        parts = event.data.split("_")
-                        if len(parts) >= 3:
-                            gtype = parts[2]
-                        else:
-                            break
+            for key, gtype in self.PREFIXES.items():
+                if key in event.data:
                     try:
                         if not await db.is_game_enabled(gtype):
-                            await event.answer(
-                                t("game_disabled", get_user_lang(event.from_user.id)),
-                                show_alert=True,
-                            )
+                            await event.answer("این بازی فعلاً غیرفعال است.", show_alert=True)
                             return
                     except Exception:
                         pass
@@ -197,291 +179,92 @@ class GameGuard(BaseMiddleware):
 
 
 # ═══════════════════════════════════════════════
-# منوی اصلی
+# ساخت منوی بازی‌ها (مستقیم داخل گروه بدون ارسال به پیوی)
 # ═══════════════════════════════════════════════
 
-def webapp_btn(text: str, game: str, uid: int, style_fn=primary) -> InlineKeyboardButton:
-    params = urlencode({"game": game, "uid": uid})
-    url = f"{MINI_APP_URL}/?{params}"
-    return style_fn(text, web_app_url=url)
+def _app_button(text: str, game: str, chat_id: int, style_fn=primary) -> InlineKeyboardButton:
+    """دکمه باز شدن مستقیم Mini App در داخل گروه"""
+    params = urlencode({"game": game, "chat": chat_id})
+    return style_fn(text, web_app_url=f"{MINI_APP_URL}/?{params}")
 
 
-async def _build_main_menu(uid: int, name: str, is_pm: bool = False):
-    lang = get_user_lang(uid)
-    safe_n = _safe_name(name)
-    text = (
-        f"{E.PARTY}{E.SPARK} <b>{t('welcome', lang, name=safe_n)}</b>\n\n"
-        f"{E.GAME} {t('game_panel', lang, name=safe_n)}\n\n{t('choose_game_hint', lang)}"
-    )
-
-    def gbtn(txt, game, style_fn=primary):
-        if is_pm:
-            return webapp_btn(txt, game, uid, style_fn=style_fn)
-        return style_fn(txt, f"open_game_{game}_{uid}")
-
+def _build_games_menu(uid: int, chat_id: int):
+    """
+    ساختار کامل دکمه‌ها:
+    - بازی‌های انفرادی و سرعتی مستقیم با Mini App باز می‌شوند.
+    - بازی‌های چندنفره لابی گروهی تشکیل می‌دهند.
+    - گردونه شانس وارد لابی و شمارش برندگان می‌شود.
+    """
     rows = [
-        [gbtn(f"{E.PUZZLE} {t('game_2048_title', lang)}", "2048", primary),
-         gbtn(f"{E.PUZZLE} {t('game_spuzzle', lang)}", "spuzzle", primary)],
-        [gbtn(f"{E.SPARK} {t('game_samegame', lang)}", "samegame", primary)],
-        [gbtn(f"{E.TARGET} {t('game_dooz', lang)}", "dooz", primary),
-         gbtn(f"{E.TARGET} {t('game_doz4p', lang)}", "doz4p", primary)],
-        [gbtn(f"{E.GAME} {t('game_connect4', lang)}", "connect4", success),
-         gbtn(f"{E.CARD} {t('game_hokm_4p', lang)}", "hokm", success)],
-        [gbtn(f"{E.PUZZLE} {t('game_rps', lang)}", "rps", primary),
-         gbtn(f"{E.BRAIN} {t('game_memory', lang)}", "memory", primary)],
-        [gbtn(f"{E.MIC} {t('game_typing', lang)}", "typing", primary),
-         gbtn(f"{E.BRAIN} {t('game_hangman', lang)}", "hangman", primary)],
-        [gbtn(f"{E.TARGET} {t('game_guess_num', lang)}", "guess", primary)],
-        [success(f"{E.TARGET} {t('game_gardone', lang)}", f"gardone_start_{uid}")],
-        [danger(f"{E.CROSS} {t('btn_close', lang)}", f"rsgame_close_{uid}")],
+        # پازلی و انفرادی (مینی‌اپ مستقیم)
+        [_app_button(f"{E.PUZZLE} 2048", "2048", chat_id, primary),
+         _app_button(f"{E.PUZZLE} پازل کشویی", "spuzzle", chat_id, primary)],
+        [_app_button(f"{E.SPARK} جفت‌ها", "samegame", chat_id, primary)],
+
+        # چندنفره (تشکیل لابی در گروه)
+        [primary(f"{E.TARGET} دوز ۲ نفره", f"lobby_dooz_{uid}"),
+         primary(f"{E.TARGET} دوز ۴ نفره", f"lobby_doz4p_{uid}")],
+        [success(f"{E.GAME} چهار در ردیف", f"lobby_connect4_{uid}"),
+         success(f"{E.CARD} حکم ۴ نفره", f"lobby_hokm_{uid}")],
+        [primary(f"{E.PUZZLE} سنگ کاغذ قیچی", f"lobby_rps_{uid}"),
+         primary(f"{E.BRAIN} بازی حافظه", f"lobby_memory_{uid}")],
+
+        # سرعتی و تایپی و هوش (مینی‌اپ مستقیم)
+        [_app_button(f"{E.MIC} تایپ سرعتی", "typing", chat_id, primary),
+         _app_button(f"{E.BRAIN} حدس کلمه", "hangman", chat_id, primary)],
+        [_app_button(f"{E.TARGET} حدس عدد", "guess", chat_id, primary)],
+
+        # گردونه شانس گروهی
+        [success(f"{E.TARGET} گردونه شانس و قرعه‌کشی", f"gardone_start_{uid}")],
+        [danger(f"{E.CROSS} بستن منو", f"close_menu_{uid}")],
     ]
     if uid in OWNER_IDS:
-        rows.append([success(f"{E.CROWN} {t('admin_panel', lang)}", "adm:panel")])
+        rows.append([success(f"{E.CROWN} پنل ادمین", "adm:panel")])
+
+    text = (
+        f"{E.GAME}{E.SPARK} <b>سالن بازی‌های گروهی راینو</b>\n\n"
+        f"بازی مورد نظر را انتخاب کنید تا مستقیماً اجرا یا لابی آن تشکیل شود:"
+    )
     return text, kb(rows)
 
 
-async def _build_pm_welcome(uid: int, name: str):
-    lang = get_user_lang(uid)
-    bot_username = get_bot_username()
-    safe_n = _safe_name(name)
-
-    text = (
-        f"{E.WAVE}{E.SPARK} <b>{t('pm_welcome_title', lang, name=safe_n)}</b>\n\n"
-        f"{E.GAME} {t('pm_welcome_body', lang)}\n\n"
-        f"{E.HEART} {t('pm_welcome_donate_hint', lang)}"
-    )
-    rows = [
-        [success(
-            f"{E.GAME} {t('open_game_btn', lang)}",
-            web_app_url=f"{MINI_APP_URL}/?uid={uid}&lang={lang}",
-        )],
-        [primary(
-            f"{E.SPARK} پنل انتخاب بازی‌ها",
-            "open_pm_games",
-        )],
-        [success(
-            f"{E.PLUS} {t('btn_add_to_group', lang)}",
-            url=f"https://t.me/{bot_username}?startgroup=true",
-        )],
-        [primary(f"{E.HEART} {t('btn_donate', lang)}", "donate")],
-        [primary(f"{E.GLOBE} {t('btn_change_lang', lang)}", "lang_menu")],
-    ]
-    if uid in OWNER_IDS:
-        rows.append([success(f"{E.CROWN} {t('admin_panel', lang)}", "adm:panel")])
-    return text, kb(rows)
-
-
-async def _show_pm_welcome(cb_or_msg, uid: int, name: str, edit: bool = True):
-    text, markup = await _build_pm_welcome(uid, name)
-    is_cb = isinstance(cb_or_msg, CallbackQuery)
-    target_msg = cb_or_msg.message if is_cb else cb_or_msg
-
-    if edit:
-        try:
-            await target_msg.edit_text(text, reply_markup=markup, parse_mode=ParseMode.HTML)
-            return
-        except TelegramBadRequest as e:
-            if "not modified" in str(e).lower():
-                return
-        except Exception:
-            pass
-
-    try:
-        await target_msg.answer(text, reply_markup=markup, parse_mode=ParseMode.HTML)
-    except Exception as e:
-        log.error(f"_show_pm_welcome error: {e}")
-
-
 # ═══════════════════════════════════════════════
-# Start
+# هندلر دستورات شروع و بازی
 # ═══════════════════════════════════════════════
 
 async def cmd_start(message: Message, command=None):
     uid = message.from_user.id
-    is_pm = message.chat.type == "private"
-    payload = (command.args if command else "") or ""
-
-    if payload.startswith("gharch_") or payload.startswith("eteraf_"):
-        return
-
-    if is_pm and payload.startswith("game_"):
-        game = payload[5:]
-        if game:
-            lang = get_user_lang(uid)
-
-            user = await db.get_user(uid)
-            if not user:
-                await db.upsert_user(
-                    uid,
-                    message.from_user.username or "",
-                    message.from_user.first_name or "",
-                )
-                user = await db.get_user(uid)
-
-            if user and user["language"]:
-                set_user_lang(uid, user["language"])
-                lang = user["language"]
-
-            try:
-                missing = await check_forced_join(message.bot, uid)
-            except Exception:
-                missing = []
-
-            if missing:
-                await message.answer(
-                    t("force_join_msg", lang),
-                    reply_markup=_join_kb(missing, lang),
-                    parse_mode=ParseMode.HTML,
-                )
-                return
-
-            game_url = f"{MINI_APP_URL}/?game={game}&uid={uid}&lang={lang}"
-            await message.answer(
-                f"{E.GAME} <b>{t('open_in_pm_title', lang)}</b>\n\n"
-                f"{E.INFO} {t('open_in_pm_body', lang)}",
-                reply_markup=kb([
-                    [success(f"{E.PLAY} {t('open_game_btn', lang)}", web_app_url=game_url)],
-                    [danger(f"{E.ARROW} {t('btn_back', lang)}", "menu")],
-                ]),
-                parse_mode=ParseMode.HTML,
-            )
-            return
+    cid = message.chat.id
 
     user = await db.get_user(uid)
-    is_new = user is None
-    if is_new:
+    if not user:
         await db.upsert_user(
             uid,
             message.from_user.username or "",
             message.from_user.first_name or "",
         )
-        user = await db.get_user(uid)
 
-    user_lang = user["language"] if user else None
-    if user_lang:
-        set_user_lang(uid, user_lang)
-
+    # بررسی جوین اجباری
     try:
         missing = await check_forced_join(message.bot, uid)
     except Exception:
         missing = []
 
     if missing:
-        lang_now = get_user_lang(uid)
         await message.answer(
-            t("force_join_msg", lang_now),
-            reply_markup=_join_kb(missing, lang_now),
+            t("force_join_msg", "fa"),
+            reply_markup=_join_kb(missing, "fa"),
             parse_mode=ParseMode.HTML,
         )
         return
 
-    if is_pm and (is_new or not user_lang):
-        rows = [[primary(_clean_lang_label(v), f"set_lang:{k}")] for k, v in LANGS.items()]
-        await message.answer(
-            f"{E.WAVE}{E.SPARK} {t('choose_lang', 'fa')}",
-            reply_markup=kb(rows),
-            parse_mode=ParseMode.HTML,
-        )
-        return
-
-    if is_pm:
-        await _show_pm_welcome(
-            message, uid,
-            message.from_user.first_name or t("player", get_user_lang(uid)),
-            edit=False,
-        )
-    else:
-        text, markup = await _build_main_menu(
-            uid,
-            message.from_user.first_name or t("player", get_user_lang(uid)),
-            is_pm=False,
-        )
-        await message.answer(text, reply_markup=markup, parse_mode=ParseMode.HTML)
-
-
-async def set_lang_cb(cb: CallbackQuery):
-    lang = cb.data.split(":")[1]
-    if lang not in LANGS:
-        await cb.answer(t("error", "fa"), show_alert=True)
-        return
-    set_user_lang(cb.from_user.id, lang)
-    try:
-        await db.set_language(cb.from_user.id, lang)
-    except Exception:
-        pass
-    await cb.answer(t("lang_saved", lang))
-
-    is_pm = cb.message.chat.type == "private"
-    if is_pm:
-        await _show_pm_welcome(cb, cb.from_user.id, cb.from_user.first_name or "دوست")
-    else:
-        text, markup = await _build_main_menu(
-            cb.from_user.id, cb.from_user.first_name or "دوست", is_pm=False
-        )
-        try:
-            await cb.message.edit_text(text, reply_markup=markup, parse_mode=ParseMode.HTML)
-        except Exception:
-            pass
-
-
-async def cmd_lang(message: Message):
-    rows = [[primary(_clean_lang_label(v), f"set_lang:{k}")] for k, v in LANGS.items()]
-    await message.answer(
-        t("choose_lang", get_user_lang(message.from_user.id)),
-        reply_markup=kb(rows),
-        parse_mode=ParseMode.HTML,
-    )
+    # تمام پیام‌ها (چه گروه و چه پیوی) مستقیماً به سالن بازی‌ها متصل می‌شوند
+    text, markup = _build_games_menu(uid, cid)
+    await message.answer(text, reply_markup=markup, parse_mode=ParseMode.HTML)
 
 
 # ═══════════════════════════════════════════════
-# Donate Stars
-# ═══════════════════════════════════════════════
-
-DONATE_PRESETS = [50, 100, 250, 500, 1000]
-
-
-class DonateStates(StatesGroup):
-    custom_amount = State()
-
-
-async def _show_donate_menu(cb: CallbackQuery, edit: bool = True):
-    uid = cb.from_user.id
-    lang = get_user_lang(uid)
-
-    rows = []
-    row1 = [primary(f"{E.STAR} {n}", f"donate_pay:{n}") for n in DONATE_PRESETS[:3]]
-    row2 = [primary(f"{E.STAR} {n}", f"donate_pay:{n}") for n in DONATE_PRESETS[3:]]
-    rows.append(row1)
-    rows.append(row2)
-    rows.append([success(f"{E.PLUS} {t('donate_custom', lang)}", "donate_custom")])
-    rows.append([danger(f"{E.ARROW} {t('btn_back', lang)}", "menu")])
-
-    text = t("donate_title", lang)
-    try:
-        if edit:
-            await cb.message.edit_text(text, reply_markup=kb(rows), parse_mode=ParseMode.HTML)
-        else:
-            await cb.message.answer(text, reply_markup=kb(rows), parse_mode=ParseMode.HTML)
-    except TelegramBadRequest as e:
-        if "not modified" not in str(e).lower():
-            log.debug(f"donate: {e}")
-
-
-async def _send_stars_invoice(bot: Bot, chat_id: int, amount: int, uid: int):
-    lang = get_user_lang(uid)
-    await bot.send_invoice(
-        chat_id=chat_id,
-        title=t("donate_invoice_title", lang),
-        description=t("donate_invoice_desc", lang, n=amount),
-        payload=f"donate_{amount}_{uid}",
-        provider_token="",
-        currency="XTR",
-        prices=[LabeledPrice(label="Stars", amount=amount)],
-    )
-
-
-# ═══════════════════════════════════════════════
-# Health & MiniApp Server
+# سرور Uvicorn و FastApi
 # ═══════════════════════════════════════════════
 
 async def _start_health_server(port: int = 8080):
@@ -497,15 +280,15 @@ async def _start_health_server(port: int = 8080):
         )
         server = uvicorn.Server(config)
         asyncio.create_task(server.serve())
-        log.info(f"Mini App FastAPI + WebSocket server running on :{port}")
+        log.info(f"Mini App FastAPI server running on :{port}")
         return server
     except Exception as e:
-        log.warning(f"FastAPI server fallback: {e}")
+        log.warning(f"FastAPI server fallback error: {e}")
         return None
 
 
 # ═══════════════════════════════════════════════
-# Main
+# Main Function
 # ═══════════════════════════════════════════════
 
 async def main():
@@ -526,6 +309,7 @@ async def main():
     set_bot_username(me.username or "bot")
     log.info(f"Bot connected: @{get_bot_username()}")
 
+    # ثبت روترها
     register_all_games(dp)
     dp.include_router(anon_router)
     dp.include_router(stop_router)
@@ -543,178 +327,40 @@ async def main():
         await cmd_start(msg, command)
 
     @dp.message(F.text.in_({
-        "شروع", "استارت", "start", "بدء", "ابدأ", "başla", "başlat",
-        "начать", "старт", "los", "starten", "开始",
+        "شروع", "استارت", "start", "بازی", "بازی‌ها", "بازیها", "پنل", "games", "panel"
     }))
-    async def _start_p(msg: Message):
+    async def _start_text(msg: Message):
         await cmd_start(msg)
 
-    @dp.message(F.text.in_({"زبان", "language", "lang"}))
-    async def _lang(msg: Message):
-        await cmd_lang(msg)
-
-    @dp.callback_query(F.data.startswith("set_lang:"))
-    async def _setlang(cb: CallbackQuery):
-        await set_lang_cb(cb)
-
-    @dp.callback_query(F.data == "open_pm_games")
-    async def _open_pm_games(cb: CallbackQuery):
-        await cb.answer()
-        uid = cb.from_user.id
-        name = cb.from_user.first_name or "دوست"
-        text, markup = await _build_main_menu(uid, name, is_pm=True)
+    @dp.callback_query(F.data == "check_join")
+    async def _check_join(cb: CallbackQuery):
+        missing = await check_forced_join(cb.bot, cb.from_user.id)
+        if missing:
+            await cb.answer(t("not_member", "fa"), show_alert=True)
+            return
+        await cb.answer("عضویت تایید شد!")
+        text, markup = _build_games_menu(cb.from_user.id, cb.message.chat.id)
         try:
             await cb.message.edit_text(text, reply_markup=markup, parse_mode=ParseMode.HTML)
         except Exception:
             await cb.message.answer(text, reply_markup=markup, parse_mode=ParseMode.HTML)
 
-    @dp.callback_query(F.data == "check_join")
-    async def _check_join(cb: CallbackQuery):
-        lang = get_user_lang(cb.from_user.id)
-        missing = await check_forced_join(cb.bot, cb.from_user.id)
-        if missing:
-            await cb.answer(t("not_member", lang), show_alert=True)
-            try:
-                await cb.message.edit_text(
-                    t("force_join_msg", lang),
-                    reply_markup=_join_kb(missing, lang),
-                    parse_mode=ParseMode.HTML,
-                )
-            except Exception:
-                pass
-            return
-
-        await cb.answer(t("lang_saved", lang))
-        user = await db.get_user(cb.from_user.id)
-        if not user:
-            await db.upsert_user(
-                cb.from_user.id,
-                cb.from_user.username or "",
-                cb.from_user.first_name or "",
-            )
-
-        if cb.message.chat.type == "private":
-            await _show_pm_welcome(cb, cb.from_user.id, cb.from_user.first_name or "دوست")
-        else:
-            text, markup = await _build_main_menu(
-                cb.from_user.id, cb.from_user.first_name or "دوست", is_pm=False
-            )
-            try:
-                await cb.message.edit_text(text, reply_markup=markup, parse_mode=ParseMode.HTML)
-            except Exception:
-                pass
-
     @dp.callback_query(F.data == "menu")
     async def _menu(cb: CallbackQuery):
         await cb.answer()
-        uid = cb.from_user.id
-        name = cb.from_user.first_name or "دوست"
-        if cb.message.chat.type == "private":
-            await _show_pm_welcome(cb, uid, name)
-        else:
-            text, markup = await _build_main_menu(uid, name, is_pm=False)
-            try:
-                await cb.message.edit_text(text, reply_markup=markup, parse_mode=ParseMode.HTML)
-            except TelegramBadRequest as e:
-                if "not modified" not in str(e).lower():
-                    log.debug(f"menu: {e}")
-
-    @dp.callback_query(F.data == "lang_menu")
-    async def _lang_menu(cb: CallbackQuery):
-        await cb.answer()
-        lang = get_user_lang(cb.from_user.id)
-        rows = [[primary(_clean_lang_label(v), f"set_lang:{k}")] for k, v in LANGS.items()]
-        rows.append([danger(f"{E.ARROW} {t('btn_back', lang)}", "menu")])
+        text, markup = _build_games_menu(cb.from_user.id, cb.message.chat.id)
         try:
-            await cb.message.edit_text(
-                t("choose_lang", lang),
-                reply_markup=kb(rows), parse_mode=ParseMode.HTML,
-            )
+            await cb.message.edit_text(text, reply_markup=markup, parse_mode=ParseMode.HTML)
         except Exception:
             pass
 
-    @dp.callback_query(F.data == "donate")
-    async def _donate(cb: CallbackQuery):
-        await cb.answer()
-        await _show_donate_menu(cb)
-
-    @dp.callback_query(F.data.startswith("donate_pay:"))
-    async def _donate_pay(cb: CallbackQuery):
-        try:
-            amount = int(cb.data.split(":")[1])
-            if not (1 <= amount <= 10000):
-                raise ValueError
-        except (ValueError, IndexError):
-            await cb.answer("Invalid amount", show_alert=True)
-            return
+    @dp.callback_query(F.data.startswith("close_menu_"))
+    async def _close_menu(cb: CallbackQuery):
         await cb.answer()
         try:
-            await _send_stars_invoice(cb.bot, cb.from_user.id, amount, cb.from_user.id)
-        except Exception as e:
-            log.error(f"invoice: {e}")
-            lang = get_user_lang(cb.from_user.id)
-            await cb.answer(t("donate_invoice_error", lang), show_alert=True)
-
-    @dp.callback_query(F.data == "donate_custom")
-    async def _donate_custom(cb: CallbackQuery, state: FSMContext):
-        await cb.answer()
-        await state.clear()
-        await state.set_state(DonateStates.custom_amount)
-        lang = get_user_lang(cb.from_user.id)
-        try:
-            await cb.message.edit_text(
-                t("donate_custom_prompt", lang),
-                reply_markup=kb([[danger(f"{E.CROSS} {t('btn_cancel', lang)}", "menu")]]),
-                parse_mode=ParseMode.HTML,
-            )
+            await cb.message.delete()
         except Exception:
             pass
-
-    @dp.message(StateFilter(DonateStates.custom_amount), F.text)
-    async def _donate_custom_amount(msg: Message, state: FSMContext):
-        lang = get_user_lang(msg.from_user.id)
-        txt = (msg.text or "").strip().lower()
-        if txt in ("/cancel", "لغو", "cancel"):
-            await state.clear()
-            await msg.answer(t("cancelled", lang))
-            return
-        try:
-            amount = int(msg.text.strip().translate(str.maketrans("۰۱۲۳۴۵۶۷۸۹", "0123456789")))
-            if not (1 <= amount <= 10000):
-                raise ValueError
-        except ValueError:
-            await msg.answer(t("donate_amount_invalid", lang))
-            return
-        await state.clear()
-        try:
-            await _send_stars_invoice(msg.bot, msg.from_user.id, amount, msg.from_user.id)
-        except Exception as e:
-            log.error(f"custom invoice: {e}")
-            await msg.answer(t("donate_invoice_error", lang))
-
-    @dp.pre_checkout_query()
-    async def _pre_checkout(pcq: PreCheckoutQuery):
-        try:
-            await pcq.answer(ok=True)
-        except Exception as e:
-            log.debug(f"pre_checkout: {e}")
-
-    @dp.message(F.successful_payment)
-    async def _payment_ok(msg: Message):
-        amount = msg.successful_payment.total_amount
-        lang = get_user_lang(msg.from_user.id)
-        await msg.answer(t("donate_thanks", lang, n=amount), parse_mode=ParseMode.HTML)
-        for oid in OWNER_IDS:
-            try:
-                await msg.bot.send_message(
-                    oid,
-                    t("donate_owner_notify", "fa",
-                      name=_safe_name(msg.from_user.first_name or "—"),
-                      uid=msg.from_user.id, n=amount),
-                    parse_mode=ParseMode.HTML,
-                )
-            except Exception:
-                pass
 
     asyncio.create_task(cleanup_loop(bot))
     health_runner = await _start_health_server(int(os.getenv("PORT", "8080")))
