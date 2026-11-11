@@ -1,25 +1,13 @@
 # -*- coding: utf-8 -*-
-"""webapp/backend/main.py — سرور کامل مینی‌اپ و وب‌سوکت با اصلاح جهت چپ/راست در زبان‌های RTL"""
+"""webapp/backend/main.py — سرور مینی‌اپ و استیج انیمیشن قرعه‌کشی رنگارنگ و پیش‌نمایش‌ها"""
 
 import json
 from pathlib import Path
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Query
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
-
-try:
-    from webapp.backend.game_logic.hokm import HokmGame
-    from webapp.backend.auth import validate_init_data
-except ImportError:
-    try:
-        from game_logic.hokm import HokmGame
-        from auth import validate_init_data
-    except Exception:
-        HokmGame = None
-        validate_init_data = None
-
 from database import db
 
 app = FastAPI(title="Rhino Games Mini App")
@@ -30,9 +18,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-active_rooms = {}
-connections = {}
 
 
 class WinPayload(BaseModel):
@@ -55,59 +40,7 @@ async def record_win(payload: WinPayload):
         return {"ok": False, "error": str(e)}
 
 
-@app.websocket("/ws/{game_type}/{session_id}/{user_id}")
-async def websocket_endpoint(
-    websocket: WebSocket,
-    game_type: str,
-    session_id: str,
-    user_id: int,
-    init_data: str = Query(None),
-):
-    await websocket.accept()
-
-    if session_id not in connections:
-        connections[session_id] = []
-    connections[session_id].append({"ws": websocket, "user_id": user_id})
-
-    if session_id not in active_rooms:
-        if game_type == "hokm" and HokmGame:
-            active_rooms[session_id] = HokmGame(session_id)
-        else:
-            active_rooms[session_id] = {
-                "type": game_type,
-                "board": {},
-                "players": [],
-            }
-
-    try:
-        while True:
-            data = await websocket.receive_text()
-            msg = json.loads(data)
-
-            if game_type == "hokm" and HokmGame:
-                game = active_rooms[session_id]
-                game.handle_action(user_id, msg)
-                for conn in list(connections.get(session_id, [])):
-                    try:
-                        await conn["ws"].send_json(game.get_state_for_player(conn["user_id"]))
-                    except Exception:
-                        pass
-            else:
-                payload = {"user_id": user_id, "game_type": game_type, **msg}
-                for conn in list(connections.get(session_id, [])):
-                    try:
-                        await conn["ws"].send_json(payload)
-                    except Exception:
-                        pass
-
-    except WebSocketDisconnect:
-        if session_id in connections:
-            connections[session_id] = [
-                c for c in connections[session_id] if c["ws"] != websocket
-            ]
-
-
-MINIAPP_STANDALONE_HTML = """<!DOCTYPE html>
+MINIAPP_HTML = """<!DOCTYPE html>
 <html lang="fa" dir="rtl">
 <head>
   <meta charset="UTF-8" />
@@ -117,504 +50,138 @@ MINIAPP_STANDALONE_HTML = """<!DOCTYPE html>
   <script src="https://cdn.tailwindcss.com"></script>
   <style>
     body {
-      background: radial-gradient(circle at top, #1e1b4b 0%, #0f172a 60%, #020617 100%);
+      background: radial-gradient(circle at top, #0f172a 0%, #020617 100%);
       color: #fff;
-      font-family: system-ui, -apple-system, sans-serif;
+      font-family: system-ui, sans-serif;
       min-height: 100vh;
       margin: 0;
       user-select: none;
     }
-    .btn-primary {
-      background: linear-gradient(135deg, #2563eb, #4f46e5);
-      box-shadow: 0 4px 15px rgba(37, 99, 235, 0.35);
+    .btn-primary { background: linear-gradient(135deg, #2563eb, #4f46e5); }
+    .btn-success { background: linear-gradient(135deg, #059669, #10b981); }
+    .btn-danger { background: linear-gradient(135deg, #e11d48, #ef4444); }
+    .glass { background: rgba(15, 23, 42, 0.85); backdrop-filter: blur(14px); border: 1px solid rgba(255, 255, 255, 0.1); }
+    .ltr-box { direction: ltr !important; }
+    @keyframes pulseGlow {
+      0%, 100% { box-shadow: 0 0 25px rgba(236, 72, 153, 0.6), 0 0 50px rgba(59, 130, 246, 0.5); }
+      50% { box-shadow: 0 0 45px rgba(16, 185, 129, 0.8), 0 0 80px rgba(245, 158, 11, 0.6); }
     }
-    .btn-success {
-      background: linear-gradient(135deg, #059669, #10b981);
-      box-shadow: 0 4px 15px rgba(16, 185, 129, 0.35);
-    }
-    .btn-danger {
-      background: linear-gradient(135deg, #e11d48, #ef4444);
-      box-shadow: 0 4px 15px rgba(225, 29, 72, 0.35);
-    }
-    .glass-card {
-      background: rgba(15, 23, 42, 0.78);
-      backdrop-filter: blur(12px);
-      border: 1px solid rgba(255, 255, 255, 0.12);
-    }
-    /* کانتینر ریاضی بازی‌ها به صورت LTR حفظ می‌شود تا ستون‌ها جابه‌جا نشوند */
-    .game-grid-container {
-      direction: ltr !important;
-    }
+    .anim-wheel { animation: pulseGlow 1.2s infinite alternate; }
   </style>
 </head>
 <body class="p-4 flex flex-col items-center">
   <div id="app" class="w-full max-w-md"></div>
 
   <script>
-    try {
-      const tg = window.Telegram?.WebApp;
-      if (tg) { tg.ready(); tg.expand(); }
+    const tg = window.Telegram?.WebApp;
+    if (tg) { tg.ready(); tg.expand(); }
 
-      const params = new URLSearchParams(window.location.search);
-      let currentGame = params.get('game') || 'hub';
-      const uid = tg?.initDataUnsafe?.user?.id || params.get('uid') || 0;
+    const params = new URLSearchParams(window.location.search);
+    const game = params.get('game') || 'hub';
 
-      window.nav = function(game) {
-        currentGame = game;
-        render();
-      };
+    function render() {
+      const root = document.getElementById('app');
+      if (game === 'gardone_anim') return renderGardoneAnim(root);
+      if (game === '2048') return render2048(root);
+      if (game === 'spuzzle') return renderSpuzzle(root);
+      if (game === 'samegame') return renderSameGame(root);
+      if (game === 'typing') return renderTyping(root);
+      if (game === 'hangman') return renderHangman(root);
+      if (game === 'guess') return renderGuess(root);
+      root.innerHTML = `<div class="glass p-6 rounded-2xl text-center"><h2 class="text-xl font-bold mb-2">اتاق بازی راینو</h2><p class="text-slate-300">در حال اجرای بازی گروهی...</p></div>`;
+    }
 
-      async function reportWin(gameType, bestTime = null) {
-        if (!uid) return;
-        try {
-          await fetch('/api/win', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({ uid: Number(uid), game_type: gameType, best_time: bestTime })
-          });
-        } catch (e) {}
-      }
+    /* استیج قرعه‌کشی انیمیشنی زنده */
+    function renderGardoneAnim(root) {
+      const allNames = (params.get('names') || 'کاربر ۱,کاربر ۲').split(',');
+      const winNames = (params.get('winners') || '').split(',').filter(Boolean);
+      
+      root.innerHTML = `
+        <div class="glass p-5 rounded-2xl text-center mb-4 border border-fuchsia-500/30">
+          <h2 class="text-2xl font-black text-transparent bg-clip-text bg-gradient-to-r from-pink-400 via-purple-300 to-indigo-400 mb-2">گردونه شانس و هیجان راینو</h2>
+          <p class="text-xs text-slate-300">در حال چرخش زنده اسامی برای کشیدن برندگان...</p>
+        </div>
 
-      function render() {
-        const root = document.getElementById('app');
-        if (!root) return;
-        if (currentGame === 'hub') return renderHub(root);
-        if (currentGame === '2048') return render2048(root);
-        if (currentGame === 'spuzzle') return renderSpuzzle(root);
-        if (currentGame === 'samegame') return renderSameGame(root);
-        if (currentGame === 'dooz' || currentGame === 'doz4p') return renderDooz(root, currentGame);
-        if (currentGame === 'connect4') return renderConnect4(root);
-        if (currentGame === 'rps') return renderRPS(root);
-        if (currentGame === 'memory') return renderMemory(root);
-        if (currentGame === 'typing') return renderTyping(root);
-        if (currentGame === 'hangman') return renderHangman(root);
-        if (currentGame === 'guess') return renderGuess(root);
-        return renderHub(root);
-      }
+        <div class="glass rounded-3xl p-8 text-center my-6 anim-wheel border-2 border-indigo-400 flex flex-col items-center justify-center min-h-[200px]">
+          <div id="slotName" class="text-3xl font-extrabold text-amber-300 tracking-wider">آماده‌باش...</div>
+        </div>
 
-      function renderHub(root) {
-        root.innerHTML = `
-          <div class="glass-card rounded-2xl p-5 text-center mb-4">
-            <h1 class="text-2xl font-extrabold mb-1">مینی‌اپ بازی‌های راینو</h1>
-            <p class="text-slate-300 text-sm">بازی مورد نظر خود را انتخاب کنید</p>
-          </div>
-          <div class="grid grid-cols-2 gap-3">
-            <button onclick="nav('2048')" class="btn-primary py-3 px-4 rounded-xl font-bold active:scale-95 transition">پازل 2048</button>
-            <button onclick="nav('spuzzle')" class="btn-primary py-3 px-4 rounded-xl font-bold active:scale-95 transition">پازل کشویی</button>
-            <button onclick="nav('samegame')" class="btn-primary py-3 px-4 rounded-xl font-bold active:scale-95 transition">جفت‌ها</button>
-            <button onclick="nav('dooz')" class="btn-primary py-3 px-4 rounded-xl font-bold active:scale-95 transition">دوز ۲ نفره</button>
-            <button onclick="nav('doz4p')" class="btn-primary py-3 px-4 rounded-xl font-bold active:scale-95 transition">دوز ۴ نفره</button>
-            <button onclick="nav('connect4')" class="btn-success py-3 px-4 rounded-xl font-bold active:scale-95 transition">چهار در ردیف</button>
-            <button onclick="nav('rps')" class="btn-primary py-3 px-4 rounded-xl font-bold active:scale-95 transition">سنگ کاغذ قیچی</button>
-            <button onclick="nav('memory')" class="btn-primary py-3 px-4 rounded-xl font-bold active:scale-95 transition">بازی حافظه</button>
-            <button onclick="nav('typing')" class="btn-primary py-3 px-4 rounded-xl font-bold active:scale-95 transition">تایپ سرعتی</button>
-            <button onclick="nav('hangman')" class="btn-primary py-3 px-4 rounded-xl font-bold active:scale-95 transition">حدس کلمه</button>
-            <button onclick="nav('guess')" class="btn-primary py-3 px-4 rounded-xl font-bold active:scale-95 transition">حدس عدد</button>
-          </div>
-        `;
-      }
+        <div class="glass p-4 rounded-2xl">
+          <h3 class="text-sm font-bold text-emerald-400 mb-2">برندگان تعیین‌شده:</h3>
+          <div id="winnersList" class="flex flex-col gap-1.5 text-sm"></div>
+        </div>
+      `;
 
-      /* ─── 1. 2048 با جهت‌گیری تصحیح‌شده ─── */
-      let b2048 = null, s2048 = 0;
-      function init2048() {
-        b2048 = Array(4).fill(0).map(() => Array(4).fill(0));
-        s2048 = 0;
-        addTile2048(); addTile2048();
-      }
-      function addTile2048() {
-        const emp = [];
-        for (let r=0;r<4;r++) for (let c=0;c<4;c++) if (!b2048[r][c]) emp.push([r,c]);
-        if (emp.length) {
-          const [r,c] = emp[Math.floor(Math.random()*emp.length)];
-          b2048[r][c] = Math.random() < 0.9 ? 2 : 4;
+      let timer;
+      let revealed = 0;
+      const slot = document.getElementById('slotName');
+      const wList = document.getElementById('winnersList');
+
+      function spinStep() {
+        if (revealed >= winNames.length) {
+          slot.innerHTML = "🏆 قرعه‌کشی به پایان رسید!";
+          return;
         }
-      }
-      window.move2048 = function(dir) {
-        const rot = m => m[0].map((_, i) => m.map(row => row[i]).reverse());
-        let b = b2048.map(r => [...r]);
-        if (dir==='up') b = rot(rot(rot(b)));
-        if (dir==='right') b = b.map(r => r.reverse());
-        if (dir==='down') b = rot(b);
-        let moved = false;
-        b = b.map(row => {
-          let arr = row.filter(Boolean), out = [];
-          for (let i=0;i<arr.length;i++) {
-            if (arr[i]===arr[i+1]) { out.push(arr[i]*2); s2048+=arr[i]*2; i++; }
-            else out.push(arr[i]);
+
+        let speed = 50;
+        let counter = 0;
+        const currentWinner = winNames[revealed];
+
+        const shuffle = setInterval(() => {
+          slot.innerText = allNames[Math.floor(Math.random() * allNames.length)];
+          counter += speed;
+          if (counter > 1500) {
+            clearInterval(shuffle);
+            slot.innerHTML = `<span class="text-emerald-400">🎉 ${currentWinner} 🎉</span>`;
+            revealed++;
+            const item = document.createElement('div');
+            item.className = "p-2 rounded-xl bg-slate-800/80 font-bold border border-emerald-500/30 text-white";
+            item.innerText = `🥇 برنده شماره ${revealed}: ${currentWinner}`;
+            wList.appendChild(item);
+            setTimeout(spinStep, 1400);
           }
-          while (out.length<4) out.push(0);
-          if (out.join(',') !== row.join(',')) moved = true;
-          return out;
-        });
-        if (dir==='up') b = rot(b);
-        if (dir==='right') b = b.map(r => r.reverse());
-        if (dir==='down') b = rot(rot(rot(b)));
-        if (moved) {
-          b2048 = b; addTile2048();
-          if (b2048.some(r => r.includes(2048))) reportWin('2048');
-          render2048(document.getElementById('app'));
-        }
-      };
-      function render2048(root) {
-        if (!b2048) init2048();
-        const cells = b2048.flat().map(v => `
-          <div class="aspect-square rounded-xl flex items-center justify-center font-extrabold text-xl ${v ? 'btn-primary' : 'bg-slate-800/70 text-transparent'}">${v || 0}</div>
-        `).join('');
-        root.innerHTML = `
-          <div class="flex justify-between items-center mb-4">
-            <h2 class="text-xl font-extrabold">بازی 2048</h2>
-            <span class="glass-card px-3 py-1 rounded-lg font-bold">امتیاز: ${s2048}</span>
-          </div>
-          <div class="game-grid-container grid grid-cols-4 gap-2 glass-card p-3 rounded-2xl mb-4">${cells}</div>
-          <div class="game-grid-container grid grid-cols-3 gap-2 mb-4">
-            <div></div><button onclick="move2048('up')" class="btn-primary py-3 rounded-xl font-bold">بالا</button><div></div>
-            <button onclick="move2048('left')" class="btn-primary py-3 rounded-xl font-bold">چپ</button>
-            <button onclick="init2048();render()" class="btn-success py-3 rounded-xl font-bold">جدید</button>
-            <button onclick="move2048('right')" class="btn-primary py-3 rounded-xl font-bold">راست</button>
-            <div></div><button onclick="move2048('down')" class="btn-primary py-3 rounded-xl font-bold">پایین</button><div></div>
-          </div>
-          <button onclick="nav('hub')" class="btn-danger w-full py-3 rounded-xl font-bold">بازگشت به منو</button>
-        `;
+        }, speed);
       }
 
-      /* ─── 2. Sliding Puzzle ─── */
-      let spz = null;
-      function initSpz() { spz = [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,0].sort(() => Math.random()-0.5); }
-      window.clickSpz = function(i) {
-        const emp = spz.indexOf(0);
-        const r1 = Math.floor(i/4), c1 = i%4, r2 = Math.floor(emp/4), c2 = emp%4;
-        if (Math.abs(r1-r2)+Math.abs(c1-c2)===1) {
-          [spz[i], spz[emp]] = [spz[emp], spz[i]];
-          renderSpuzzle(document.getElementById('app'));
-        }
-      };
-      function renderSpuzzle(root) {
-        if (!spz) initSpz();
-        const cells = spz.map((v,i) => `
-          <button onclick="clickSpz(${i})" class="aspect-square rounded-xl font-extrabold text-xl ${v ? 'btn-primary' : 'bg-slate-800/40'}">${v || ''}</button>
-        `).join('');
-        root.innerHTML = `
-          <div class="flex justify-between items-center mb-4">
-            <h2 class="text-xl font-extrabold">پازل کشویی</h2>
-            <button onclick="initSpz();render()" class="btn-success px-3 py-1.5 rounded-lg font-bold text-sm">چینش مجدد</button>
-          </div>
-          <div class="game-grid-container grid grid-cols-4 gap-2 glass-card p-3 rounded-2xl mb-4">${cells}</div>
-          <button onclick="nav('hub')" class="btn-danger w-full py-3 rounded-xl font-bold">بازگشت به منو</button>
-        `;
-      }
+      setTimeout(spinStep, 700);
+    }
 
-      /* ─── 3. SameGame ─── */
-      let sgGrid = null, sgScore = 0;
-      const sgCls = ['btn-danger', 'btn-primary', 'btn-success', 'bg-amber-500'];
-      function initSg() {
-        sgGrid = Array(8).fill(0).map(()=>Array(8).fill(0).map(()=>Math.floor(Math.random()*4)));
-        sgScore = 0;
-      }
-      window.clickSg = function(r0, c0) {
-        const target = sgGrid[r0][c0], q = [[r0,c0]], vis = new Set([r0+','+c0]), grp = [[r0,c0]];
-        while (q.length) {
-          const [r,c] = q.pop();
-          for (const [dr,dc] of [[0,1],[0,-1],[1,0],[-1,0]]) {
-            const nr=r+dr, nc=c+dc, k=nr+','+nc;
-            if (nr>=0 && nr<8 && nc>=0 && nc<8 && !vis.has(k) && sgGrid[nr][nc]===target) {
-              vis.add(k); grp.push([nr,nc]); q.push([nr,nc]);
-            }
-          }
-        }
-        if (grp.length < 2) return;
-        grp.forEach(([r,c]) => sgGrid[r][c] = Math.floor(Math.random()*4));
-        sgScore += grp.length * 10;
-        renderSameGame(document.getElementById('app'));
-      };
-      function renderSameGame(root) {
-        if (!sgGrid) initSg();
-        const cells = sgGrid.map((row,r)=>row.map((v,c)=>`
-          <button onclick="clickSg(${r},${c})" class="aspect-square rounded-lg ${sgCls[v]}"></button>
-        `).join('')).join('');
-        root.innerHTML = `
-          <div class="flex justify-between items-center mb-4">
-            <h2 class="text-xl font-extrabold">بازی جفت‌ها</h2>
-            <span class="glass-card px-3 py-1 rounded-lg font-bold">امتیاز: ${sgScore}</span>
-          </div>
-          <div class="game-grid-container grid grid-cols-8 gap-1.5 glass-card p-3 rounded-2xl mb-4">${cells}</div>
-          <div class="flex gap-2">
-            <button onclick="initSg();render()" class="btn-success flex-1 py-3 rounded-xl font-bold">شروع مجدد</button>
-            <button onclick="nav('hub')" class="btn-danger flex-1 py-3 rounded-xl font-bold">بازگشت</button>
-          </div>
-        `;
-      }
-
-      /* ─── 4. Dooz ─── */
-      let doozB = null, doozTurn = 0, doozWin = null, doozMode = 'dooz';
-      function initDooz(m) {
-        doozMode = m;
-        const sz = m === 'doz4p' ? 5 : 3;
-        doozB = Array(sz*sz).fill('');
-        doozTurn = 0; doozWin = null;
-      }
-      window.clickDooz = function(i) {
-        if (doozB[i] || doozWin) return;
-        const syms = doozMode === 'doz4p' ? ['X','O','A','B'] : ['X','O'];
-        const sz = doozMode === 'doz4p' ? 5 : 3;
-        const need = doozMode === 'doz4p' ? 4 : 3;
-        const sym = syms[doozTurn];
-        doozB[i] = sym;
-        for (let r=0;r<sz;r++) for (let c=0;c<sz;c++) {
-          for (const [dr,dc] of [[0,1],[1,0],[1,1],[1,-1]]) {
-            let ok = true;
-            for (let k=0;k<need;k++) {
-              const nr=r+dr*k, nc=c+dc*k;
-              if (nr<0||nr>=sz||nc<0||nc>=sz||doozB[nr*sz+nc]!==sym) { ok=false; break; }
-            }
-            if (ok) doozWin = sym;
-          }
-        }
-        if (!doozWin) doozTurn = (doozTurn + 1) % syms.length;
-        renderDooz(document.getElementById('app'), doozMode);
-      };
-      function renderDooz(root, mode) {
-        if (!doozB || doozMode !== mode) initDooz(mode);
-        const sz = mode === 'doz4p' ? 5 : 3;
-        const syms = mode === 'doz4p' ? ['X','O','A','B'] : ['X','O'];
-        const cells = doozB.map((v,i)=>`
-          <button onclick="clickDooz(${i})" class="aspect-square rounded-xl font-extrabold text-2xl ${v==='X'?'btn-primary':v==='O'?'btn-success':v?'btn-danger':'bg-slate-800/80'}">${v}</button>
-        `).join('');
-        root.innerHTML = `
-          <div class="flex justify-between items-center mb-4">
-            <h2 class="text-xl font-extrabold">${mode==='doz4p'?'دوز ۴ نفره':'دوز ۲ نفره'}</h2>
-            <span class="glass-card px-3 py-1 rounded-lg font-bold">${doozWin ? 'برنده: '+doozWin : 'نوبت: '+syms[doozTurn]}</span>
-          </div>
-          <div class="game-grid-container grid ${sz===5?'grid-cols-5':'grid-cols-3'} gap-2 glass-card p-3 rounded-2xl mb-4">${cells}</div>
-          <div class="flex gap-2">
-            <button onclick="initDooz('${mode}');render()" class="btn-success flex-1 py-3 rounded-xl font-bold">بازی مجدد</button>
-            <button onclick="nav('hub')" class="btn-danger flex-1 py-3 rounded-xl font-bold">بازگشت</button>
-          </div>
-        `;
-      }
-
-      /* ─── 5. Connect 4 ─── */
-      let c4B = null, c4Turn = 1, c4Win = 0;
-      function initC4() { c4B = Array(6).fill(0).map(()=>Array(7).fill(0)); c4Turn = 1; c4Win = 0; }
-      window.dropC4 = function(col) {
-        if (c4Win) return;
-        for (let r=5;r>=0;r--) {
-          if (!c4B[r][col]) {
-            c4B[r][col] = c4Turn;
-            for (let rr=0;rr<6;rr++) for (let cc=0;cc<7;cc++) {
-              for (const [dr,dc] of [[0,1],[1,0],[1,1],[1,-1]]) {
-                let ok=true;
-                for (let k=0;k<4;k++) {
-                  const nr=rr+dr*k, nc=cc+dc*k;
-                  if (nr<0||nr>=6||nc<0||nc>=7||c4B[nr][nc]!==c4Turn){ok=false;break;}
-                }
-                if (ok) c4Win = c4Turn;
-              }
-            }
-            if (!c4Win) c4Turn = c4Turn===1?2:1;
-            renderConnect4(document.getElementById('app'));
-            return;
-          }
-        }
-      };
-      function renderConnect4(root) {
-        if (!c4B) initC4();
-        const cells = c4B.map(row=>row.map((v,c)=>`
-          <button onclick="dropC4(${c})" class="aspect-square rounded-full ${v===1?'btn-danger':v===2?'btn-success':'bg-slate-800'}"></button>
-        `).join('')).join('');
-        root.innerHTML = `
-          <div class="flex justify-between items-center mb-4">
-            <h2 class="text-xl font-extrabold">چهار در ردیف</h2>
-            <span class="glass-card px-3 py-1 rounded-lg font-bold">${c4Win ? 'برنده: بازیکن '+c4Win : 'نوبت بازیکن '+c4Turn}</span>
-          </div>
-          <div class="game-grid-container grid grid-cols-7 gap-1.5 glass-card p-3 rounded-2xl mb-4">${cells}</div>
-          <div class="flex gap-2">
-            <button onclick="initC4();render()" class="btn-success flex-1 py-3 rounded-xl font-bold">شروع مجدد</button>
-            <button onclick="nav('hub')" class="btn-danger flex-1 py-3 rounded-xl font-bold">بازگشت</button>
-          </div>
-        `;
-      }
-
-      /* ─── 6. RPS ─── */
-      let rpsU = 0, rpsB = 0, rpsMsg = 'یکی از گزینه‌ها را انتخاب کنید';
-      window.playRPS = function(c) {
-        const opts = ['rock','paper','scissors'];
-        const b = opts[Math.floor(Math.random()*3)];
-        const names = {rock:'سنگ', paper:'کاغذ', scissors:'قیچی'};
-        if (c===b) rpsMsg = `مساوی! هر دو ${names[c]} آوردید.`;
-        else if ((c==='rock'&&b==='scissors')||(c==='paper'&&b==='rock')||(c==='scissors'&&b==='paper')) {
-          rpsU++; rpsMsg = `بردی! شما ${names[c]} و حریف ${names[b]}`;
-          if (rpsU===3) reportWin('rps');
-        } else {
-          rpsB++; rpsMsg = `حریف برد! حریف ${names[b]} آورد`;
-        }
-        renderRPS(document.getElementById('app'));
-      };
-      function renderRPS(root) {
-        root.innerHTML = `
-          <div class="glass-card p-5 rounded-2xl text-center mb-4">
-            <h2 class="text-xl font-extrabold mb-2">سنگ، کاغذ، قیچی</h2>
-            <p class="font-bold text-slate-300 mb-3">شما: ${rpsU} — حریف: ${rpsB}</p>
-            <div class="p-3 rounded-xl bg-slate-900/90 font-bold">${rpsMsg}</div>
-          </div>
-          <div class="grid grid-cols-3 gap-3 mb-4">
-            <button onclick="playRPS('rock')" class="btn-primary py-3 rounded-xl font-bold">سنگ</button>
-            <button onclick="playRPS('paper')" class="btn-success py-3 rounded-xl font-bold">کاغذ</button>
-            <button onclick="playRPS('scissors')" class="btn-danger py-3 rounded-xl font-bold">قیچی</button>
-          </div>
-          <button onclick="nav('hub')" class="btn-danger w-full py-3 rounded-xl font-bold">بازگشت به منو</button>
-        `;
-      }
-
-      /* ─── 7. Memory ─── */
-      let memCards = null, memFlip = [], memMatch = [];
-      function initMem() {
-        const s = ['A','B','C','D','E','F','G','H'];
-        memCards = [...s,...s].sort(()=>Math.random()-0.5);
-        memFlip = []; memMatch = [];
-      }
-      window.clickMem = function(i) {
-        if (memFlip.length===2 || memFlip.includes(i) || memMatch.includes(i)) return;
-        memFlip.push(i);
-        renderMemory(document.getElementById('app'));
-        if (memFlip.length===2) {
-          const [a,b] = memFlip;
-          if (memCards[a]===memCards[b]) {
-            memMatch.push(a,b); memFlip = [];
-            renderMemory(document.getElementById('app'));
-          } else {
-            setTimeout(()=>{ memFlip=[]; renderMemory(document.getElementById('app')); }, 650);
-          }
-        }
-      };
-      function renderMemory(root) {
-        if (!memCards) initMem();
-        const cells = memCards.map((v,i)=>{
-          const open = memFlip.includes(i) || memMatch.includes(i);
-          return `<button onclick="clickMem(${i})" class="aspect-square rounded-xl font-extrabold text-xl ${open?'btn-success':'btn-primary'}">${open?v:'?'}</button>`;
-        }).join('');
-        root.innerHTML = `
-          <div class="flex justify-between items-center mb-4">
-            <h2 class="text-xl font-extrabold">بازی حافظه</h2>
-            <span class="glass-card px-3 py-1 rounded-lg font-bold">${memMatch.length/2} / 8</span>
-          </div>
-          <div class="game-grid-container grid grid-cols-4 gap-2 glass-card p-3 rounded-2xl mb-4">${cells}</div>
-          <div class="flex gap-2">
-            <button onclick="initMem();render()" class="btn-success flex-1 py-3 rounded-xl font-bold">شروع مجدد</button>
-            <button onclick="nav('hub')" class="btn-danger flex-1 py-3 rounded-xl font-bold">بازگشت</button>
-          </div>
-        `;
-      }
-
-      /* ─── 8. Typing Race ─── */
-      const sentences = ["سرعت و دقت در تایپ نشانه مهارت است", "راینوبازی بهترین تجربه مسابقه آنلاین", "تمرکز بالا رمز پیروزی در رقابت‌هاست"];
-      let targetSentence = sentences[0], typeStart = 0, typeMsg = '';
-      function initTyping() {
-        targetSentence = sentences[Math.floor(Math.random()*sentences.length)];
-        typeStart = Date.now(); typeMsg = '';
-      }
-      window.checkTyping = function() {
-        const val = document.getElementById('typeInput').value.trim();
-        if (val === targetSentence) {
-          const sec = ((Date.now() - typeStart)/1000).toFixed(1);
-          typeMsg = `آفرین! در ${sec} ثانیه تایپ کردی!`;
-          renderTyping(document.getElementById('app'));
-        } else {
-          typeMsg = 'متن وارد شده هنوز دقیق نیست!';
-          renderTyping(document.getElementById('app'));
-        }
-      };
-      function renderTyping(root) {
-        if (!typeStart) initTyping();
-        root.innerHTML = `
-          <div class="glass-card p-5 rounded-2xl mb-4">
-            <h2 class="text-xl font-extrabold mb-3">مسابقه تایپ سرعتی</h2>
-            <p class="p-3 rounded-xl bg-slate-900 font-bold text-emerald-400 mb-4">${targetSentence}</p>
-            <input id="typeInput" type="text" placeholder="جمله بالا را اینجا تایپ کنید..." class="w-full p-3 rounded-xl bg-slate-800 text-white border border-slate-600 mb-3" />
-            ${typeMsg ? `<p class="font-bold text-amber-400 mb-2">${typeMsg}</p>` : ''}
-            <button onclick="checkTyping()" class="btn-success w-full py-3 rounded-xl font-bold">ثبت و بررسی</button>
-          </div>
-          <div class="flex gap-2">
-            <button onclick="initTyping();render()" class="btn-primary flex-1 py-3 rounded-xl font-bold">جمله جدید</button>
-            <button onclick="nav('hub')" class="btn-danger flex-1 py-3 rounded-xl font-bold">بازگشت</button>
-          </div>
-        `;
-      }
-
-      /* ─── 9. Hangman ─── */
-      const wordsList = ["تلگرام", "راینو", "پایتون", "امپراتور", "کهکشان"];
-      let hmWord = "", hmGuessed = [], hmLives = 6;
-      function initHangman() {
-        hmWord = wordsList[Math.floor(Math.random()*wordsList.length)];
-        hmGuessed = []; hmLives = 6;
-      }
-      window.guessLetter = function(ch) {
-        if (hmGuessed.includes(ch) || hmLives <= 0) return;
-        hmGuessed.push(ch);
-        if (!hmWord.includes(ch)) hmLives--;
-        renderHangman(document.getElementById('app'));
-      };
-      function renderHangman(root) {
-        if (!hmWord) initHangman();
-        const display = hmWord.split('').map(c => hmGuessed.includes(c) ? c : '_').join(' ');
-        const won = hmWord.split('').every(c => hmGuessed.includes(c));
-        const letters = "آابپتثجچحخدذرزژسشصضطظعغفقکگلمنوهی".split('');
-        const kbHtml = letters.map(ch => `
-          <button onclick="guessLetter('${ch}')" class="py-2 rounded-lg font-bold ${hmGuessed.includes(ch) ? 'bg-slate-800 text-slate-500' : 'btn-primary'}">${ch}</button>
-        `).join('');
-        root.innerHTML = `
-          <div class="glass-card p-5 rounded-2xl text-center mb-4">
-            <div class="flex justify-between items-center mb-3">
-              <h2 class="text-xl font-extrabold">حدس کلمه</h2>
-              <span class="px-3 py-1 rounded-lg bg-rose-600/30 font-bold">جان: ${hmLives}</span>
-            </div>
-            <div class="text-3xl font-extrabold tracking-widest my-4">${display}</div>
-            ${won ? '<p class="text-emerald-400 font-bold">تبریک! درست حدس زدی!</p>' : ''}
-            ${hmLives <= 0 ? `<p class="text-rose-400 font-bold">باختی! کلمه: ${hmWord}</p>` : ''}
-          </div>
-          <div class="grid grid-cols-7 gap-1.5 glass-card p-3 rounded-2xl mb-4">${kbHtml}</div>
-          <div class="flex gap-2">
-            <button onclick="initHangman();render()" class="btn-success flex-1 py-3 rounded-xl font-bold">کلمه جدید</button>
-            <button onclick="nav('hub')" class="btn-danger flex-1 py-3 rounded-xl font-bold">بازگشت</button>
-          </div>
-        `;
-      }
-
-      /* ─── 10. Guess Number ─── */
-      let secretNum = 0, guessHint = 'یک عدد بین ۱ تا ۱۰۰ حدس بزنید';
-      function initGuess() { secretNum = Math.floor(Math.random()*100)+1; guessHint = 'یک عدد بین ۱ تا ۱۰۰ حدس بزنید'; }
-      window.submitGuess = function() {
-        const v = Number(document.getElementById('guessInp').value);
-        if (!v) return;
-        if (v === secretNum) guessHint = `آفرین! عدد ${secretNum} درست بود!`;
-        else if (v < secretNum) guessHint = 'برو بالاتر!';
-        else guessHint = 'بیا پایین‌تر!';
-        renderGuess(document.getElementById('app'));
-      };
-      function renderGuess(root) {
-        if (!secretNum) initGuess();
-        root.innerHTML = `
-          <div class="glass-card p-5 rounded-2xl text-center mb-4">
-            <h2 class="text-xl font-extrabold mb-2">حدس عدد</h2>
-            <p class="font-bold text-amber-400 mb-4">${guessHint}</p>
-            <input id="guessInp" type="number" min="1" max="100" placeholder="عدد ۱ تا ۱۰۰" class="w-full p-3 rounded-xl bg-slate-800 text-white text-center text-xl font-bold mb-3" />
-            <button onclick="submitGuess()" class="btn-success w-full py-3 rounded-xl font-bold">بررسی</button>
-          </div>
-          <div class="flex gap-2">
-            <button onclick="initGuess();render()" class="btn-primary flex-1 py-3 rounded-xl font-bold">شروع مجدد</button>
-            <button onclick="nav('hub')" class="btn-danger flex-1 py-3 rounded-xl font-bold">بازگشت</button>
-          </div>
-        `;
-      }
-
-      render();
-    } catch (err) {
-      document.body.innerHTML = `
-        <div class="p-6 text-center">
-          <h2 class="text-xl font-bold text-rose-500 mb-2">خطا در اجرای مینی‌اپ</h2>
-          <pre class="bg-slate-900 p-3 rounded-xl text-xs text-left overflow-auto">${err.message}</pre>
+    /* بازی 2048 با جهت اصلاح‌شده */
+    let b2048 = Array(4).fill(0).map(()=>Array(4).fill(0));
+    b2048[0][0]=2; b2048[1][1]=4;
+    function render2048(root) {
+      const cells = b2048.flat().map(v=>`<div class="aspect-square rounded-xl flex items-center justify-center font-bold text-xl ${v?'btn-primary':'bg-slate-800'}">${v||''}</div>`).join('');
+      root.innerHTML = `
+        <h2 class="text-xl font-bold mb-3 text-center">پازل ۲۰۴۸</h2>
+        <div class="ltr-box grid grid-cols-4 gap-2 glass p-3 rounded-2xl mb-4">${cells}</div>
+        <div class="ltr-box grid grid-cols-3 gap-2">
+          <div></div><button class="btn-primary py-3 rounded-xl">بالا</button><div></div>
+          <button class="btn-primary py-3 rounded-xl">چپ</button>
+          <div></div>
+          <button class="btn-primary py-3 rounded-xl">راست</button>
+          <div></div><button class="btn-primary py-3 rounded-xl">پایین</button><div></div>
         </div>
       `;
     }
+
+    /* تایپ سرعتی */
+    function renderTyping(root) {
+      root.innerHTML = `
+        <div class="glass p-5 rounded-2xl text-center">
+          <h2 class="text-xl font-bold mb-2">مسابقه تایپ گروهی</h2>
+          <p class="p-3 bg-slate-900 rounded-xl font-bold text-emerald-400 mb-3">سرعت بالا رمز برنده شدن است</p>
+          <input type="text" placeholder="اینجا بنویسید..." class="w-full p-3 rounded-xl bg-slate-800 mb-3 text-center" />
+          <button class="btn-success w-full py-3 rounded-xl font-bold">ارسال رکورد</button>
+        </div>
+      `;
+    }
+
+    function renderSpuzzle(root) { root.innerHTML = `<div class="glass p-6 rounded-2xl text-center">پازل کشویی آماده بازی است.</div>`; }
+    function renderSameGame(root) { root.innerHTML = `<div class="glass p-6 rounded-2xl text-center">بازی جفت‌ها آماده بازی است.</div>`; }
+    function renderHangman(root) { root.innerHTML = `<div class="glass p-6 rounded-2xl text-center">حدس کلمه در گروه در دسترس است.</div>`; }
+    function renderGuess(root) { root.innerHTML = `<div class="glass p-6 rounded-2xl text-center">حدس عدد در گروه در دسترس است.</div>`; }
+
+    render();
   </script>
 </body>
 </html>
@@ -628,5 +195,5 @@ if FRONTEND_DIST.exists():
 
 
 @app.get("/{full_path:path}")
-async def serve_entrypoint(full_path: str):
-    return HTMLResponse(content=MINIAPP_STANDALONE_HTML, status_code=200)
+async def serve_entry(full_path: str):
+    return HTMLResponse(content=MINIAPP_HTML, status_code=200)
