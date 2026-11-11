@@ -1,13 +1,15 @@
 # -*- coding: utf-8 -*-
-"""games/gardone.py — گردونه شانس گروهی (انتخاب تعداد برنده توسط سازنده + لابی شرکت‌کنندگان + قرعه‌کشی)"""
+"""گردونه شانس حرفه‌ای گروهی با مدیریت دستی اعضا و مینی‌اپ انیمیشنی"""
 
 import asyncio
 import html
+import os
 import random
 import time
+from urllib.parse import urlencode
 
 from aiogram import Router, F
-from aiogram.types import CallbackQuery, Message
+from aiogram.types import CallbackQuery, Message, InlineKeyboardButton
 from aiogram.enums import ParseMode
 
 from emojis import E
@@ -16,321 +18,267 @@ from utils.premium import primary, success, danger, kb
 from database import db
 
 router = Router(name="gardone")
+MINI_APP_URL = os.environ.get("MINI_APP_URL", "https://games.rhinokaseb.abrdns.com").rstrip("/")
 
-# ساختار ذخیره‌سازی گردونه‌های فعال در گروه‌ها: {chat_id: {...}}
 active_gardones: dict[int, dict] = {}
 
 
 def _safe(name: str) -> str:
-    return html.escape(name or "Player")
+    return html.escape(name or "کاربر")
 
 
-def _fa_to_en(text: str) -> str:
-    return (text or "").translate(str.maketrans("۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩", "01234567890123456789"))
+def _render_gardone_card(g: dict, lang: str) -> tuple[str, list]:
+    host_id = g["host_id"]
+    parts = list(g["participants"].values())
+    p_lines = "\n".join(
+        f"  {idx}. {E.USER} <b>{_safe(p['name'])}</b> (@{p['username']})" if p['username']
+        else f"  {idx}. {E.USER} <b>{_safe(p['name'])}</b>"
+        for idx, p in enumerate(parts, 1)
+    ) if parts else f"  {E.INFO} هنوز کسی وارد نشده است."
 
-
-def _ask_count_kb(uid: int, lang: str):
-    """کیبورد انتخاب سریع تعداد برنده‌ها (۱ تا ۵) یا ارسال عدد در چت"""
-    row1 = [primary(f"{E.TROPHY} {i}", f"gardone_cnt_{uid}_{i}") for i in range(1, 4)]
-    row2 = [primary(f"{E.TROPHY} {i}", f"gardone_cnt_{uid}_{i}") for i in range(4, 6)]
-    row3 = [danger(f"{E.CROSS} {t('gardone_cancel', lang)}", f"gardone_cancel_{uid}")]
-    return kb([row1, row2, row3])
-
-
-def _lobby_kb(uid: int, lang: str):
-    """کیبورد لابی گردونه در گروه"""
-    return kb([
-        [success(f"{E.PLUS} {t('gardone_join', lang)}", "gardone_join")],
-        [
-            primary(f"{E.SPARK} {t('gardone_spin', lang)}", f"gardone_spin_{uid}"),
-            danger(f"{E.CROSS} {t('gardone_cancel', lang)}", f"gardone_cancel_{uid}"),
-        ],
-    ])
-
-
-def _render_lobby_text(g: dict, lang: str) -> str:
-    participants = g["participants"]
-    count = len(participants)
-    if participants:
-        plist = "\n".join(
-            f"  {idx}. {E.USER} <b>{_safe(p['name'])}</b>"
-            for idx, p in enumerate(participants.values(), start=1)
-        )
-    else:
-        plist = f"  {E.INFO} {t('gardone_nobody', lang)}"
-
-    return (
-        f"{E.SPARK}{E.PARTY} <b>{t('gardone_title', lang)}</b>\n\n"
-        f"{E.INFO} {t('gardone_active', lang)}\n"
-        f"{E.CROWN} سازنده: <b>{_safe(g['host_name'])}</b>\n"
-        f"{E.TROPHY} {t('gardone_winner_count', lang, n=g['winner_count'])}\n\n"
-        f"{E.PEOPLE} <b>{t('gardone_participants', lang, n=count)}:</b>\n{plist}"
+    text = (
+        f"{E.TARGET}{E.SPARK} <b>گردونه و قرعه‌کشی شانس راینو</b>\n\n"
+        f"{E.CROWN} برگزارکننده: <b>{_safe(g['host_name'])}</b>\n"
+        f"{E.PEOPLE} تعداد کل شرکت‌کنندگان: <b>{len(parts)} نفر</b>\n\n"
+        f"<b>لیست اسامی:</b>\n{p_lines}\n\n"
+        f"{E.INFO} <i>راهنما برای برگزارکننده:</i>\n"
+        f"برای اضافه کردن دستی: <code>+username</code>\n"
+        f"برای حذف کردن کاربر: <code>-username</code>"
     )
 
+    rows = [
+        [success(f"{E.PLUS} شرکت در قرعه‌کشی", "gjoin_click")],
+        [
+            primary(f"{E.DICE} شروع قرعه‌کشی", f"gspin_ask_{host_id}"),
+            danger(f"{E.CROSS} لغو گردونه", f"gspin_cancel_{host_id}")
+        ]
+    ]
+    return text, rows
 
-# ═══════════ مرحله ۱: شروع گردونه و پرسیدن تعداد برنده‌ها از درخواست‌کننده ═══════════
 
 @router.callback_query(F.data.startswith("gardone_start_"))
-async def gardone_start_cb(cb: CallbackQuery):
-    parts = cb.data.split("_")
-    try:
-        starter_id = int(parts[2])
-    except (IndexError, ValueError):
-        starter_id = cb.from_user.id
-
+async def start_gardone_lobby(cb: CallbackQuery):
+    chat_id = cb.message.chat.id
     uid = cb.from_user.id
     lang = get_user_lang(uid)
 
-    if uid != starter_id:
-        await cb.answer(t("not_your_panel", lang), show_alert=True)
-        return
-
-    if not await db.is_game_enabled("gardone"):
-        await cb.answer(t("game_disabled", lang), show_alert=True)
-        return
-
-    chat_id = cb.message.chat.id
-    existing = active_gardones.get(chat_id)
-    if existing and time.time() - existing.get("created_at", 0) < 1800:
-        await cb.answer(t("game_already_running", lang), show_alert=True)
+    if chat_id in active_gardones:
+        await cb.answer("یک گردونه فعال در گروه وجود دارد!", show_alert=True)
         return
 
     active_gardones[chat_id] = {
-        "status": "choosing_count",
         "host_id": uid,
         "host_name": cb.from_user.first_name or "Host",
-        "winner_count": 1,
-        "participants": {},
-        "msg_id": cb.message.message_id,
         "chat_id": chat_id,
-        "created_at": time.time(),
+        "msg_id": cb.message.message_id,
+        "status": "collecting",
+        "participants": {
+            uid: {
+                "id": uid,
+                "name": cb.from_user.first_name or "Host",
+                "username": cb.from_user.username or "",
+            }
+        },
+        "created_at": time.time()
     }
-
     await cb.answer()
-    text = (
-        f"{E.SPARK}{E.TROPHY} <b>{t('gardone_title', lang)}</b>\n\n"
-        f"{E.USER} <b>{_safe(cb.from_user.first_name)}</b>\n"
-        f"{E.INFO} {t('gardone_ask_count', lang)}"
-    )
-    try:
-        await cb.message.edit_text(
-            text,
-            reply_markup=_ask_count_kb(uid, lang),
-            parse_mode=ParseMode.HTML,
-        )
-    except Exception:
-        msg = await cb.message.answer(
-            text,
-            reply_markup=_ask_count_kb(uid, lang),
-            parse_mode=ParseMode.HTML,
-        )
-        active_gardones[chat_id]["msg_id"] = msg.message_id
+    txt, rows = _render_gardone_card(active_gardones[chat_id], lang)
+    await cb.message.edit_text(txt, reply_markup=kb(rows), parse_mode=ParseMode.HTML)
 
 
-# ═══════════ مرحله ۲: ثبت تعداد برنده‌ها (با دکمه یا ارسال عدد ۱ تا ۱۰ در چت) ═══════════
-
-@router.callback_query(F.data.startswith("gardone_cnt_"))
-async def gardone_set_count_cb(cb: CallbackQuery):
-    parts = cb.data.split("_")
-    try:
-        host_id = int(parts[2])
-        w_count = int(parts[3])
-    except (IndexError, ValueError):
-        await cb.answer("Error", show_alert=True)
-        return
-
+@router.callback_query(F.data == "gjoin_click")
+async def join_gardone(cb: CallbackQuery):
+    chat_id = cb.message.chat.id
     uid = cb.from_user.id
     lang = get_user_lang(uid)
 
-    if uid != host_id:
-        await cb.answer(t("gardone_only_starter", lang), show_alert=True)
-        return
-
-    chat_id = cb.message.chat.id
     g = active_gardones.get(chat_id)
-    if not g or g.get("host_id") != uid:
-        await cb.answer(t("game_expired", lang), show_alert=True)
-        return
-
-    g["winner_count"] = max(1, min(10, w_count))
-    g["status"] = "joining"
-
-    await cb.answer()
-    await cb.message.edit_text(
-        _render_lobby_text(g, lang),
-        reply_markup=_lobby_kb(uid, lang),
-        parse_mode=ParseMode.HTML,
-    )
-
-
-@router.message(
-    F.text,
-    lambda msg: (
-        msg.chat.id in active_gardones
-        and active_gardones[msg.chat.id].get("status") == "choosing_count"
-        and active_gardones[msg.chat.id].get("host_id") == msg.from_user.id
-    ),
-)
-async def gardone_set_count_msg(msg: Message):
-    chat_id = msg.chat.id
-    g = active_gardones.get(chat_id)
-    if not g:
-        return
-
-    uid = msg.from_user.id
-    lang = get_user_lang(uid)
-    raw = _fa_to_en(msg.text.strip())
-
-    if not raw.isdigit():
-        return
-
-    w_count = int(raw)
-    if not (1 <= w_count <= 10):
-        await msg.reply(f"{E.WARN} {t('gardone_invalid_count', lang)}", parse_mode=ParseMode.HTML)
-        return
-
-    g["winner_count"] = w_count
-    g["status"] = "joining"
-
-    try:
-        await msg.bot.delete_message(chat_id, g["msg_id"])
-    except Exception:
-        pass
-
-    sent = await msg.answer(
-        _render_lobby_text(g, lang),
-        reply_markup=_lobby_kb(uid, lang),
-        parse_mode=ParseMode.HTML,
-    )
-    g["msg_id"] = sent.message_id
-
-
-# ═══════════ مرحله ۳: شرکت کاربران در گردونه شانس ═══════════
-
-@router.callback_query(F.data == "gardone_join")
-async def gardone_join_cb(cb: CallbackQuery):
-    chat_id = cb.message.chat.id
-    g = active_gardones.get(chat_id)
-    uid = cb.from_user.id
-    lang = get_user_lang(uid)
-
-    if not g or g.get("status") != "joining":
-        await cb.answer(t("game_not_active", lang), show_alert=True)
+    if not g or g["status"] != "collecting":
+        await cb.answer("گردونه منقضی یا تمام شده است.", show_alert=True)
         return
 
     if uid in g["participants"]:
-        await cb.answer(t("gardone_already_joined", lang), show_alert=True)
+        await cb.answer("شما قبلاً ثبت شدید!", show_alert=True)
         return
 
     g["participants"][uid] = {
         "id": uid,
-        "name": cb.from_user.first_name or f"User {uid}",
+        "name": cb.from_user.first_name or f"User_{uid}",
         "username": cb.from_user.username or "",
     }
-
-    await cb.answer(t("gardone_joined", lang))
-
-    host_lang = get_user_lang(g["host_id"])
+    await cb.answer("نام شما در قرعه‌کشی ثبت شد!")
+    txt, rows = _render_gardone_card(g, lang)
     try:
-        await cb.message.edit_text(
-            _render_lobby_text(g, host_lang),
-            reply_markup=_lobby_kb(g["host_id"], host_lang),
+        await cb.message.edit_text(txt, reply_markup=kb(rows), parse_mode=ParseMode.HTML)
+    except Exception:
+        pass
+
+
+@router.message(F.text.regexp(r"^[\+\-][a-zA-Z0-9_]{3,}$"))
+async def modify_gardone_members(msg: Message):
+    chat_id = msg.chat.id
+    g = active_gardones.get(chat_id)
+    if not g or g["status"] != "collecting" or msg.from_user.id != g["host_id"]:
+        return
+
+    cmd = msg.text[0]
+    username = msg.text[1:].lstrip("@").lower()
+
+    if cmd == "+":
+        uid_rand = int(time.time() * 1000) % 10000000
+        g["participants"][uid_rand] = {
+            "id": uid_rand,
+            "name": username,
+            "username": username,
+        }
+        await msg.reply(f"{E.CHECK} کاربر @{username} دستی اضافه شد.")
+    elif cmd == "-":
+        to_del = [k for k, v in g["participants"].items() if v["username"].lower() == username]
+        if to_del:
+            for k in to_del:
+                del g["participants"][k]
+            await msg.reply(f"{E.CROSS} کاربر @{username} حذف شد.")
+        else:
+            await msg.reply(f"{E.WARN} کاربری با این یوزرنیم پیدا نشد.")
+
+    txt, rows = _render_gardone_card(g, "fa")
+    try:
+        await msg.bot.edit_message_text(
+            text=txt,
+            chat_id=chat_id,
+            message_id=g["msg_id"],
+            reply_markup=kb(rows),
             parse_mode=ParseMode.HTML,
         )
     except Exception:
         pass
 
 
-# ═══════════ مرحله ۴: چرخاندن گردونه توسط درخواست‌کننده ═══════════
-
-@router.callback_query(F.data.startswith("gardone_spin_"))
-async def gardone_spin_cb(cb: CallbackQuery):
+@router.callback_query(F.data.startswith("gspin_ask_"))
+async def ask_winner_count(cb: CallbackQuery):
     chat_id = cb.message.chat.id
-    g = active_gardones.get(chat_id)
     uid = cb.from_user.id
-    lang = get_user_lang(uid)
+    g = active_gardones.get(chat_id)
 
-    if not g or g.get("status") != "joining":
-        await cb.answer(t("game_not_active", lang), show_alert=True)
+    if not g or g["status"] != "collecting":
+        await cb.answer("گردونه فعال نیست.", show_alert=True)
         return
 
     if uid != g["host_id"]:
-        await cb.answer(t("gardone_only_starter", lang), show_alert=True)
+        await cb.answer("فقط برگزارکننده اجازه شروع دارد!", show_alert=True)
         return
 
-    players = list(g["participants"].values())
-    if not players:
-        await cb.answer(t("gardone_empty", lang), show_alert=True)
+    total = len(g["participants"])
+    if total < 1:
+        await cb.answer("حداقل یک شرکت‌کننده نیاز است!", show_alert=True)
         return
 
-    g["status"] = "spinning"
+    g["status"] = "waiting_count"
     await cb.answer()
 
-    try:
-        await cb.message.edit_text(
-            f"{E.SPARK}{E.HOURGLASS} <b>{t('gardone_spinning', lang)}</b>",
-            reply_markup=None,
-            parse_mode=ParseMode.HTML,
-        )
-    except Exception:
-        pass
+    counts = [1, 2, 3, 5, 10]
+    c_btns = [primary(f"{E.TROPHY} {c} برنده", f"gspin_go_{c}") for c in counts if c <= total]
+    if not c_btns:
+        c_btns = [primary(f"{E.TROPHY} 1 برنده", "gspin_go_1")]
 
-    await asyncio.sleep(1.5)
+    row1 = c_btns[:3]
+    row2 = c_btns[3:]
+    kb_rows = [r for r in [row1, row2] if r]
+    kb_rows.append([danger(f"{E.CROSS} لغو", f"gspin_cancel_{uid}")])
 
-    win_count = min(g["winner_count"], len(players))
-    winners = random.sample(players, win_count)
-
-    for w in winners:
-        try:
-            await db.add_win(w["id"], "gardone")
-        except Exception:
-            pass
-
-    winners_lines = "\n".join(
-        f"  {idx}. {E.TROPHY} <a href='tg://user?id={w['id']}'><b>{_safe(w['name'])}</b></a>"
-        for idx, w in enumerate(winners, start=1)
+    await cb.message.edit_text(
+        f"{E.TROPHY} <b>تعیین تعداد برندگان</b>\n\n"
+        f"شرکت‌کنندگان فعلی: <b>{total} نفر</b>\n"
+        f"چند نفر در این قرعه‌کشی برنده اعلام شوند؟",
+        reply_markup=kb(kb_rows),
+        parse_mode=ParseMode.HTML
     )
 
-    final_text = (
-        f"{E.PARTY}{E.TROPHY} <b>{t('gardone_title', lang)} — {t('gardone_winner', lang)}</b>\n\n"
-        f"{winners_lines}\n\n"
-        f"{E.PEOPLE} شرکت‌کنندگان کل: <b>{len(players)} نفر</b>\n"
-        f"{E.CROWN} میزبان: <b>{_safe(g['host_name'])}</b>"
-    )
 
-    active_gardones.pop(chat_id, None)
-
-    try:
-        await cb.message.edit_text(final_text, parse_mode=ParseMode.HTML)
-    except Exception:
-        await cb.message.answer(final_text, parse_mode=ParseMode.HTML)
-
-
-# ═══════════ مرحله ۵: لغو گردونه توسط درخواست‌کننده (یا ادمین) ═══════════
-
-@router.callback_query(F.data.startswith("gardone_cancel_"))
-async def gardone_cancel_cb(cb: CallbackQuery):
+@router.callback_query(F.data.startswith("gspin_go_"))
+async def launch_gardone_app(cb: CallbackQuery):
     chat_id = cb.message.chat.id
-    g = active_gardones.get(chat_id)
     uid = cb.from_user.id
-    lang = get_user_lang(uid)
+    g = active_gardones.get(chat_id)
 
+    if not g or uid != g["host_id"]:
+        await cb.answer("خطای دسترسی!", show_alert=True)
+        return
+
+    count = int(cb.data.split("_")[2])
+    g["winner_count"] = count
+    g["status"] = "spinning"
+
+    names = [p["name"] for p in g["participants"].values()]
+    random.shuffle(names)
+    winners = names[:count]
+    g["winners"] = winners
+
+    session_id = f"g_{abs(chat_id)}_{int(time.time())}"
+    params = urlencode({
+        "game": "gardone_anim",
+        "session": session_id,
+        "names": ",".join(names),
+        "winners": ",".join(winners),
+        "count": count
+    })
+    app_url = f"{MINI_APP_URL}/?{params}"
+
+    web_btn = primary(f"{E.PLAY} ورود به سالن قرعه‌کشی زنده (انیمیشن)", web_app_url=app_url)
+    finish_btn = success(f"{E.CHECK} ثبت و اعلام نتایج رسمی", f"gspin_finish_{chat_id}")
+
+    await cb.message.edit_text(
+        f"{E.SPARK}{E.PARTY} <b>قرعه‌کشی آغاز شد!</b>\n\n"
+        f"{E.TROPHY} تعداد برندگان: <b>{count} نفر</b>\n"
+        f"{E.HOURGLASS} با زدن دکمه زیر می‌توانید انیمیشن رنگی چرخش اسامی را در مینی‌اپ تماشا کنید.\n\n"
+        f"پس از اتمام تماشا، دکمه اعلام نتایج را بزنید.",
+        reply_markup=kb([[web_btn], [finish_btn]]),
+        parse_mode=ParseMode.HTML
+    )
+
+
+@router.callback_query(F.data.startswith("gspin_finish_"))
+async def finalize_gardone(cb: CallbackQuery):
+    chat_id = int(cb.data.split("_")[2])
+    g = active_gardones.get(chat_id)
     if not g:
-        await cb.answer(t("game_expired", lang), show_alert=True)
+        await cb.answer("این قرعه‌کشی به اتمام رسیده است.", show_alert=True)
         return
 
-    if uid != g["host_id"] and not await db.is_admin(uid):
-        await cb.answer(t("gardone_only_starter", lang), show_alert=True)
-        return
+    winners = g.get("winners", [])
+    host_id = g["host_id"]
 
-    active_gardones.pop(chat_id, None)
-    await cb.answer()
+    w_text = "\n".join(f"  🥇 نفر {i}: <b>{_safe(w)}</b>" for i, w in enumerate(winners, 1))
+    summary = (
+        f"{E.TROPHY}{E.PARTY} <b>نتایج نهایی قرعه‌کشی راینو</b>\n\n"
+        f"<b>برندگان خوش‌شانس:</b>\n{w_text}\n\n"
+        f"{E.USER} با تشکر از برگزارکننده: <b>{_safe(g['host_name'])}</b>\n"
+        f"{E.PEOPLE} کل شرکت‌کنندگان: {len(g['participants'])} نفر"
+    )
 
+    await cb.message.edit_text(summary, reply_markup=None, parse_mode=ParseMode.HTML)
+
+    # ارسال برندگان به پیوی درخواست‌کننده به ترتیب
     try:
-        await cb.message.edit_text(
-            f"{E.CROSS} <b>{t('gardone_cancelled', lang)}</b>",
-            reply_markup=None,
-            parse_mode=ParseMode.HTML,
+        await cb.bot.send_message(
+            host_id,
+            f"{E.TROPHY} <b>لیست برندگان قرعه‌کشی گروه:</b>\n\n{w_text}",
+            parse_mode=ParseMode.HTML
         )
     except Exception:
         pass
+
+    active_gardones.pop(chat_id, None)
+    await cb.answer("نتایج با موفقیت ثبت و ارسال شد.")
+
+
+@router.callback_query(F.data.startswith("gspin_cancel_"))
+async def cancel_gardone(cb: CallbackQuery):
+    chat_id = cb.message.chat.id
+    uid = cb.from_user.id
+    g = active_gardones.get(chat_id)
+    if g and (uid == g["host_id"] or await db.is_admin(uid)):
+        active_gardones.pop(chat_id, None)
+        await cb.message.edit_text(f"{E.CROSS} گردونه لغو شد.", reply_markup=None)
+    else:
+        await cb.answer("شما دسترسی لغو این گردونه را ندارید.", show_alert=True)
