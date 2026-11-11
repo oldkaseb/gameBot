@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""گردونه شانس گروهی — عضوگیری، افزودن/حذف با یوزرنیم، انتخاب تعداد برنده و انیمیشن قرعه‌کشی"""
+"""games/gardone.py — گردونه شانس گروهی با بنر تصویری، مدیریت یوزرنیم، انتخاب تعداد برنده و انیمیشن زنده"""
 
 import html
 import os
@@ -7,7 +7,7 @@ import random
 import time
 
 from aiogram import Router, F
-from aiogram.types import CallbackQuery, Message
+from aiogram.types import CallbackQuery, Message, BufferedInputFile
 from aiogram.enums import ParseMode, ChatType
 
 from emojis import E
@@ -15,6 +15,7 @@ from langs import t, get_user_lang
 from utils.premium import primary, success, danger, kb
 from database import db
 from games.panel import make_miniapp_btn
+from webapp.backend.main import generate_game_banner
 
 router = Router(name="gardone")
 MINI_APP_URL = os.environ.get("MINI_APP_URL", "https://games.rhinokaseb.abrdns.com").rstrip("/")
@@ -41,9 +42,7 @@ def _render_gardone_lobby(g: dict, lang: str) -> tuple[str, list]:
     else:
         p_lines = f"  {E.INFO} {t('gardone_nobody', lang)}"
 
-    preview_url = f"{MINI_APP_URL}/?game=gardone_anim&chat={g['chat_id']}"
     text = (
-        f"<a href='{preview_url}'>&#8205;</a>"
         f"{E.TARGET}{E.SPARK} <b>{t('gardone_title', lang)}</b>\n\n"
         f"{E.CROWN} درخواست‌کننده: <b>{_safe(g['host_name'])}</b>\n"
         f"{E.PEOPLE} {t('gardone_participants', lang, n=len(parts))}:\n{p_lines}\n\n"
@@ -59,6 +58,28 @@ def _render_gardone_lobby(g: dict, lang: str) -> tuple[str, list]:
         ],
     ]
     return text, rows
+
+
+async def _edit_gardone_msg(bot, g: dict, text: str, markup):
+    try:
+        if g.get("is_photo"):
+            await bot.edit_message_caption(
+                chat_id=g["chat_id"],
+                message_id=g["msg_id"],
+                caption=text,
+                reply_markup=markup,
+                parse_mode=ParseMode.HTML,
+            )
+        else:
+            await bot.edit_message_text(
+                chat_id=g["chat_id"],
+                message_id=g["msg_id"],
+                text=text,
+                reply_markup=markup,
+                parse_mode=ParseMode.HTML,
+            )
+    except Exception:
+        pass
 
 
 @router.callback_query(F.data.startswith("gardone_start_"))
@@ -77,26 +98,45 @@ async def gardone_start(cb: CallbackQuery):
         await cb.answer(t("not_your_panel", lang), show_alert=True)
         return
 
-    active_gardones[chat_id] = {
+    g = {
         "host_id": uid,
         "host_name": cb.from_user.first_name or "Host",
         "chat_id": chat_id,
         "msg_id": cb.message.message_id,
         "is_pm": cb.message.chat.type == ChatType.PRIVATE,
+        "is_photo": False,
         "status": "collecting",
         "winner_count": 1,
         "participants": {},
         "winners": [],
         "created_at": time.time(),
     }
+    active_gardones[chat_id] = g
 
     await cb.answer()
-    txt, rows = _render_gardone_lobby(active_gardones[chat_id], lang)
+
+    # حذف منوی اصلی و ارسال کارت تصویری گردونه شانس
     try:
-        await cb.message.edit_text(txt, reply_markup=kb(rows), parse_mode=ParseMode.HTML, disable_web_page_preview=False)
+        await cb.message.delete()
     except Exception:
-        sent = await cb.message.answer(txt, reply_markup=kb(rows), parse_mode=ParseMode.HTML, disable_web_page_preview=False)
-        active_gardones[chat_id]["msg_id"] = sent.message_id
+        pass
+
+    txt, rows = _render_gardone_lobby(g, lang)
+    try:
+        png_bytes = generate_game_banner("gardone_anim")
+        photo = BufferedInputFile(png_bytes, filename="gardone.png")
+        sent = await cb.message.answer_photo(
+            photo=photo,
+            caption=txt,
+            reply_markup=kb(rows),
+            parse_mode=ParseMode.HTML,
+        )
+        g["msg_id"] = sent.message_id
+        g["is_photo"] = True
+    except Exception:
+        sent = await cb.message.answer(txt, reply_markup=kb(rows), parse_mode=ParseMode.HTML)
+        g["msg_id"] = sent.message_id
+        g["is_photo"] = False
 
 
 @router.callback_query(F.data == "gjoin_btn")
@@ -121,13 +161,9 @@ async def gardone_join(cb: CallbackQuery):
     }
     await cb.answer(t("gardone_joined", lang))
     txt, rows = _render_gardone_lobby(g, get_user_lang(g["host_id"]))
-    try:
-        await cb.message.edit_text(txt, reply_markup=kb(rows), parse_mode=ParseMode.HTML, disable_web_page_preview=False)
-    except Exception:
-        pass
+    await _edit_gardone_msg(cb.bot, g, txt, kb(rows))
 
 
-# افزودن یا حذف کاربر با یوزرنیم توسط درخواست‌کننده (+@user / -@user / @user)
 @router.message(
     F.text,
     lambda m: (
@@ -174,17 +210,7 @@ async def gardone_manage_user_by_username(msg: Message):
             await msg.reply(f"{E.WARN} کاربری با یوزرنیم @{_safe(uname)} در لیست نبود.", parse_mode=ParseMode.HTML)
 
     txt, rows = _render_gardone_lobby(g, get_user_lang(g["host_id"]))
-    try:
-        await msg.bot.edit_message_text(
-            text=txt,
-            chat_id=chat_id,
-            message_id=g["msg_id"],
-            reply_markup=kb(rows),
-            parse_mode=ParseMode.HTML,
-            disable_web_page_preview=False,
-        )
-    except Exception:
-        pass
+    await _edit_gardone_msg(msg.bot, g, txt, kb(rows))
 
 
 @router.callback_query(F.data.startswith("gspin_ask_"))
@@ -214,13 +240,12 @@ async def gardone_ask_winner_count(cb: CallbackQuery):
         rows.append(btns[3:])
     rows.append([danger(f"{E.ARROW} بازگشت به لابی", "gspin_back")])
 
-    await cb.message.edit_text(
+    ask_text = (
         f"{E.TROPHY}{E.SPARK} <b>{t('gardone_title', lang)}</b>\n\n"
         f"{E.PEOPLE} شرکت‌کنندگان آماده: <b>{len(g['participants'])} نفر</b>\n"
-        f"{E.INFO} {t('gardone_ask_count', lang)}",
-        reply_markup=kb(rows),
-        parse_mode=ParseMode.HTML,
+        f"{E.INFO} {t('gardone_ask_count', lang)}"
     )
+    await _edit_gardone_msg(cb.bot, g, ask_text, kb(rows))
 
 
 @router.callback_query(F.data == "gspin_back")
@@ -233,7 +258,7 @@ async def gardone_back_to_lobby(cb: CallbackQuery):
     g["status"] = "collecting"
     await cb.answer()
     txt, rows = _render_gardone_lobby(g, get_user_lang(g["host_id"]))
-    await cb.message.edit_text(txt, reply_markup=kb(rows), parse_mode=ParseMode.HTML, disable_web_page_preview=False)
+    await _edit_gardone_msg(cb.bot, g, txt, kb(rows))
 
 
 @router.message(
@@ -246,7 +271,6 @@ async def gardone_back_to_lobby(cb: CallbackQuery):
 )
 async def gardone_count_by_text(msg: Message):
     chat_id = msg.chat.id
-    g = active_gardones.get(chat_id)
     raw = _fa_to_en(msg.text.strip())
     if not raw.isdigit():
         return
@@ -289,7 +313,6 @@ async def _execute_gardone_draw(bot, chat_id: int, count: int):
                 pass
 
     start_param = f"gardone_anim__{chat_id}"
-    preview_url = f"{MINI_APP_URL}/?game=gardone_anim&chat={chat_id}"
 
     winners_ordered = "\n".join(
         f"  {idx}. {E.TROPHY} <b>{_safe(w['name'])}</b>" + (f" (@{w['username']})" if w.get("username") else "")
@@ -297,36 +320,19 @@ async def _execute_gardone_draw(bot, chat_id: int, count: int):
     )
 
     group_text = (
-        f"<a href='{preview_url}'>&#8205;</a>"
         f"{E.PARTY}{E.TROPHY} <b>نتایج قرعه‌کشی گردونه شانس راینو</b>\n\n"
         f"{E.CROWN} برگزارکننده: <b>{_safe(g['host_name'])}</b>\n"
         f"{E.PEOPLE} کل شرکت‌کنندگان: <b>{len(players)} نفر</b>\n"
         f"{E.STAR} تعداد برندگان: <b>{win_count} نفر</b>\n\n"
         f"<b>لیست برندگان به ترتیب قرعه:</b>\n{winners_ordered}\n\n"
-        f"{E.SPARK} برای تماشای انیمیشن چرخش گردونه و بیرون آمدن تک‌تک برندگان، روی دکمه زیر بزنید:"
+        f"{E.SPARK} برای تماشای انیمیشن چرخش گردونه و بیرون آمدن تک‌تک برندگان در همین گروه، روی دکمه زیر بزنید:"
     )
 
     rows = [
         [make_miniapp_btn(f"{E.PLAY} تماشای انیمیشن قرعه‌کشی در مینی‌اپ", start_param, g["is_pm"], success)],
     ]
 
-    try:
-        await bot.edit_message_text(
-            text=group_text,
-            chat_id=chat_id,
-            message_id=g["msg_id"],
-            reply_markup=kb(rows),
-            parse_mode=ParseMode.HTML,
-            disable_web_page_preview=False,
-        )
-    except Exception:
-        await bot.send_message(
-            chat_id=chat_id,
-            text=group_text,
-            reply_markup=kb(rows),
-            parse_mode=ParseMode.HTML,
-            disable_web_page_preview=False,
-        )
+    await _edit_gardone_msg(bot, g, group_text, kb(rows))
 
     # ارسال لیست برندگان به ترتیب به پیوی درخواست‌کننده
     try:
@@ -357,6 +363,6 @@ async def gardone_cancel(cb: CallbackQuery):
     active_gardones.pop(chat_id, None)
     await cb.answer()
     try:
-        await cb.message.edit_text(f"{E.CROSS} گردونه شانس لغو شد.", parse_mode=ParseMode.HTML)
+        await cb.message.delete()
     except Exception:
         pass
