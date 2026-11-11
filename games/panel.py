@@ -58,8 +58,9 @@ async def show_panel(message: Message):
 
         [primary(f"{E.TARGET} {t('game_dooz', lang)}", f"lobby_dooz_{uid}"),
          primary(f"{E.TARGET} {t('game_doz4p', lang)}", f"lobby_doz4p_{uid}")],
-        [success(f"{E.GAME} {t('game_connect4', lang)}", f"lobby_connect4_{uid}"),
+        [success(f"{E.CARD} {t('game_hokm', lang)}", f"lobby_hokm2p_{uid}"),
          success(f"{E.CARD} {t('game_hokm_4p', lang)}", f"lobby_hokm_{uid}")],
+        [success(f"{E.GAME} {t('game_connect4', lang)}", f"lobby_connect4_{uid}")],
         [primary(f"{E.PUZZLE} {t('game_rps', lang)}", f"lobby_rps_{uid}"),
          primary(f"{E.BRAIN} {t('game_memory', lang)}", f"lobby_memory_{uid}")],
 
