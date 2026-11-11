@@ -1,15 +1,17 @@
 # -*- coding: utf-8 -*-
-"""webapp/backend/main.py — بک‌اند و فرانت‌اند کامل مینی‌اپ با پشتیبانی از startapp گروهی و انیمیشن قرعه‌کشی"""
+"""webapp/backend/main.py — سرور مینی‌اپ ۷ زبانه + تولید بنر تصویری (بدون ایمپورت حلقوی)"""
 
+import io
 import json
+import os
 from pathlib import Path
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Query
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, Response
 from pydantic import BaseModel
+from PIL import Image, ImageDraw, ImageFont
 
 from database import db
-from games.gardone import active_gardones
 
 app = FastAPI(title="Rhino Games Mini App")
 
@@ -19,6 +21,70 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+BASE_DIR = Path(__file__).resolve().parent.parent.parent
+FONT_PATH = BASE_DIR / "Vazirmatn-SemiBold.ttf"
+
+GAME_META = {
+    "hub":          {"title": "RHINO GAMES",        "c1": (30, 27, 75),  "c2": (79, 70, 229)},
+    "2048":         {"title": "PUZZLE 2048",        "c1": (15, 23, 42),  "c2": (37, 99, 235)},
+    "spuzzle":      {"title": "SLIDING PUZZLE",     "c1": (15, 23, 42),  "c2": (14, 165, 233)},
+    "samegame":     {"title": "SAME GAME",          "c1": (15, 23, 42),  "c2": (168, 85, 247)},
+    "dooz":         {"title": "TIC-TAC-TOE 2P",     "c1": (15, 23, 42),  "c2": (59, 130, 246)},
+    "doz4p":        {"title": "TIC-TAC-TOE 4P",     "c1": (15, 23, 42),  "c2": (236, 72, 153)},
+    "connect4":     {"title": "CONNECT FOUR",       "c1": (6, 78, 59),   "c2": (16, 185, 129)},
+    "hokm":         {"title": "HOKM 4 PLAYERS",     "c1": (6, 78, 59),   "c2": (5, 150, 105)},
+    "rps":          {"title": "ROCK PAPER SCISSORS","c1": (15, 23, 42),  "c2": (99, 102, 241)},
+    "memory":       {"title": "MEMORY MATCH",       "c1": (15, 23, 42),  "c2": (139, 92, 246)},
+    "typing":       {"title": "TYPING SPEED",       "c1": (15, 23, 42),  "c2": (245, 158, 11)},
+    "hangman":      {"title": "WORD GUESS",         "c1": (15, 23, 42),  "c2": (225, 29, 72)},
+    "guess":        {"title": "GUESS NUMBER",       "c1": (15, 23, 42),  "c2": (16, 185, 129)},
+    "gardone_anim": {"title": "LUCKY WHEEL",        "c1": (76, 29, 149), "c2": (217, 70, 239)},
+}
+
+
+def generate_game_banner(game_key: str) -> bytes:
+    """تولید بنر گرافیکی ۸۰۰x۴۲۰ برای نمایش تصویری بازی در گروه"""
+    meta = GAME_META.get(game_key, GAME_META["hub"])
+    w, h = 800, 420
+    img = Image.new("RGB", (w, h), meta["c1"])
+    draw = ImageDraw.Draw(img)
+
+    r1, g1, b1 = meta["c1"]
+    r2, g2, b2 = meta["c2"]
+    for y in range(h):
+        ratio = y / h
+        r = int(r1 * (1 - ratio) + r2 * ratio)
+        g = int(g1 * (1 - ratio) + g2 * ratio)
+        b = int(b1 * (1 - ratio) + b2 * ratio)
+        draw.line([(0, y), (w, y)], fill=(r, g, b))
+
+    draw.rounded_rectangle([40, 40, w - 40, h - 40], radius=32, fill=(15, 23, 42), outline=(255, 255, 255), width=3)
+    draw.rounded_rectangle([55, 55, w - 55, 135], radius=20, fill=meta["c2"])
+
+    try:
+        font_big = ImageFont.truetype(str(FONT_PATH), 44)
+        font_med = ImageFont.truetype(str(FONT_PATH), 30)
+        font_sm = ImageFont.truetype(str(FONT_PATH), 22)
+    except Exception:
+        font_big = ImageFont.load_default()
+        font_med = ImageFont.load_default()
+        font_sm = ImageFont.load_default()
+
+    draw.text((w // 2, 95), meta["title"], fill=(255, 255, 255), font=font_big, anchor="mm")
+    draw.text((w // 2, 215), "RHINO MINI-APP ARENA", fill=(165, 180, 252), font=font_med, anchor="mm")
+    draw.rounded_rectangle([220, 285, w - 220, 350], radius=18, fill=(16, 185, 129))
+    draw.text((w // 2, 317), "RHINO GAMES", fill=(255, 255, 255), font=font_sm, anchor="mm")
+
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    return buf.getvalue()
+
+
+@app.get("/api/banner/{game_type}.png")
+async def serve_game_banner(game_type: str):
+    png_bytes = generate_game_banner(game_type)
+    return Response(content=png_bytes, media_type="image/png")
 
 
 class WinPayload(BaseModel):
@@ -43,22 +109,26 @@ async def record_win(payload: WinPayload):
 
 @app.get("/api/gardone/{chat_id}")
 async def get_gardone_data(chat_id: int):
+    # ایمپورت محلی برای جلوگیری از Circular Import
+    from games.gardone import active_gardones
     g = active_gardones.get(chat_id)
     if not g:
-        return {"ok": False, "names": ["شرکت‌کننده ۱", "شرکت‌کننده ۲", "شرکت‌کننده ۳"], "winners": ["شرکت‌کننده ۱"]}
+        return {"ok": False, "names": ["Player 1", "Player 2", "Player 3"], "winners": ["Player 1"]}
     names = [p["name"] for p in g["participants"].values()]
     winners = [w["name"] for w in g.get("winners", [])]
     return {"ok": True, "names": names, "winners": winners, "host": g.get("host_name", "")}
 
 
-MINIAPP_FULL_HTML = """<!DOCTYPE html>
+MINIAPP_TEMPLATE = """<!DOCTYPE html>
 <html lang="fa" dir="rtl">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-  <title>مینی‌اپ بازی‌های راینو</title>
-  <meta property="og:title" content="مینی‌اپ بازی‌های راینو (RHINO GAMES)" />
-  <meta property="og:description" content="ورود به میز بازی آنلاین، پازل، رقابت گروهی و گردونه شانس" />
+  <title>__OG_TITLE__</title>
+  <meta property="og:type" content="website" />
+  <meta property="og:title" content="__OG_TITLE__" />
+  <meta property="og:description" content="Rhino Multiplayer Mini-App Games" />
+  <meta property="og:image" content="__OG_IMAGE__" />
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
   <script src="https://cdn.tailwindcss.com"></script>
   <style>
@@ -108,12 +178,28 @@ MINIAPP_FULL_HTML = """<!DOCTYPE html>
     const startParam = tg?.initDataUnsafe?.start_param || params.get('startapp') || params.get('tgWebAppStartParam') || '';
     let parsedGame = params.get('game') || '';
     let parsedChat = params.get('chat') || params.get('session') || '';
+    let lang = params.get('lang') || tg?.initDataUnsafe?.user?.language_code || 'fa';
 
     if (startParam) {
       const parts = startParam.split('__');
       if (parts[0]) parsedGame = parts[0];
       if (parts[1]) parsedChat = parts[1];
+      if (parts[2] && ['fa','en','ar','tr','ru','de','zh'].includes(parts[2])) lang = parts[2];
+      if (parts[3] && ['fa','en','ar','tr','ru','de','zh'].includes(parts[3])) lang = parts[3];
     }
+    if (!['fa','en','ar','tr','ru','de','zh'].includes(lang)) lang = 'fa';
+    document.documentElement.dir = (lang === 'fa' || lang === 'ar') ? 'rtl' : 'ltr';
+
+    const I18N = {
+      fa: { title: "مینی‌اپ بازی‌های راینو", sub: "بازی مورد نظر را انتخاب کنید", score: "امتیاز", back: "سایر بازی‌ها", reset: "شروع مجدد", up: "بالا", down: "پایین", left: "چپ", right: "راست", turn: "نوبت", win: "برنده", rock: "سنگ", paper: "کاغذ", scissors: "قیچی", wheel: "گردونه شانس راینو", wheelDone: "قرعه‌کشی تکمیل شد!", check: "بررسی" },
+      en: { title: "Rhino Games Mini-App", sub: "Pick a game to play", score: "Score", back: "Other Games", reset: "Restart", up: "Up", down: "Down", left: "Left", right: "Right", turn: "Turn", win: "Winner", rock: "Rock", paper: "Paper", scissors: "Scissors", wheel: "Rhino Lucky Wheel", wheelDone: "Draw Completed!", check: "Submit" },
+      ar: { title: "ألعاب رينو", sub: "اختر لعبة للبدء", score: "النقاط", back: "ألعاب أخرى", reset: "إعادة", up: "أعلى", down: "أسفل", left: "يسار", right: "يمين", turn: "دور", win: "الفائز", rock: "حجر", paper: "ورقة", scissors: "مقص", wheel: "عجلة الحظ", wheelDone: "انتهت القرعة!", check: "تحقق" },
+      tr: { title: "Rhino Oyunları", sub: "Bir oyun seçin", score: "Puan", back: "Diğer Oyunlar", reset: "Yeniden", up: "Yukarı", down: "Aşağı", left: "Sol", right: "Sağ", turn: "Sıra", win: "Kazanan", rock: "Taş", paper: "Kağıt", scissors: "Makas", wheel: "Çarkıfelek", wheelDone: "Çekiliş Tamamlandı!", check: "Gönder" },
+      ru: { title: "Rhino Игры", sub: "Выберите игру", score: "Счёт", back: "Другие игры", reset: "Заново", up: "Вверх", down: "Вниз", left: "Влево", right: "Вправо", turn: "Ход", win: "Победитель", rock: "Камень", paper: "Бумага", scissors: "Ножницы", wheel: "Колесо удачи", wheelDone: "Розыгрыш завершён!", check: "Проверить" },
+      de: { title: "Rhino Spiele", sub: "Wähle ein Spiel", score: "Punkte", back: "Andere Spiele", reset: "Neustart", up: "Oben", down: "Unten", left: "Links", right: "Rechts", turn: "Zug", win: "Gewinner", rock: "Stein", paper: "Papier", scissors: "Schere", wheel: "Glücksrad", wheelDone: "Auslosung beendet!", check: "Prüfen" },
+      zh: { title: "Rhino 游戏中心", sub: "选择一个游戏", score: "分数", back: "其他游戏", reset: "重新开始", up: "上", down: "下", left: "左", right: "右", turn: "回合", win: "赢家", rock: "石头", paper: "布", scissors: "剪刀", wheel: "幸运轮盘", wheelDone: "抽奖完成！", check: "提交" }
+    };
+    const L = I18N[lang] || I18N.fa;
 
     let currentGame = parsedGame || 'hub';
     const uid = tg?.initDataUnsafe?.user?.id || params.get('uid') || 0;
@@ -155,41 +241,38 @@ MINIAPP_FULL_HTML = """<!DOCTYPE html>
     function renderHub(root) {
       root.innerHTML = `
         <div class="glass-card rounded-2xl p-5 text-center mb-4">
-          <h1 class="text-2xl font-extrabold mb-1">مینی‌اپ بازی‌های راینو</h1>
-          <p class="text-slate-300 text-sm">بازی مورد نظر خود را انتخاب کنید</p>
+          <h1 class="text-2xl font-extrabold mb-1">${L.title}</h1>
+          <p class="text-slate-300 text-sm">${L.sub}</p>
         </div>
         <div class="grid grid-cols-2 gap-3">
-          <button onclick="nav('2048')" class="btn-primary py-3 px-4 rounded-xl font-bold">پازل 2048</button>
-          <button onclick="nav('spuzzle')" class="btn-primary py-3 px-4 rounded-xl font-bold">پازل کشویی</button>
-          <button onclick="nav('samegame')" class="btn-primary py-3 px-4 rounded-xl font-bold">جفت‌ها</button>
-          <button onclick="nav('dooz')" class="btn-primary py-3 px-4 rounded-xl font-bold">دوز ۲ نفره</button>
-          <button onclick="nav('doz4p')" class="btn-primary py-3 px-4 rounded-xl font-bold">دوز ۴ نفره</button>
-          <button onclick="nav('connect4')" class="btn-success py-3 px-4 rounded-xl font-bold">چهار در ردیف</button>
-          <button onclick="nav('hokm')" class="btn-success py-3 px-4 rounded-xl font-bold">حکم ۴ نفره</button>
-          <button onclick="nav('rps')" class="btn-primary py-3 px-4 rounded-xl font-bold">سنگ کاغذ قیچی</button>
-          <button onclick="nav('memory')" class="btn-primary py-3 px-4 rounded-xl font-bold">بازی حافظه</button>
-          <button onclick="nav('typing')" class="btn-primary py-3 px-4 rounded-xl font-bold">تایپ سرعتی</button>
-          <button onclick="nav('hangman')" class="btn-primary py-3 px-4 rounded-xl font-bold">حدس کلمه</button>
-          <button onclick="nav('guess')" class="btn-primary py-3 px-4 rounded-xl font-bold">حدس عدد</button>
+          <button onclick="nav('2048')" class="btn-primary py-3 px-4 rounded-xl font-bold">2048</button>
+          <button onclick="nav('spuzzle')" class="btn-primary py-3 px-4 rounded-xl font-bold">Sliding Puzzle</button>
+          <button onclick="nav('samegame')" class="btn-primary py-3 px-4 rounded-xl font-bold">SameGame</button>
+          <button onclick="nav('dooz')" class="btn-primary py-3 px-4 rounded-xl font-bold">Tic-Tac-Toe 2P</button>
+          <button onclick="nav('doz4p')" class="btn-primary py-3 px-4 rounded-xl font-bold">Tic-Tac-Toe 4P</button>
+          <button onclick="nav('connect4')" class="btn-success py-3 px-4 rounded-xl font-bold">Connect 4</button>
+          <button onclick="nav('hokm')" class="btn-success py-3 px-4 rounded-xl font-bold">Hokm 4P</button>
+          <button onclick="nav('rps')" class="btn-primary py-3 px-4 rounded-xl font-bold">${L.rock}/${L.paper}/${L.scissors}</button>
+          <button onclick="nav('memory')" class="btn-primary py-3 px-4 rounded-xl font-bold">Memory</button>
+          <button onclick="nav('typing')" class="btn-primary py-3 px-4 rounded-xl font-bold">Typing</button>
+          <button onclick="nav('hangman')" class="btn-primary py-3 px-4 rounded-xl font-bold">Hangman</button>
+          <button onclick="nav('guess')" class="btn-primary py-3 px-4 rounded-xl font-bold">1-100</button>
         </div>
       `;
     }
 
-    /* ─── انیمیشن قرعه‌کشی و گردونه شانس ─── */
     async function renderGardoneAnim(root) {
       root.innerHTML = `
         <div class="glass-card p-5 rounded-2xl text-center mb-4">
-          <h2 class="text-2xl font-black text-transparent bg-clip-text bg-gradient-to-r from-pink-400 via-amber-300 to-emerald-400 mb-1">گردونه شانس راینو</h2>
-          <p class="text-xs text-slate-300">قرعه‌کشی زنده بین شرکت‌کنندگان</p>
+          <h2 class="text-2xl font-black text-transparent bg-clip-text bg-gradient-to-r from-pink-400 via-amber-300 to-emerald-400 mb-1">${L.wheel}</h2>
         </div>
         <div class="glass-card wheel-stage rounded-3xl p-8 text-center my-5 border-2 border-indigo-400 flex flex-col items-center justify-center min-h-[190px]">
-          <div id="wheelSlot" class="text-3xl font-extrabold text-amber-300">در حال آماده‌سازی...</div>
+          <div id="wheelSlot" class="text-3xl font-extrabold text-amber-300">...</div>
         </div>
         <div class="glass-card p-4 rounded-2xl mb-4">
-          <h3 class="text-sm font-bold text-emerald-400 mb-2">برندگان مشخص‌شده به ترتیب:</h3>
           <div id="wheelWinners" class="flex flex-col gap-2 text-sm"></div>
         </div>
-        <button onclick="nav('hub')" class="btn-danger w-full py-3 rounded-xl font-bold">سایر بازی‌ها</button>
+        <button onclick="nav('hub')" class="btn-danger w-full py-3 rounded-xl font-bold">${L.back}</button>
       `;
 
       let allNames = (params.get('names') || '').split(',').filter(Boolean);
@@ -203,7 +286,7 @@ MINIAPP_FULL_HTML = """<!DOCTYPE html>
           if (data.winners?.length) winNames = data.winners;
         } catch (e) {}
       }
-      if (!allNames.length) allNames = ['شرکت‌کننده ۱', 'شرکت‌کننده ۲', 'شرکت‌کننده ۳'];
+      if (!allNames.length) allNames = ['Player 1', 'Player 2', 'Player 3'];
       if (!winNames.length) winNames = [allNames[0]];
 
       const slot = document.getElementById('wheelSlot');
@@ -214,7 +297,7 @@ MINIAPP_FULL_HTML = """<!DOCTYPE html>
       function nextWinner() {
         if (idx >= winNames.length) {
           slot.className = "text-2xl font-black text-emerald-400";
-          slot.innerText = "قرعه‌کشی تکمیل شد!";
+          slot.innerText = L.wheelDone;
           return;
         }
         let elapsed = 0;
@@ -229,10 +312,10 @@ MINIAPP_FULL_HTML = """<!DOCTYPE html>
             clearInterval(timer);
             idx++;
             slot.className = "text-3xl font-black text-emerald-400 scale-110";
-            slot.innerText = `برنده ${idx}: ${target}`;
+            slot.innerText = `#${idx}: ${target}`;
             const row = document.createElement('div');
             row.className = "p-2.5 rounded-xl bg-slate-800/90 border border-emerald-500/40 font-bold text-white";
-            row.innerText = `رتبه ${idx}: ${target}`;
+            row.innerText = `#${idx} - ${target}`;
             wBox.appendChild(row);
             setTimeout(nextWinner, 1400);
           }
@@ -241,7 +324,6 @@ MINIAPP_FULL_HTML = """<!DOCTYPE html>
       setTimeout(nextWinner, 500);
     }
 
-    /* ─── 2048 ─── */
     let b2048 = null, s2048 = 0;
     function init2048() {
       b2048 = Array(4).fill(0).map(() => Array(4).fill(0));
@@ -288,22 +370,21 @@ MINIAPP_FULL_HTML = """<!DOCTYPE html>
       `).join('');
       root.innerHTML = `
         <div class="flex justify-between items-center mb-4">
-          <h2 class="text-xl font-extrabold">بازی 2048</h2>
-          <span class="glass-card px-3 py-1 rounded-lg font-bold">امتیاز: ${s2048}</span>
+          <h2 class="text-xl font-extrabold">2048</h2>
+          <span class="glass-card px-3 py-1 rounded-lg font-bold">${L.score}: ${s2048}</span>
         </div>
         <div class="game-grid-container grid grid-cols-4 gap-2 glass-card p-3 rounded-2xl mb-4">${cells}</div>
         <div class="game-grid-container grid grid-cols-3 gap-2 mb-4">
-          <div></div><button onclick="move2048('up')" class="btn-primary py-3 rounded-xl font-bold">بالا</button><div></div>
-          <button onclick="move2048('left')" class="btn-primary py-3 rounded-xl font-bold">چپ</button>
-          <button onclick="init2048();render()" class="btn-success py-3 rounded-xl font-bold">جدید</button>
-          <button onclick="move2048('right')" class="btn-primary py-3 rounded-xl font-bold">راست</button>
-          <div></div><button onclick="move2048('down')" class="btn-primary py-3 rounded-xl font-bold">پایین</button><div></div>
+          <div></div><button onclick="move2048('up')" class="btn-primary py-3 rounded-xl font-bold">${L.up}</button><div></div>
+          <button onclick="move2048('left')" class="btn-primary py-3 rounded-xl font-bold">${L.left}</button>
+          <button onclick="init2048();render()" class="btn-success py-3 rounded-xl font-bold">${L.reset}</button>
+          <button onclick="move2048('right')" class="btn-primary py-3 rounded-xl font-bold">${L.right}</button>
+          <div></div><button onclick="move2048('down')" class="btn-primary py-3 rounded-xl font-bold">${L.down}</button><div></div>
         </div>
-        <button onclick="nav('hub')" class="btn-danger w-full py-3 rounded-xl font-bold">سایر بازی‌ها</button>
+        <button onclick="nav('hub')" class="btn-danger w-full py-3 rounded-xl font-bold">${L.back}</button>
       `;
     }
 
-    /* ─── Sliding Puzzle ─── */
     let spz = null;
     function initSpz() { spz = [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,0].sort(() => Math.random()-0.5); }
     window.clickSpz = function(i) {
@@ -322,15 +403,14 @@ MINIAPP_FULL_HTML = """<!DOCTYPE html>
       `).join('');
       root.innerHTML = `
         <div class="flex justify-between items-center mb-4">
-          <h2 class="text-xl font-extrabold">پازل کشویی</h2>
-          <button onclick="initSpz();render()" class="btn-success px-3 py-1.5 rounded-lg font-bold text-sm">چینش مجدد</button>
+          <h2 class="text-xl font-extrabold">Sliding Puzzle</h2>
+          <button onclick="initSpz();render()" class="btn-success px-3 py-1.5 rounded-lg font-bold text-sm">${L.reset}</button>
         </div>
         <div class="game-grid-container grid grid-cols-4 gap-2 glass-card p-3 rounded-2xl mb-4">${cells}</div>
-        <button onclick="nav('hub')" class="btn-danger w-full py-3 rounded-xl font-bold">سایر بازی‌ها</button>
+        <button onclick="nav('hub')" class="btn-danger w-full py-3 rounded-xl font-bold">${L.back}</button>
       `;
     }
 
-    /* ─── SameGame ─── */
     let sgGrid = null, sgScore = 0;
     const sgCls = ['btn-danger', 'btn-primary', 'btn-success', 'bg-amber-500'];
     function initSg() {
@@ -360,18 +440,17 @@ MINIAPP_FULL_HTML = """<!DOCTYPE html>
       `).join('')).join('');
       root.innerHTML = `
         <div class="flex justify-between items-center mb-4">
-          <h2 class="text-xl font-extrabold">بازی جفت‌ها</h2>
-          <span class="glass-card px-3 py-1 rounded-lg font-bold">امتیاز: ${sgScore}</span>
+          <h2 class="text-xl font-extrabold">SameGame</h2>
+          <span class="glass-card px-3 py-1 rounded-lg font-bold">${L.score}: ${sgScore}</span>
         </div>
         <div class="game-grid-container grid grid-cols-8 gap-1.5 glass-card p-3 rounded-2xl mb-4">${cells}</div>
         <div class="flex gap-2">
-          <button onclick="initSg();render()" class="btn-success flex-1 py-3 rounded-xl font-bold">شروع مجدد</button>
-          <button onclick="nav('hub')" class="btn-danger flex-1 py-3 rounded-xl font-bold">سایر بازی‌ها</button>
+          <button onclick="initSg();render()" class="btn-success flex-1 py-3 rounded-xl font-bold">${L.reset}</button>
+          <button onclick="nav('hub')" class="btn-danger flex-1 py-3 rounded-xl font-bold">${L.back}</button>
         </div>
       `;
     }
 
-    /* ─── Dooz 2P & 4P ─── */
     let doozB = null, doozTurn = 0, doozWin = null, doozMode = 'dooz';
     function initDooz(m) {
       doozMode = m;
@@ -409,18 +488,17 @@ MINIAPP_FULL_HTML = """<!DOCTYPE html>
       `).join('');
       root.innerHTML = `
         <div class="flex justify-between items-center mb-4">
-          <h2 class="text-xl font-extrabold">${mode==='doz4p'?'دوز ۴ نفره':'دوز ۲ نفره'}</h2>
-          <span class="glass-card px-3 py-1 rounded-lg font-bold">${doozWin ? 'برنده: '+doozWin : 'نوبت: '+syms[doozTurn]}</span>
+          <h2 class="text-xl font-extrabold">${mode==='doz4p'?'Tic-Tac-Toe 4P':'Tic-Tac-Toe 2P'}</h2>
+          <span class="glass-card px-3 py-1 rounded-lg font-bold">${doozWin ? L.win+': '+doozWin : L.turn+': '+syms[doozTurn]}</span>
         </div>
         <div class="game-grid-container grid ${sz===5?'grid-cols-5':'grid-cols-3'} gap-2 glass-card p-3 rounded-2xl mb-4">${cells}</div>
         <div class="flex gap-2">
-          <button onclick="initDooz('${mode}');render()" class="btn-success flex-1 py-3 rounded-xl font-bold">بازی مجدد</button>
-          <button onclick="nav('hub')" class="btn-danger flex-1 py-3 rounded-xl font-bold">سایر بازی‌ها</button>
+          <button onclick="initDooz('${mode}');render()" class="btn-success flex-1 py-3 rounded-xl font-bold">${L.reset}</button>
+          <button onclick="nav('hub')" class="btn-danger flex-1 py-3 rounded-xl font-bold">${L.back}</button>
         </div>
       `;
     }
 
-    /* ─── Connect 4 ─── */
     let c4B = null, c4Turn = 1, c4Win = 0;
     function initC4() { c4B = Array(6).fill(0).map(()=>Array(7).fill(0)); c4Turn = 1; c4Win = 0; }
     window.dropC4 = function(col) {
@@ -452,49 +530,46 @@ MINIAPP_FULL_HTML = """<!DOCTYPE html>
       `).join('')).join('');
       root.innerHTML = `
         <div class="flex justify-between items-center mb-4">
-          <h2 class="text-xl font-extrabold">چهار در ردیف</h2>
-          <span class="glass-card px-3 py-1 rounded-lg font-bold">${c4Win ? 'برنده: بازیکن '+c4Win : 'نوبت بازیکن '+c4Turn}</span>
+          <h2 class="text-xl font-extrabold">Connect 4</h2>
+          <span class="glass-card px-3 py-1 rounded-lg font-bold">${c4Win ? L.win+': P'+c4Win : L.turn+': P'+c4Turn}</span>
         </div>
         <div class="game-grid-container grid grid-cols-7 gap-1.5 glass-card p-3 rounded-2xl mb-4">${cells}</div>
         <div class="flex gap-2">
-          <button onclick="initC4();render()" class="btn-success flex-1 py-3 rounded-xl font-bold">شروع مجدد</button>
-          <button onclick="nav('hub')" class="btn-danger flex-1 py-3 rounded-xl font-bold">سایر بازی‌ها</button>
+          <button onclick="initC4();render()" class="btn-success flex-1 py-3 rounded-xl font-bold">${L.reset}</button>
+          <button onclick="nav('hub')" class="btn-danger flex-1 py-3 rounded-xl font-bold">${L.back}</button>
         </div>
       `;
     }
 
-    /* ─── RPS ─── */
-    let rpsU = 0, rpsB = 0, rpsMsg = 'یکی از گزینه‌ها را انتخاب کنید';
+    let rpsU = 0, rpsB = 0, rpsMsg = '...';
     window.playRPS = function(c) {
       const opts = ['rock','paper','scissors'];
       const b = opts[Math.floor(Math.random()*3)];
-      const names = {rock:'سنگ', paper:'کاغذ', scissors:'قیچی'};
-      if (c===b) rpsMsg = `مساوی! هر دو ${names[c]} آوردید.`;
+      if (c===b) rpsMsg = `=`;
       else if ((c==='rock'&&b==='scissors')||(c==='paper'&&b==='rock')||(c==='scissors'&&b==='paper')) {
-        rpsU++; rpsMsg = `بردی! شما ${names[c]} و حریف ${names[b]}`;
+        rpsU++; rpsMsg = `+1`;
         if (rpsU===3) reportWin('rps');
       } else {
-        rpsB++; rpsMsg = `حریف برد! حریف ${names[b]} آورد`;
+        rpsB++; rpsMsg = `-1`;
       }
       renderRPS(document.getElementById('app'));
     };
     function renderRPS(root) {
       root.innerHTML = `
         <div class="glass-card p-5 rounded-2xl text-center mb-4">
-          <h2 class="text-xl font-extrabold mb-2">سنگ، کاغذ، قیچی</h2>
-          <p class="font-bold text-slate-300 mb-3">شما: ${rpsU} — حریف: ${rpsB}</p>
+          <h2 class="text-xl font-extrabold mb-2">${L.rock} / ${L.paper} / ${L.scissors}</h2>
+          <p class="font-bold text-slate-300 mb-3">${rpsU} — ${rpsB}</p>
           <div class="p-3 rounded-xl bg-slate-900/90 font-bold">${rpsMsg}</div>
         </div>
         <div class="grid grid-cols-3 gap-3 mb-4">
-          <button onclick="playRPS('rock')" class="btn-primary py-3 rounded-xl font-bold">سنگ</button>
-          <button onclick="playRPS('paper')" class="btn-success py-3 rounded-xl font-bold">کاغذ</button>
-          <button onclick="playRPS('scissors')" class="btn-danger py-3 rounded-xl font-bold">قیچی</button>
+          <button onclick="playRPS('rock')" class="btn-primary py-3 rounded-xl font-bold">${L.rock}</button>
+          <button onclick="playRPS('paper')" class="btn-success py-3 rounded-xl font-bold">${L.paper}</button>
+          <button onclick="playRPS('scissors')" class="btn-danger py-3 rounded-xl font-bold">${L.scissors}</button>
         </div>
-        <button onclick="nav('hub')" class="btn-danger w-full py-3 rounded-xl font-bold">سایر بازی‌ها</button>
+        <button onclick="nav('hub')" class="btn-danger w-full py-3 rounded-xl font-bold">${L.back}</button>
       `;
     }
 
-    /* ─── Memory ─── */
     let memCards = null, memFlip = [], memMatch = [];
     function initMem() {
       const s = ['A','B','C','D','E','F','G','H'];
@@ -524,19 +599,18 @@ MINIAPP_FULL_HTML = """<!DOCTYPE html>
       }).join('');
       root.innerHTML = `
         <div class="flex justify-between items-center mb-4">
-          <h2 class="text-xl font-extrabold">بازی حافظه</h2>
+          <h2 class="text-xl font-extrabold">Memory</h2>
           <span class="glass-card px-3 py-1 rounded-lg font-bold">${memMatch.length/2} / 8</span>
         </div>
         <div class="game-grid-container grid grid-cols-4 gap-2 glass-card p-3 rounded-2xl mb-4">${cells}</div>
         <div class="flex gap-2">
-          <button onclick="initMem();render()" class="btn-success flex-1 py-3 rounded-xl font-bold">شروع مجدد</button>
-          <button onclick="nav('hub')" class="btn-danger flex-1 py-3 rounded-xl font-bold">سایر بازی‌ها</button>
+          <button onclick="initMem();render()" class="btn-success flex-1 py-3 rounded-xl font-bold">${L.reset}</button>
+          <button onclick="nav('hub')" class="btn-danger flex-1 py-3 rounded-xl font-bold">${L.back}</button>
         </div>
       `;
     }
 
-    /* ─── Typing ─── */
-    const sentences = ["سرعت و دقت در تایپ نشانه مهارت است", "راینوبازی بهترین تجربه مسابقه آنلاین", "تمرکز بالا رمز پیروزی در رقابت‌هاست"];
+    const sentences = ["سرعت و دقت در تایپ نشانه مهارت است", "Rhino Games fast typing challenge", "تمرکز بالا رمز پیروزی در رقابت‌هاست"];
     let targetSentence = sentences[0], typeStart = 0, typeMsg = '';
     function initTyping() {
       targetSentence = sentences[Math.floor(Math.random()*sentences.length)];
@@ -546,11 +620,11 @@ MINIAPP_FULL_HTML = """<!DOCTYPE html>
       const val = document.getElementById('typeInput').value.trim();
       if (val === targetSentence) {
         const sec = ((Date.now() - typeStart)/1000).toFixed(1);
-        typeMsg = `آفرین! در ${sec} ثانیه تایپ کردی!`;
+        typeMsg = `${sec}s!`;
         reportWin('typing', Number(sec));
         renderTyping(document.getElementById('app'));
       } else {
-        typeMsg = 'متن وارد شده هنوز دقیق نیست!';
+        typeMsg = '!';
         renderTyping(document.getElementById('app'));
       }
     };
@@ -558,20 +632,19 @@ MINIAPP_FULL_HTML = """<!DOCTYPE html>
       if (!typeStart) initTyping();
       root.innerHTML = `
         <div class="glass-card p-5 rounded-2xl mb-4">
-          <h2 class="text-xl font-extrabold mb-3">مسابقه تایپ سرعتی</h2>
+          <h2 class="text-xl font-extrabold mb-3">Typing</h2>
           <p class="p-3 rounded-xl bg-slate-900 font-bold text-emerald-400 mb-4">${targetSentence}</p>
-          <input id="typeInput" type="text" placeholder="جمله بالا را اینجا تایپ کنید..." class="w-full p-3 rounded-xl bg-slate-800 text-white border border-slate-600 mb-3" />
+          <input id="typeInput" type="text" class="w-full p-3 rounded-xl bg-slate-800 text-white border border-slate-600 mb-3" />
           ${typeMsg ? `<p class="font-bold text-amber-400 mb-2">${typeMsg}</p>` : ''}
-          <button onclick="checkTyping()" class="btn-success w-full py-3 rounded-xl font-bold">ثبت و بررسی</button>
+          <button onclick="checkTyping()" class="btn-success w-full py-3 rounded-xl font-bold">${L.check}</button>
         </div>
         <div class="flex gap-2">
-          <button onclick="initTyping();render()" class="btn-primary flex-1 py-3 rounded-xl font-bold">جمله جدید</button>
-          <button onclick="nav('hub')" class="btn-danger flex-1 py-3 rounded-xl font-bold">سایر بازی‌ها</button>
+          <button onclick="initTyping();render()" class="btn-primary flex-1 py-3 rounded-xl font-bold">${L.reset}</button>
+          <button onclick="nav('hub')" class="btn-danger flex-1 py-3 rounded-xl font-bold">${L.back}</button>
         </div>
       `;
     }
 
-    /* ─── Hangman ─── */
     const wordsList = ["تلگرام", "راینو", "پایتون", "امپراتور", "کهکشان"];
     let hmWord = "", hmGuessed = [], hmLives = 6;
     function initHangman() {
@@ -588,7 +661,6 @@ MINIAPP_FULL_HTML = """<!DOCTYPE html>
     function renderHangman(root) {
       if (!hmWord) initHangman();
       const display = hmWord.split('').map(c => hmGuessed.includes(c) ? c : '_').join(' ');
-      const won = hmWord.split('').every(c => hmGuessed.includes(c));
       const letters = "آابپتثجچحخدذرزژسشصضطظعغفقکگلمنوهی".split('');
       const kbHtml = letters.map(ch => `
         <button onclick="guessLetter('${ch}')" class="py-2 rounded-lg font-bold ${hmGuessed.includes(ch) ? 'bg-slate-800 text-slate-500' : 'btn-primary'}">${ch}</button>
@@ -596,49 +668,45 @@ MINIAPP_FULL_HTML = """<!DOCTYPE html>
       root.innerHTML = `
         <div class="glass-card p-5 rounded-2xl text-center mb-4">
           <div class="flex justify-between items-center mb-3">
-            <h2 class="text-xl font-extrabold">حدس کلمه</h2>
-            <span class="px-3 py-1 rounded-lg bg-rose-600/30 font-bold">جان: ${hmLives}</span>
+            <h2 class="text-xl font-extrabold">Hangman</h2>
+            <span class="px-3 py-1 rounded-lg bg-rose-600/30 font-bold">${hmLives}</span>
           </div>
           <div class="text-3xl font-extrabold tracking-widest my-4">${display}</div>
-          ${won ? '<p class="text-emerald-400 font-bold">تبریک! درست حدس زدی!</p>' : ''}
-          ${hmLives <= 0 ? `<p class="text-rose-400 font-bold">باختی! کلمه: ${hmWord}</p>` : ''}
         </div>
         <div class="grid grid-cols-7 gap-1.5 glass-card p-3 rounded-2xl mb-4">${kbHtml}</div>
         <div class="flex gap-2">
-          <button onclick="initHangman();render()" class="btn-success flex-1 py-3 rounded-xl font-bold">کلمه جدید</button>
-          <button onclick="nav('hub')" class="btn-danger flex-1 py-3 rounded-xl font-bold">سایر بازی‌ها</button>
+          <button onclick="initHangman();render()" class="btn-success flex-1 py-3 rounded-xl font-bold">${L.reset}</button>
+          <button onclick="nav('hub')" class="btn-danger flex-1 py-3 rounded-xl font-bold">${L.back}</button>
         </div>
       `;
     }
 
-    /* ─── Guess Number ─── */
-    let secretNum = 0, guessHint = 'یک عدد بین ۱ تا ۱۰۰ حدس بزنید';
-    function initGuess() { secretNum = Math.floor(Math.random()*100)+1; guessHint = 'یک عدد بین ۱ تا ۱۰۰ حدس بزنید'; }
+    let secretNum = 0, guessHint = '1 - 100';
+    function initGuess() { secretNum = Math.floor(Math.random()*100)+1; guessHint = '1 - 100'; }
     window.submitGuess = function() {
       const v = Number(document.getElementById('guessInp').value);
       if (!v) return;
-      if (v === secretNum) { guessHint = `آفرین! عدد ${secretNum} درست بود!`; reportWin('number_guess'); }
-      else if (v < secretNum) guessHint = 'برو بالاتر!';
-      else guessHint = 'بیا پایین‌تر!';
+      if (v === secretNum) { guessHint = `= ${secretNum}!`; reportWin('number_guess'); }
+      else if (v < secretNum) guessHint = '▲';
+      else guessHint = '▼';
       renderGuess(document.getElementById('app'));
     };
     function renderGuess(root) {
       if (!secretNum) initGuess();
       root.innerHTML = `
         <div class="glass-card p-5 rounded-2xl text-center mb-4">
-          <h2 class="text-xl font-extrabold mb-2">حدس عدد</h2>
-          <p class="font-bold text-amber-400 mb-4">${guessHint}</p>
-          <input id="guessInp" type="number" min="1" max="100" placeholder="عدد ۱ تا ۱۰۰" class="w-full p-3 rounded-xl bg-slate-800 text-white text-center text-xl font-bold mb-3" />
-          <button onclick="submitGuess()" class="btn-success w-full py-3 rounded-xl font-bold">بررسی</button>
+          <h2 class="text-xl font-extrabold mb-2">1 - 100</h2>
+          <p class="font-bold text-amber-400 text-2xl mb-4">${guessHint}</p>
+          <input id="guessInp" type="number" min="1" max="100" class="w-full p-3 rounded-xl bg-slate-800 text-white text-center text-xl font-bold mb-3" />
+          <button onclick="submitGuess()" class="btn-success w-full py-3 rounded-xl font-bold">${L.check}</button>
         </div>
         <div class="flex gap-2">
-          <button onclick="initGuess();render()" class="btn-primary flex-1 py-3 rounded-xl font-bold">شروع مجدد</button>
-          <button onclick="nav('hub')" class="btn-danger flex-1 py-3 rounded-xl font-bold">سایر بازی‌ها</button>
+          <button onclick="initGuess();render()" class="btn-primary flex-1 py-3 rounded-xl font-bold">${L.reset}</button>
+          <button onclick="nav('hub')" class="btn-danger flex-1 py-3 rounded-xl font-bold">${L.back}</button>
         </div>
       `;
     }
 
-    /* ─── Hokm ─── */
     let hokmHand = ['A♠','K♠','Q♥','J♦','10♣','9♠','8♥'], hokmTable = [], hokmScore = {us: 0, them: 0};
     window.playHokmCard = function(idx) {
       const card = hokmHand.splice(idx, 1)[0];
@@ -654,14 +722,14 @@ MINIAPP_FULL_HTML = """<!DOCTYPE html>
       `).join('');
       root.innerHTML = `
         <div class="flex justify-between items-center mb-4">
-          <h2 class="text-xl font-extrabold">میز حکم ۴ نفره</h2>
-          <span class="glass-card px-3 py-1 rounded-lg font-bold">ما: ${hokmScore.us} | حریف: ${hokmScore.them}</span>
+          <h2 class="text-xl font-extrabold">Hokm 4P</h2>
+          <span class="glass-card px-3 py-1 rounded-lg font-bold">${hokmScore.us} - ${hokmScore.them}</span>
         </div>
         <div class="glass-card p-6 rounded-2xl text-center mb-4 min-h-[130px] flex flex-col justify-center">
-          <div class="flex justify-center gap-3 text-xl font-extrabold">${hokmTable.length ? hokmTable.map(c=>`<span class="px-3 py-2 rounded-lg bg-slate-800">${c}</span>`).join('') : 'کارت خود را انتخاب کنید'}</div>
+          <div class="flex justify-center gap-3 text-xl font-extrabold">${hokmTable.length ? hokmTable.map(c=>`<span class="px-3 py-2 rounded-lg bg-slate-800">${c}</span>`).join('') : '...'}</div>
         </div>
         <div class="game-grid-container grid grid-cols-4 gap-2 mb-4">${handHtml}</div>
-        <button onclick="nav('hub')" class="btn-danger w-full py-3 rounded-xl font-bold">سایر بازی‌ها</button>
+        <button onclick="nav('hub')" class="btn-danger w-full py-3 rounded-xl font-bold">${L.back}</button>
       `;
     }
 
@@ -673,5 +741,15 @@ MINIAPP_FULL_HTML = """<!DOCTYPE html>
 
 
 @app.get("/{full_path:path}")
-async def serve_entry(full_path: str):
-    return HTMLResponse(content=MINIAPP_FULL_HTML, status_code=200)
+async def serve_entry(request: Request, full_path: str):
+    game = request.query_params.get("game") or "hub"
+    meta = GAME_META.get(game, GAME_META["hub"])
+    base_url = os.environ.get("MINI_APP_URL", "https://games.rhinokaseb.abrdns.com").rstrip("/")
+    og_img = f"{base_url}/api/banner/{game}.png"
+
+    html_content = (
+        MINIAPP_TEMPLATE
+        .replace("__OG_TITLE__", meta["title"])
+        .replace("__OG_IMAGE__", og_img)
+    )
+    return HTMLResponse(content=html_content, status_code=200)
