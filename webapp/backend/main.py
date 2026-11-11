@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""webapp/backend/main.py — سرور مینی‌اپ ۷ زبانه + میز کامل حکم ۲ و ۴ نفره آنلاین + گردونه شانس"""
+"""webapp/backend/main.py — سرور کامل مینی‌اپ ۷ زبانه + قفل عضویت اجباری داخل مینی‌اپ + حکم ۲ و ۴ نفره + گردونه شانس"""
 
 import io
 import json
@@ -49,6 +49,7 @@ GAME_META = {
 
 
 def generate_game_banner(game_key: str) -> bytes:
+    """تولید بنر گرافیکی ۸۰۰x۴۲۰ برای نمایش تصویری بازی در گروه"""
     meta = GAME_META.get(game_key, GAME_META["hub"])
     w, h = 800, 420
     img = Image.new("RGB", (w, h), meta["c1"])
@@ -84,35 +85,6 @@ def generate_game_banner(game_key: str) -> bytes:
     img.save(buf, format="PNG")
     return buf.getvalue()
 
-@app.get("/api/check_join/{user_id}")
-async def api_check_join(user_id: int):
-    """بررسی عضویت اجباری کاربر در لحظه باز کردن مینی‌اپ در گروه"""
-    try:
-        from aiogram import Bot
-        from runtime import check_forced_join
-        bot_token = os.environ.get("BOT_TOKEN", "")
-        if not bot_token or user_id <= 0:
-            return {"ok": True, "joined": True, "channels": []}
-
-        temp_bot = Bot(token=bot_token)
-        try:
-            missing = await check_forced_join(temp_bot, user_id)
-        finally:
-            await temp_bot.session.close()
-
-        return {
-            "ok": True,
-            "joined": len(missing) == 0,
-            "channels": [
-                {
-                    "title": ch.get("title") or "Channel",
-                    "url": f"https://t.me/{(ch.get('username') or str(ch.get('chat_id'))).lstrip('@')}",
-                }
-                for ch in missing
-            ],
-        }
-    except Exception:
-        return {"ok": True, "joined": True, "channels": []}
 
 @app.get("/api/banner/{game_type}.png")
 async def serve_game_banner(game_type: str):
@@ -131,7 +103,7 @@ class HokmActionPayload(BaseModel):
     mode: str = "4p"
     uid: int
     name: str = "Player"
-    action: str  # state | join | add_bots | choose_trump | play_card
+    action: str
     suit: str | None = None
     card: str | None = None
 
@@ -139,6 +111,42 @@ class HokmActionPayload(BaseModel):
 @app.get("/health")
 async def health_check():
     return {"status": "ok"}
+
+
+@app.get("/api/check_join/{user_id}")
+async def api_check_join(user_id: int):
+    """بررسی عضویت اجباری کاربر در لحظه باز کردن مینی‌اپ در گروه یا پیوی"""
+    try:
+        from aiogram import Bot
+        from runtime import check_forced_join
+        bot_token = os.environ.get("BOT_TOKEN", "")
+        if not bot_token or user_id <= 0:
+            return {"ok": True, "joined": True, "channels": []}
+
+        temp_bot = Bot(token=bot_token)
+        try:
+            missing = await check_forced_join(temp_bot, user_id)
+        finally:
+            await temp_bot.session.close()
+
+        channels_data = []
+        for ch in missing:
+            uname = (ch.get("username") or "").lstrip("@")
+            cid = str(ch.get("chat_id") or "").lstrip("@")
+            link_target = uname or cid
+            url = f"https://t.me/{link_target}" if link_target and not link_target.startswith("-") else "https://t.me/RHINOBOT_TM"
+            channels_data.append({
+                "title": ch.get("title") or uname or "Sponsor Channel",
+                "url": url,
+            })
+
+        return {
+            "ok": True,
+            "joined": len(channels_data) == 0,
+            "channels": channels_data,
+        }
+    except Exception:
+        return {"ok": True, "joined": True, "channels": []}
 
 
 @app.post("/api/win")
@@ -152,10 +160,8 @@ async def record_win(payload: WinPayload):
 
 @app.post("/api/hokm/action")
 async def hokm_action_endpoint(payload: HokmActionPayload):
-    """API بلادرنگ و ضدقطع‌شدن برای بازی حکم ۲ و ۴ نفره (همگام با لابی تلگرام)"""
     session_key = f"{payload.mode}_{payload.session}"
     if session_key not in hokm_rooms:
-        # اگر این سشن از لابی تلگرام آمده باشد، اعضای لابی را از lobbies.py بارگذاری کن
         initial_players = None
         try:
             from games.lobbies import active_lobbies
@@ -270,24 +276,101 @@ MINIAPP_TEMPLATE = """<!DOCTYPE html>
     document.documentElement.dir = (lang === 'fa' || lang === 'ar') ? 'rtl' : 'ltr';
 
     const I18N = {
-      fa: { title: "مینی‌اپ بازی‌های راینو", sub: "بازی مورد نظر را انتخاب کنید", score: "امتیاز", back: "سایر بازی‌ها", reset: "شروع مجدد", up: "بالا", down: "پایین", left: "چپ", right: "راست", turn: "نوبت", win: "برنده", rock: "سنگ", paper: "کاغذ", scissors: "قیچی", wheel: "گردونه شانس راینو", wheelDone: "قرعه‌کشی تکمیل شد!", check: "بررسی" },
-      en: { title: "Rhino Games Mini-App", sub: "Pick a game to play", score: "Score", back: "Other Games", reset: "Restart", up: "Up", down: "Down", left: "Left", right: "Right", turn: "Turn", win: "Winner", rock: "Rock", paper: "Paper", scissors: "Scissors", wheel: "Rhino Lucky Wheel", wheelDone: "Draw Completed!", check: "Submit" },
-      ar: { title: "ألعاب رينو", sub: "اختر لعبة للبدء", score: "النقاط", back: "ألعاب أخرى", reset: "إعادة", up: "أعلى", down: "أسفل", left: "يسار", right: "يمين", turn: "دور", win: "الفائز", rock: "حجر", paper: "ورقة", scissors: "مقص", wheel: "عجلة الحظ", wheelDone: "انتهت القرعة!", check: "تحقق" },
-      tr: { title: "Rhino Oyunları", sub: "Bir oyun seçin", score: "Puan", back: "Diğer Oyunlar", reset: "Yeniden", up: "Yukarı", down: "Aşağı", left: "Sol", right: "Sağ", turn: "Sıra", win: "Kazanan", rock: "Taş", paper: "Kağıt", scissors: "Makas", wheel: "Çarkıfelek", wheelDone: "Çekiliş Tamamlandı!", check: "Gönder" },
-      ru: { title: "Rhino Игры", sub: "Выберите игру", score: "Счёт", back: "Другие игры", reset: "Заново", up: "Вверх", down: "Вниз", left: "Влево", right: "Вправо", turn: "Ход", win: "Победитель", rock: "Камень", paper: "Бумага", scissors: "Ножницы", wheel: "Колесо удачи", wheelDone: "Розыгрыш завершён!", check: "Проверить" },
-      de: { title: "Rhino Spiele", sub: "Wähle ein Spiel", score: "Punkte", back: "Andere Spiele", reset: "Neustart", up: "Oben", down: "Unten", left: "Links", right: "Rechts", turn: "Zug", win: "Gewinner", rock: "Stein", paper: "Papier", scissors: "Schere", wheel: "Glücksrad", wheelDone: "Auslosung beendet!", check: "Prüfen" },
-      zh: { title: "Rhino 游戏中心", sub: "选择一个游戏", score: "分数", back: "其他游戏", reset: "重新开始", up: "上", down: "下", left: "左", right: "右", turn: "回合", win: "赢家", rock: "石头", paper: "布", scissors: "剪刀", wheel: "幸运轮盘", wheelDone: "抽奖完成！", check: "提交" }
+      fa: {
+        title: "مینی‌اپ بازی‌های راینو", sub: "بازی مورد نظر را انتخاب کنید", score: "امتیاز", back: "سایر بازی‌ها", reset: "شروع مجدد", up: "بالا", down: "پایین", left: "چپ", right: "راست", turn: "نوبت", win: "برنده", rock: "سنگ", paper: "کاغذ", scissors: "قیچی", wheel: "گردونه شانس راینو", wheelDone: "قرعه‌کشی تکمیل شد!", check: "بررسی",
+        lockTitle: "عضویت اجباری در کانال", lockDesc: "برای ورود به بازی، ابتدا در کانال‌های زیر عضو شوید و سپس دکمه «عضو شدم» را بزنید:", joinBtn: "عضویت در", checkJoinBtn: "عضو شدم (ورود به بازی)", notJoinedAlert: "هنوز در همه کانال‌ها عضو نشده‌اید!"
+      },
+      en: {
+        title: "Rhino Games Mini-App", sub: "Pick a game to play", score: "Score", back: "Other Games", reset: "Restart", up: "Up", down: "Down", left: "Left", right: "Right", turn: "Turn", win: "Winner", rock: "Rock", paper: "Paper", scissors: "Scissors", wheel: "Rhino Lucky Wheel", wheelDone: "Draw Completed!", check: "Submit",
+        lockTitle: "Channel Join Required", lockDesc: "To play, please join our channels first and tap 'I Joined':", joinBtn: "Join", checkJoinBtn: "I Joined (Start Game)", notJoinedAlert: "You haven't joined all channels yet!"
+      },
+      ar: {
+        title: "ألعاب رينو", sub: "اختر لعبة للبدء", score: "النقاط", back: "ألعاب أخرى", reset: "إعادة", up: "أعلى", down: "أسفل", left: "يسار", right: "يمين", turn: "دور", win: "الفائز", rock: "حجر", paper: "ورقة", scissors: "مقص", wheel: "عجلة الحظ", wheelDone: "انتهت القرعة!", check: "تحقق",
+        lockTitle: "الاشتراك الإجباري", lockDesc: "للعب، انضم إلى القنوات التالية أولاً ثم اضغط على اشتركت:", joinBtn: "انضمام إلى", checkJoinBtn: "اشتركت (دخول اللعبة)", notJoinedAlert: "لم تنضم إلى جميع القنوات بعد!"
+      },
+      tr: {
+        title: "Rhino Oyunları", sub: "Bir oyun seçin", score: "Puan", back: "Diğer Oyunlar", reset: "Yeniden", up: "Yukarı", down: "Aşağı", left: "Sol", right: "Sağ", turn: "Sıra", win: "Kazanan", rock: "Taş", paper: "Kağıt", scissors: "Makas", wheel: "Çarkıfelek", wheelDone: "Çekiliş Tamamlandı!", check: "Gönder",
+        lockTitle: "Kanala Katılma Zorunluluğu", lockDesc: "Oynamak için önce aşağıdaki kanallara katılın:", joinBtn: "Katıl:", checkJoinBtn: "Katıldım (Oyuna Gir)", notJoinedAlert: "Henüz tüm kanallara katılmadınız!"
+      },
+      ru: {
+        title: "Rhino Игры", sub: "Выберите игру", score: "Счёт", back: "Другие игры", reset: "Заново", up: "Вверх", down: "Вниз", left: "Влево", right: "Вправо", turn: "Ход", win: "Победитель", rock: "Камень", paper: "Бумага", scissors: "Ножницы", wheel: "Колесо удачи", wheelDone: "Розыгрыш завершён!", check: "Проверить",
+        lockTitle: "Обязательная подписка", lockDesc: "Чтобы играть, сначала подпишитесь на каналы ниже:", joinBtn: "Подписаться:", checkJoinBtn: "Я подписался (Играть)", notJoinedAlert: "Вы ещё не подписались на все каналы!"
+      },
+      de: {
+        title: "Rhino Spiele", sub: "Wähle ein Spiel", score: "Punkte", back: "Andere Spiele", reset: "Neustart", up: "Oben", down: "Unten", left: "Links", right: "Rechts", turn: "Zug", win: "Gewinner", rock: "Stein", paper: "Papier", scissors: "Schere", wheel: "Glücksrad", wheelDone: "Auslosung beendet!", check: "Prüfen",
+        lockTitle: "Kanalbeitritt erforderlich", lockDesc: "Bitte tritt zuerst unseren Kanälen bei, um zu spielen:", joinBtn: "Beitreten:", checkJoinBtn: "Beigetreten (Spiel starten)", notJoinedAlert: "Noch nicht allen Kanälen beigetreten!"
+      },
+      zh: {
+        title: "Rhino 游戏中心", sub: "选择一个游戏", score: "分数", back: "其他游戏", reset: "重新开始", up: "上", down: "下", left: "左", right: "右", turn: "回合", win: "赢家", rock: "石头", paper: "布", scissors: "剪刀", wheel: "幸运轮盘", wheelDone: "抽奖完成！", check: "提交",
+        lockTitle: "必须加入频道", lockDesc: "请先加入以下频道后再开始游戏：", joinBtn: "加入", checkJoinBtn: "我已加入（开始游戏）", notJoinedAlert: "您尚未加入所有频道！"
+      }
     };
     const L = I18N[lang] || I18N.fa;
 
     let currentGame = parsedGame || 'hub';
-    const uid = tg?.initDataUnsafe?.user?.id || Number(params.get('uid')) || Math.floor(Math.random()*900000 + 100000);
+    const realTgUid = tg?.initDataUnsafe?.user?.id || Number(params.get('uid')) || 0;
+    const uid = realTgUid || Math.floor(Math.random()*900000 + 100000);
     const myName = tg?.initDataUnsafe?.user?.first_name || 'بازیکن';
     let hokmPollTimer = null;
+    let isJoinVerified = false;
+
+    window.openChannelLink = function(url) {
+      if (tg && tg.openTelegramLink && url.startsWith('https://t.me/')) {
+        tg.openTelegramLink(url);
+      } else {
+        window.open(url, '_blank');
+      }
+    };
+
+    window.verifyJoinAndRender = async function(showAlertOnFail = false) {
+      const root = document.getElementById('app');
+      if (!realTgUid) {
+        isJoinVerified = true;
+        return render();
+      }
+      try {
+        const res = await fetch('/api/check_join/' + realTgUid);
+        const data = await res.json();
+        if (data && data.joined === false && data.channels && data.channels.length > 0) {
+          isJoinVerified = false;
+          if (showAlertOnFail && tg?.showAlert) {
+            tg.showAlert(L.notJoinedAlert);
+          }
+          return renderJoinLockScreen(root, data.channels);
+        }
+      } catch (e) {}
+      isJoinVerified = true;
+      render();
+    };
+
+    function renderJoinLockScreen(root, channels) {
+      const chButtons = channels.map(ch => `
+        <button onclick="openChannelLink('${ch.url}')" class="btn-primary w-full py-3.5 px-4 rounded-xl font-extrabold flex items-center justify-center gap-2 active:scale-95 transition">
+          <span>${L.joinBtn} ${ch.title}</span>
+        </button>
+      `).join('');
+
+      root.innerHTML = `
+        <div class="glass-card rounded-2xl p-6 text-center mt-6 border border-rose-500/40">
+          <div class="w-16 h-16 rounded-2xl btn-danger mx-auto mb-4 flex items-center justify-center text-2xl font-black">LOCK</div>
+          <h2 class="text-xl font-extrabold mb-2 text-white">${L.lockTitle}</h2>
+          <p class="text-slate-300 text-sm mb-5 leading-relaxed">${L.lockDesc}</p>
+          <div class="flex flex-col gap-3 mb-4">
+            ${chButtons}
+          </div>
+          <button onclick="verifyJoinAndRender(true)" class="btn-success w-full py-3.5 px-4 rounded-xl font-extrabold active:scale-95 transition">
+            ${L.checkJoinBtn}
+          </button>
+        </div>
+      `;
+    }
 
     window.nav = function(g) {
       if (hokmPollTimer) { clearInterval(hokmPollTimer); hokmPollTimer = null; }
       currentGame = g;
+      if (!isJoinVerified) {
+        return verifyJoinAndRender(false);
+      }
       render();
     };
 
@@ -345,7 +428,7 @@ MINIAPP_TEMPLATE = """<!DOCTYPE html>
       `;
     }
 
-    /* ═══════════ میز کامل حکم ۲ و ۴ نفره (متصل به بک‌اند HokmGame) ═══════════ */
+    /* ═══════════ میز کامل حکم ۲ و ۴ نفره ═══════════ */
     let hokmMode = '4p';
     let hokmError = '';
 
@@ -393,7 +476,6 @@ MINIAPP_TEMPLATE = """<!DOCTYPE html>
       const is4p = st.mode === '4p';
       const pList = st.players || [];
 
-      // ۱. حالت انتظار برای تکمیل بازیکنان
       if (st.status === 'joining') {
         const pRows = pList.map((p, i) => `<div class="p-2 rounded-xl bg-slate-800/80 font-bold">${i+1}. ${p.name}</div>`).join('');
         root.innerHTML = `
@@ -408,7 +490,6 @@ MINIAPP_TEMPLATE = """<!DOCTYPE html>
         return;
       }
 
-      // ۲. امتیازات
       let trickScoreStr = '';
       let totalScoreStr = '';
       if (is4p) {
@@ -420,7 +501,6 @@ MINIAPP_TEMPLATE = """<!DOCTYPE html>
         totalScoreStr = `کل: ${p0.name} (${st.game_scores?.[p0.id] || 0}) — ${p1.name} (${st.game_scores?.[p1.id] || 0})`;
       }
 
-      // ۳. بخش انتخاب حکم توسط حاکم
       let centerStageHtml = '';
       if (st.status === 'hakem_choosing') {
         if (Number(st.hakem_id) === Number(uid)) {
@@ -441,7 +521,6 @@ MINIAPP_TEMPLATE = """<!DOCTYPE html>
       } else if (st.status === 'finished') {
         centerStageHtml = `<div class="text-center text-2xl font-black text-emerald-400">🏆 بازی تمام شد! برنده: ${st.winner_display}</div>`;
       } else {
-        // نمایش کارت‌های بازی‌شده روی میز
         const tableCards = (st.trick || []).map(t => `
           <div class="flex flex-col items-center">
             <div class="w-14 h-20 bg-white rounded-xl flex flex-col items-center justify-center shadow-lg border-2 border-slate-300 ${t.card.is_red ? 'text-rose-600' : 'text-slate-900'}">
@@ -456,7 +535,6 @@ MINIAPP_TEMPLATE = """<!DOCTYPE html>
           : `<div class="text-slate-400 text-sm font-bold">${st.last_trick_winner ? 'دست قبلی: ' + st.last_trick_winner : 'منتظر شروع دست...'}</div>`;
       }
 
-      // ۴. کارت‌های دست بازیکن
       const isMyTurn = Number(st.turn_id) === Number(uid) && st.status === 'playing';
       const handHtml = (st.my_hand || []).map(c => `
         <button
@@ -487,7 +565,7 @@ MINIAPP_TEMPLATE = """<!DOCTYPE html>
         </div>
 
         <div class="glass-card p-3 rounded-2xl mb-3">
-          <div class="text-xs text-slate-300 font-bold mb-2 text-center">دست شما (${(st.my_hand || []).length} کارت — مرتب‌شده بر اساس خال):</div>
+          <div class="text-xs text-slate-300 font-bold mb-2 text-center">دست شما (${(st.my_hand || []).length} کارت):</div>
           <div class="game-grid-container grid grid-cols-7 gap-1.5">${handHtml}</div>
         </div>
 
@@ -941,7 +1019,8 @@ MINIAPP_TEMPLATE = """<!DOCTYPE html>
       `;
     }
 
-    render();
+    // بررسی اولیه عضویت اجباری قبل از رندر بازی
+    verifyJoinAndRender(false);
   </script>
 </body>
 </html>
