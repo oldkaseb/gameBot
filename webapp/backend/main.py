@@ -84,6 +84,35 @@ def generate_game_banner(game_key: str) -> bytes:
     img.save(buf, format="PNG")
     return buf.getvalue()
 
+@app.get("/api/check_join/{user_id}")
+async def api_check_join(user_id: int):
+    """بررسی عضویت اجباری کاربر در لحظه باز کردن مینی‌اپ در گروه"""
+    try:
+        from aiogram import Bot
+        from runtime import check_forced_join
+        bot_token = os.environ.get("BOT_TOKEN", "")
+        if not bot_token or user_id <= 0:
+            return {"ok": True, "joined": True, "channels": []}
+
+        temp_bot = Bot(token=bot_token)
+        try:
+            missing = await check_forced_join(temp_bot, user_id)
+        finally:
+            await temp_bot.session.close()
+
+        return {
+            "ok": True,
+            "joined": len(missing) == 0,
+            "channels": [
+                {
+                    "title": ch.get("title") or "Channel",
+                    "url": f"https://t.me/{(ch.get('username') or str(ch.get('chat_id'))).lstrip('@')}",
+                }
+                for ch in missing
+            ],
+        }
+    except Exception:
+        return {"ok": True, "joined": True, "channels": []}
 
 @app.get("/api/banner/{game_type}.png")
 async def serve_game_banner(game_type: str):
