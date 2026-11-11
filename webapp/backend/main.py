@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""webapp/backend/main.py — سرور مینی‌اپ ۷ زبانه + تولید بنر تصویری (بدون ایمپورت حلقوی)"""
+"""webapp/backend/main.py — سرور مینی‌اپ ۷ زبانه + میز کامل حکم ۲ و ۴ نفره آنلاین + گردونه شانس"""
 
 import io
 import json
@@ -12,6 +12,7 @@ from pydantic import BaseModel
 from PIL import Image, ImageDraw, ImageFont
 
 from database import db
+from webapp.backend.game_logic.hokm import HokmGame
 
 app = FastAPI(title="Rhino Games Mini App")
 
@@ -25,6 +26,9 @@ app.add_middleware(
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 FONT_PATH = BASE_DIR / "Vazirmatn-SemiBold.ttf"
 
+# اتاق‌های فعال حکم در حافظه سرور
+hokm_rooms: dict[str, HokmGame] = {}
+
 GAME_META = {
     "hub":          {"title": "RHINO GAMES",        "c1": (30, 27, 75),  "c2": (79, 70, 229)},
     "2048":         {"title": "PUZZLE 2048",        "c1": (15, 23, 42),  "c2": (37, 99, 235)},
@@ -33,6 +37,7 @@ GAME_META = {
     "dooz":         {"title": "TIC-TAC-TOE 2P",     "c1": (15, 23, 42),  "c2": (59, 130, 246)},
     "doz4p":        {"title": "TIC-TAC-TOE 4P",     "c1": (15, 23, 42),  "c2": (236, 72, 153)},
     "connect4":     {"title": "CONNECT FOUR",       "c1": (6, 78, 59),   "c2": (16, 185, 129)},
+    "hokm2p":       {"title": "HOKM 2 PLAYERS",     "c1": (6, 78, 59),   "c2": (16, 185, 129)},
     "hokm":         {"title": "HOKM 4 PLAYERS",     "c1": (6, 78, 59),   "c2": (5, 150, 105)},
     "rps":          {"title": "ROCK PAPER SCISSORS","c1": (15, 23, 42),  "c2": (99, 102, 241)},
     "memory":       {"title": "MEMORY MATCH",       "c1": (15, 23, 42),  "c2": (139, 92, 246)},
@@ -44,7 +49,6 @@ GAME_META = {
 
 
 def generate_game_banner(game_key: str) -> bytes:
-    """تولید بنر گرافیکی ۸۰۰x۴۲۰ برای نمایش تصویری بازی در گروه"""
     meta = GAME_META.get(game_key, GAME_META["hub"])
     w, h = 800, 420
     img = Image.new("RGB", (w, h), meta["c1"])
@@ -93,6 +97,16 @@ class WinPayload(BaseModel):
     best_time: float | None = None
 
 
+class HokmActionPayload(BaseModel):
+    session: str
+    mode: str = "4p"
+    uid: int
+    name: str = "Player"
+    action: str  # state | join | add_bots | choose_trump | play_card
+    suit: str | None = None
+    card: str | None = None
+
+
 @app.get("/health")
 async def health_check():
     return {"status": "ok"}
@@ -107,9 +121,46 @@ async def record_win(payload: WinPayload):
         return {"ok": False, "error": str(e)}
 
 
+@app.post("/api/hokm/action")
+async def hokm_action_endpoint(payload: HokmActionPayload):
+    """API بلادرنگ و ضدقطع‌شدن برای بازی حکم ۲ و ۴ نفره (همگام با لابی تلگرام)"""
+    session_key = f"{payload.mode}_{payload.session}"
+    if session_key not in hokm_rooms:
+        # اگر این سشن از لابی تلگرام آمده باشد، اعضای لابی را از lobbies.py بارگذاری کن
+        initial_players = None
+        try:
+            from games.lobbies import active_lobbies
+            lobby = active_lobbies.get(payload.session)
+            if lobby and lobby.get("players"):
+                initial_players = lobby["players"]
+        except Exception:
+            pass
+        hokm_rooms[session_key] = HokmGame(session_key, mode=payload.mode, initial_players=initial_players)
+
+    game = hokm_rooms[session_key]
+    game.join(payload.uid, payload.name)
+
+    res = {"ok": True}
+    if payload.action == "add_bots":
+        game.fill_with_bots()
+    elif payload.action == "choose_trump" and payload.suit:
+        res = game.choose_trump(payload.uid, payload.suit)
+    elif payload.action == "play_card" and payload.card:
+        res = game.play_card(payload.uid, payload.card)
+        if game.status == "finished":
+            try:
+                await db.add_win(payload.uid, "hokm")
+            except Exception:
+                pass
+
+    return {
+        **res,
+        "state": game.get_state_for_player(payload.uid),
+    }
+
+
 @app.get("/api/gardone/{chat_id}")
 async def get_gardone_data(chat_id: int):
-    # ایمپورت محلی برای جلوگیری از Circular Import
     from games.gardone import active_gardones
     g = active_gardones.get(chat_id)
     if not g:
@@ -177,7 +228,7 @@ MINIAPP_TEMPLATE = """<!DOCTYPE html>
     const params = new URLSearchParams(window.location.search);
     const startParam = tg?.initDataUnsafe?.start_param || params.get('startapp') || params.get('tgWebAppStartParam') || '';
     let parsedGame = params.get('game') || '';
-    let parsedChat = params.get('chat') || params.get('session') || '';
+    let parsedChat = params.get('chat') || params.get('session') || 'room1';
     let lang = params.get('lang') || tg?.initDataUnsafe?.user?.language_code || 'fa';
 
     if (startParam) {
@@ -185,7 +236,6 @@ MINIAPP_TEMPLATE = """<!DOCTYPE html>
       if (parts[0]) parsedGame = parts[0];
       if (parts[1]) parsedChat = parts[1];
       if (parts[2] && ['fa','en','ar','tr','ru','de','zh'].includes(parts[2])) lang = parts[2];
-      if (parts[3] && ['fa','en','ar','tr','ru','de','zh'].includes(parts[3])) lang = parts[3];
     }
     if (!['fa','en','ar','tr','ru','de','zh'].includes(lang)) lang = 'fa';
     document.documentElement.dir = (lang === 'fa' || lang === 'ar') ? 'rtl' : 'ltr';
@@ -202,9 +252,12 @@ MINIAPP_TEMPLATE = """<!DOCTYPE html>
     const L = I18N[lang] || I18N.fa;
 
     let currentGame = parsedGame || 'hub';
-    const uid = tg?.initDataUnsafe?.user?.id || params.get('uid') || 0;
+    const uid = tg?.initDataUnsafe?.user?.id || Number(params.get('uid')) || Math.floor(Math.random()*900000 + 100000);
+    const myName = tg?.initDataUnsafe?.user?.first_name || 'بازیکن';
+    let hokmPollTimer = null;
 
     window.nav = function(g) {
+      if (hokmPollTimer) { clearInterval(hokmPollTimer); hokmPollTimer = null; }
       currentGame = g;
       render();
     };
@@ -234,7 +287,8 @@ MINIAPP_TEMPLATE = """<!DOCTYPE html>
       if (currentGame === 'typing') return renderTyping(root);
       if (currentGame === 'hangman') return renderHangman(root);
       if (currentGame === 'guess') return renderGuess(root);
-      if (currentGame === 'hokm') return renderHokm(root);
+      if (currentGame === 'hokm' || currentGame === 'hokm4p') return startHokmEngine(root, '4p');
+      if (currentGame === 'hokm2p') return startHokmEngine(root, '2p');
       return renderHub(root);
     }
 
@@ -245,19 +299,170 @@ MINIAPP_TEMPLATE = """<!DOCTYPE html>
           <p class="text-slate-300 text-sm">${L.sub}</p>
         </div>
         <div class="grid grid-cols-2 gap-3">
+          <button onclick="nav('hokm2p')" class="btn-success py-3 px-4 rounded-xl font-bold">حکم ۲ نفره</button>
+          <button onclick="nav('hokm')" class="btn-success py-3 px-4 rounded-xl font-bold">حکم ۴ نفره</button>
           <button onclick="nav('2048')" class="btn-primary py-3 px-4 rounded-xl font-bold">2048</button>
-          <button onclick="nav('spuzzle')" class="btn-primary py-3 px-4 rounded-xl font-bold">Sliding Puzzle</button>
-          <button onclick="nav('samegame')" class="btn-primary py-3 px-4 rounded-xl font-bold">SameGame</button>
-          <button onclick="nav('dooz')" class="btn-primary py-3 px-4 rounded-xl font-bold">Tic-Tac-Toe 2P</button>
-          <button onclick="nav('doz4p')" class="btn-primary py-3 px-4 rounded-xl font-bold">Tic-Tac-Toe 4P</button>
-          <button onclick="nav('connect4')" class="btn-success py-3 px-4 rounded-xl font-bold">Connect 4</button>
-          <button onclick="nav('hokm')" class="btn-success py-3 px-4 rounded-xl font-bold">Hokm 4P</button>
+          <button onclick="nav('spuzzle')" class="btn-primary py-3 px-4 rounded-xl font-bold">پازل کشویی</button>
+          <button onclick="nav('samegame')" class="btn-primary py-3 px-4 rounded-xl font-bold">جفت‌ها</button>
+          <button onclick="nav('dooz')" class="btn-primary py-3 px-4 rounded-xl font-bold">دوز ۲ نفره</button>
+          <button onclick="nav('doz4p')" class="btn-primary py-3 px-4 rounded-xl font-bold">دوز ۴ نفره</button>
+          <button onclick="nav('connect4')" class="btn-success py-3 px-4 rounded-xl font-bold">چهار در ردیف</button>
           <button onclick="nav('rps')" class="btn-primary py-3 px-4 rounded-xl font-bold">${L.rock}/${L.paper}/${L.scissors}</button>
-          <button onclick="nav('memory')" class="btn-primary py-3 px-4 rounded-xl font-bold">Memory</button>
-          <button onclick="nav('typing')" class="btn-primary py-3 px-4 rounded-xl font-bold">Typing</button>
-          <button onclick="nav('hangman')" class="btn-primary py-3 px-4 rounded-xl font-bold">Hangman</button>
-          <button onclick="nav('guess')" class="btn-primary py-3 px-4 rounded-xl font-bold">1-100</button>
+          <button onclick="nav('memory')" class="btn-primary py-3 px-4 rounded-xl font-bold">حافظه</button>
+          <button onclick="nav('typing')" class="btn-primary py-3 px-4 rounded-xl font-bold">تایپ سرعتی</button>
+          <button onclick="nav('hangman')" class="btn-primary py-3 px-4 rounded-xl font-bold">حدس کلمه</button>
+          <button onclick="nav('guess')" class="btn-primary py-3 px-4 rounded-xl font-bold col-span-2">حدس عدد (۱ تا ۱۰۰)</button>
         </div>
+      `;
+    }
+
+    /* ═══════════ میز کامل حکم ۲ و ۴ نفره (متصل به بک‌اند HokmGame) ═══════════ */
+    let hokmMode = '4p';
+    let hokmError = '';
+
+    async function callHokmApi(action, extra = {}) {
+      try {
+        const res = await fetch('/api/hokm/action', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({
+            session: String(parsedChat || 'default'),
+            mode: hokmMode,
+            uid: Number(uid),
+            name: myName,
+            action: action,
+            ...extra
+          })
+        });
+        const data = await res.json();
+        if (data.ok === false && data.error) {
+          hokmError = data.error;
+          if (tg?.showAlert) tg.showAlert(data.error);
+        } else if (action !== 'state') {
+          hokmError = '';
+        }
+        if (data.state) drawHokmTable(data.state);
+      } catch (e) {}
+    }
+
+    window.hokmChooseSuit = function(s) { callHokmApi('choose_trump', { suit: s }); };
+    window.hokmPlayCard = function(code) { callHokmApi('play_card', { card: code }); };
+    window.hokmFillBots = function() { callHokmApi('add_bots'); };
+
+    function startHokmEngine(root, mode) {
+      hokmMode = mode;
+      root.innerHTML = `<div class="glass-card p-6 rounded-2xl text-center">در حال اتصال به میز حکم...</div>`;
+      callHokmApi('join');
+      if (hokmPollTimer) clearInterval(hokmPollTimer);
+      hokmPollTimer = setInterval(() => callHokmApi('state'), 1500);
+    }
+
+    function drawHokmTable(st) {
+      const root = document.getElementById('app');
+      if (!root || (currentGame !== 'hokm' && currentGame !== 'hokm4p' && currentGame !== 'hokm2p')) return;
+
+      const is4p = st.mode === '4p';
+      const pList = st.players || [];
+
+      // ۱. حالت انتظار برای تکمیل بازیکنان
+      if (st.status === 'joining') {
+        const pRows = pList.map((p, i) => `<div class="p-2 rounded-xl bg-slate-800/80 font-bold">${i+1}. ${p.name}</div>`).join('');
+        root.innerHTML = `
+          <div class="glass-card p-5 rounded-2xl text-center mb-4">
+            <h2 class="text-xl font-extrabold mb-2">لابی حکم ${st.max_players} نفره</h2>
+            <p class="text-sm text-slate-300 mb-3">بازیکنان حاضر (${pList.length} از ${st.max_players}):</p>
+            <div class="flex flex-col gap-2 mb-4">${pRows}</div>
+            <button onclick="hokmFillBots()" class="btn-success w-full py-3 rounded-xl font-bold mb-2">پر کردن صندلی‌های خالی با هوش مصنوعی و شروع فوری</button>
+          </div>
+          <button onclick="nav('hub')" class="btn-danger w-full py-3 rounded-xl font-bold">${L.back}</button>
+        `;
+        return;
+      }
+
+      // ۲. امتیازات
+      let trickScoreStr = '';
+      let totalScoreStr = '';
+      if (is4p) {
+        trickScoreStr = `دست‌ها: تیم ۱ (${st.trick_scores?.A || 0}) — تیم ۲ (${st.trick_scores?.B || 0})`;
+        totalScoreStr = `امتیاز کل: تیم ۱ (${st.game_scores?.A || 0}) — تیم ۲ (${st.game_scores?.B || 0})`;
+      } else {
+        const p0 = pList[0] || {id: 0, name: 'P1'}, p1 = pList[1] || {id: 1, name: 'P2'};
+        trickScoreStr = `دست: ${p0.name} (${st.trick_scores?.[p0.id] || 0}) — ${p1.name} (${st.trick_scores?.[p1.id] || 0})`;
+        totalScoreStr = `کل: ${p0.name} (${st.game_scores?.[p0.id] || 0}) — ${p1.name} (${st.game_scores?.[p1.id] || 0})`;
+      }
+
+      // ۳. بخش انتخاب حکم توسط حاکم
+      let centerStageHtml = '';
+      if (st.status === 'hakem_choosing') {
+        if (Number(st.hakem_id) === Number(uid)) {
+          centerStageHtml = `
+            <div class="text-center">
+              <p class="font-extrabold text-amber-300 mb-3">شما حاکم هستید! خال حکم را انتخاب کنید:</p>
+              <div class="grid grid-cols-4 gap-2">
+                <button onclick="hokmChooseSuit('S')" class="btn-primary py-3 rounded-xl text-xl font-bold">♠️ پیک</button>
+                <button onclick="hokmChooseSuit('H')" class="btn-danger py-3 rounded-xl text-xl font-bold">♥️ دل</button>
+                <button onclick="hokmChooseSuit('D')" class="btn-danger py-3 rounded-xl text-xl font-bold">♦️ خشت</button>
+                <button onclick="hokmChooseSuit('C')" class="btn-primary py-3 rounded-xl text-xl font-bold">♣️ گشنیز</button>
+              </div>
+            </div>
+          `;
+        } else {
+          centerStageHtml = `<div class="text-center font-bold text-amber-300">حاکم (${st.hakem_name}) در حال انتخاب خال حکم است...</div>`;
+        }
+      } else if (st.status === 'finished') {
+        centerStageHtml = `<div class="text-center text-2xl font-black text-emerald-400">🏆 بازی تمام شد! برنده: ${st.winner_display}</div>`;
+      } else {
+        // نمایش کارت‌های بازی‌شده روی میز
+        const tableCards = (st.trick || []).map(t => `
+          <div class="flex flex-col items-center">
+            <div class="w-14 h-20 bg-white rounded-xl flex flex-col items-center justify-center shadow-lg border-2 border-slate-300 ${t.card.is_red ? 'text-rose-600' : 'text-slate-900'}">
+              <span class="font-extrabold text-lg leading-none">${t.card.rank}</span>
+              <span class="text-xl leading-none mt-1">${t.card.suit_icon}</span>
+            </div>
+            <span class="text-[11px] font-bold text-slate-300 mt-1">${t.name}</span>
+          </div>
+        `).join('');
+        centerStageHtml = tableCards.length
+          ? `<div class="flex justify-center gap-3 flex-wrap">${tableCards}</div>`
+          : `<div class="text-slate-400 text-sm font-bold">${st.last_trick_winner ? 'دست قبلی: ' + st.last_trick_winner : 'منتظر شروع دست...'}</div>`;
+      }
+
+      // ۴. کارت‌های دست بازیکن
+      const isMyTurn = Number(st.turn_id) === Number(uid) && st.status === 'playing';
+      const handHtml = (st.my_hand || []).map(c => `
+        <button
+          onclick="hokmPlayCard('${c.code}')"
+          class="bg-white rounded-xl py-2.5 px-1 flex flex-col items-center justify-center shadow-md active:scale-95 transition border-2 ${isMyTurn ? 'border-emerald-400 hover:-translate-y-1' : 'border-slate-300 opacity-90'} ${c.is_red ? 'text-rose-600' : 'text-slate-900'}"
+        >
+          <span class="font-black text-base leading-none">${c.rank}</span>
+          <span class="text-lg leading-none mt-1">${c.suit_icon}</span>
+        </button>
+      `).join('');
+
+      root.innerHTML = `
+        <div class="glass-card p-3 rounded-2xl mb-3 text-xs font-bold flex flex-col gap-1.5">
+          <div class="flex justify-between items-center text-sm">
+            <span class="text-amber-300">حاکم: ${st.hakem_name}</span>
+            <span class="px-2.5 py-1 rounded-lg bg-indigo-600/50 text-white">حکم: ${st.trump_icon}</span>
+          </div>
+          <div class="flex justify-between text-emerald-300"><span>${trickScoreStr}</span></div>
+          <div class="flex justify-between text-sky-300"><span>${totalScoreStr}</span></div>
+          <div class="text-center py-1 rounded-lg ${isMyTurn ? 'bg-emerald-600 text-white' : 'bg-slate-800 text-slate-300'}">
+            ${isMyTurn ? 'نوبت شماست! یک کارت بازی کنید' : 'نوبت: ' + st.turn_name}
+          </div>
+          ${hokmError ? `<div class="text-center text-rose-400 font-bold">${hokmError}</div>` : ''}
+        </div>
+
+        <div class="glass-card p-4 rounded-2xl mb-3 min-h-[150px] flex items-center justify-center">
+          ${centerStageHtml}
+        </div>
+
+        <div class="glass-card p-3 rounded-2xl mb-3">
+          <div class="text-xs text-slate-300 font-bold mb-2 text-center">دست شما (${(st.my_hand || []).length} کارت — مرتب‌شده بر اساس خال):</div>
+          <div class="game-grid-container grid grid-cols-7 gap-1.5">${handHtml}</div>
+        </div>
+
+        <button onclick="nav('hub')" class="btn-danger w-full py-3 rounded-xl font-bold">${L.back}</button>
       `;
     }
 
@@ -610,7 +815,7 @@ MINIAPP_TEMPLATE = """<!DOCTYPE html>
       `;
     }
 
-    const sentences = ["سرعت و دقت در تایپ نشانه مهارت است", "Rhino Games fast typing challenge", "تمرکز بالا رمز پیروزی در رقابت‌هاست"];
+    const sentences = ["آب از سرچشمه گل آلود است", "به عمل کار برآید به سخندانی نیست", "نابرده رنج گنج میسر نمیشود", "سرعت نور در خلا سیصد هزار کیلومتر بر ثانیه است"];
     let targetSentence = sentences[0], typeStart = 0, typeMsg = '';
     function initTyping() {
       targetSentence = sentences[Math.floor(Math.random()*sentences.length)];
@@ -645,11 +850,11 @@ MINIAPP_TEMPLATE = """<!DOCTYPE html>
       `;
     }
 
-    const wordsList = ["تلگرام", "راینو", "پایتون", "امپراتور", "کهکشان"];
-    let hmWord = "", hmGuessed = [], hmLives = 6;
+    const wordsList = ["تلگرام", "راینو", "پایتون", "امپراتور", "کهکشان", "سیمرغ", "ققنوس", "الماس"];
+    let hmWord = "", hmGuessed = [], hmLives = 10;
     function initHangman() {
       hmWord = wordsList[Math.floor(Math.random()*wordsList.length)];
-      hmGuessed = []; hmLives = 6;
+      hmGuessed = []; hmLives = 10;
     }
     window.guessLetter = function(ch) {
       if (hmGuessed.includes(ch) || hmLives <= 0) return;
@@ -687,8 +892,8 @@ MINIAPP_TEMPLATE = """<!DOCTYPE html>
       const v = Number(document.getElementById('guessInp').value);
       if (!v) return;
       if (v === secretNum) { guessHint = `= ${secretNum}!`; reportWin('number_guess'); }
-      else if (v < secretNum) guessHint = '▲';
-      else guessHint = '▼';
+      else if (v < secretNum) guessHint = '▲ بالاتر';
+      else guessHint = '▼ پایین‌تر';
       renderGuess(document.getElementById('app'));
     };
     function renderGuess(root) {
@@ -704,32 +909,6 @@ MINIAPP_TEMPLATE = """<!DOCTYPE html>
           <button onclick="initGuess();render()" class="btn-primary flex-1 py-3 rounded-xl font-bold">${L.reset}</button>
           <button onclick="nav('hub')" class="btn-danger flex-1 py-3 rounded-xl font-bold">${L.back}</button>
         </div>
-      `;
-    }
-
-    let hokmHand = ['A♠','K♠','Q♥','J♦','10♣','9♠','8♥'], hokmTable = [], hokmScore = {us: 0, them: 0};
-    window.playHokmCard = function(idx) {
-      const card = hokmHand.splice(idx, 1)[0];
-      hokmTable = [card, 'K♥', '10♠', 'J♣'];
-      if (Math.random() > 0.4) hokmScore.us++; else hokmScore.them++;
-      if (hokmScore.us >= 7) reportWin('hokm');
-      if (!hokmHand.length) hokmHand = ['A♥','K♦','Q♠','J♥','10♦','9♣','7♠'];
-      renderHokm(document.getElementById('app'));
-    };
-    function renderHokm(root) {
-      const handHtml = hokmHand.map((c,i)=>`
-        <button onclick="playHokmCard(${i})" class="btn-primary py-4 px-2 rounded-xl font-extrabold text-lg">${c}</button>
-      `).join('');
-      root.innerHTML = `
-        <div class="flex justify-between items-center mb-4">
-          <h2 class="text-xl font-extrabold">Hokm 4P</h2>
-          <span class="glass-card px-3 py-1 rounded-lg font-bold">${hokmScore.us} - ${hokmScore.them}</span>
-        </div>
-        <div class="glass-card p-6 rounded-2xl text-center mb-4 min-h-[130px] flex flex-col justify-center">
-          <div class="flex justify-center gap-3 text-xl font-extrabold">${hokmTable.length ? hokmTable.map(c=>`<span class="px-3 py-2 rounded-lg bg-slate-800">${c}</span>`).join('') : '...'}</div>
-        </div>
-        <div class="game-grid-container grid grid-cols-4 gap-2 mb-4">${handHtml}</div>
-        <button onclick="nav('hub')" class="btn-danger w-full py-3 rounded-xl font-bold">${L.back}</button>
       `;
     }
 
