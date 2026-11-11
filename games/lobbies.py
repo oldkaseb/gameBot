@@ -1,16 +1,17 @@
 # -*- coding: utf-8 -*-
-"""لابی چندنفره داخل گروه — عضوگیری در گروه و ورود مستقیم به مینی‌اپ در همان گروه"""
+"""games/lobbies.py — لابی چندنفره تصویری داخل گروه و ورود مستقیم به RhinoGamesApp"""
 
 import os
 import uuid
 from aiogram import Router, F
-from aiogram.types import CallbackQuery
+from aiogram.types import CallbackQuery, BufferedInputFile
 from aiogram.enums import ParseMode, ChatType
 
 from emojis import E
 from langs import t, get_user_lang
 from utils.premium import success, primary, danger, kb
 from games.panel import make_miniapp_btn
+from webapp.backend.main import generate_game_banner
 
 router = Router(name="lobbies")
 MINI_APP_URL = os.environ.get("MINI_APP_URL", "https://games.rhinokaseb.abrdns.com").rstrip("/")
@@ -25,6 +26,39 @@ GAME_CONFIG = {
     "rps":      {"max": 2, "name_key": "game_rps",      "icon": E.PUZZLE},
     "memory":   {"max": 2, "name_key": "game_memory",   "icon": E.BRAIN},
 }
+
+
+def _build_lobby_content(lobby: dict, lobby_id: str, lang: str):
+    config = GAME_CONFIG[lobby["game_type"]]
+    game_name = t(config["name_key"], lang)
+    current_p = len(lobby["players"])
+    max_p = lobby["max_players"]
+    players_list = "\n".join(
+        f"  {idx}. {E.USER} <b>{p['name']}</b>" for idx, p in enumerate(lobby["players"], 1)
+    )
+
+    if current_p < max_p:
+        caption = (
+            f"{config['icon']} <b>{t('lobby_title', lang, game=game_name)}</b>\n\n"
+            f"{E.PEOPLE} {t('lobby_players', lang, cur=current_p, max=max_p)}:\n{players_list}\n\n"
+            f"{E.HOURGLASS} {t('waiting_players', lang)}"
+        )
+        rows = [
+            [success(f"{E.PLUS} {t('join_game', lang)} ({current_p}/{max_p})", f"join_lobby_{lobby_id}")],
+            [danger(f"{E.CROSS} {t('btn_cancel', lang)}", f"cancel_lobby_{lobby_id}")],
+        ]
+    else:
+        start_param = f"{lobby['game_type']}__{lobby_id}"
+        caption = (
+            f"{E.PARTY}{config['icon']} <b>{t('lobby_full_title', lang)} ({game_name})</b>\n\n"
+            f"{E.PEOPLE} <b>بازیکنان میز:</b>\n{players_list}\n\n"
+            f"{E.PLAY} روی دکمه زیر بزنید تا وارد مینی‌اپ بازی در همین گروه شوید:"
+        )
+        rows = [
+            [make_miniapp_btn(f"{E.PLAY} {t('enter_game_table', lang)}", start_param, lobby["is_pm"], success)],
+            [danger(f"{E.CROSS} بستن میز", f"cancel_lobby_{lobby_id}")],
+        ]
+    return caption, kb(rows)
 
 
 @router.callback_query(F.data.startswith("lobby_"))
@@ -50,7 +84,7 @@ async def create_lobby(cb: CallbackQuery):
         return
 
     lobby_id = str(uuid.uuid4())[:8]
-    active_lobbies[lobby_id] = {
+    lobby = {
         "game_type": game_type,
         "host_id": host_id,
         "max_players": config["max"],
@@ -58,10 +92,38 @@ async def create_lobby(cb: CallbackQuery):
         "msg_id": cb.message.message_id,
         "chat_id": cb.message.chat.id,
         "is_pm": cb.message.chat.type == ChatType.PRIVATE,
+        "is_photo": False,
     }
+    active_lobbies[lobby_id] = lobby
 
     await cb.answer()
-    await _update_lobby_message(cb.bot, lobby_id, lang)
+
+    # حذف منوی اصلی و ارسال کارت لابی با پیش‌نمایش تصویری
+    try:
+        await cb.message.delete()
+    except Exception:
+        pass
+
+    caption, markup = _build_lobby_content(lobby, lobby_id, lang)
+    try:
+        png_bytes = generate_game_banner(game_type)
+        photo = BufferedInputFile(png_bytes, filename=f"{game_type}.png")
+        sent = await cb.message.answer_photo(
+            photo=photo,
+            caption=caption,
+            reply_markup=markup,
+            parse_mode=ParseMode.HTML,
+        )
+        lobby["msg_id"] = sent.message_id
+        lobby["is_photo"] = True
+    except Exception:
+        sent = await cb.message.answer(
+            text=caption,
+            reply_markup=markup,
+            parse_mode=ParseMode.HTML,
+        )
+        lobby["msg_id"] = sent.message_id
+        lobby["is_photo"] = False
 
 
 async def _update_lobby_message(bot, lobby_id: str, lang: str):
@@ -69,46 +131,24 @@ async def _update_lobby_message(bot, lobby_id: str, lang: str):
     if not lobby:
         return
 
-    config = GAME_CONFIG[lobby["game_type"]]
-    game_name = t(config["name_key"], lang)
-    current_p = len(lobby["players"])
-    max_p = lobby["max_players"]
-    players_list = "\n".join(f"  {idx}. {E.USER} <b>{p['name']}</b>" for idx, p in enumerate(lobby["players"], 1))
-    preview_url = f"{MINI_APP_URL}/?game={lobby['game_type']}&session={lobby_id}"
-
-    if current_p < max_p:
-        text = (
-            f"<a href='{preview_url}'>&#8205;</a>"
-            f"{config['icon']} <b>{t('lobby_title', lang, game=game_name)}</b>\n\n"
-            f"{E.PEOPLE} {t('lobby_players', lang, cur=current_p, max=max_p)}:\n{players_list}\n\n"
-            f"{E.HOURGLASS} {t('waiting_players', lang)}"
-        )
-        rows = [
-            [success(f"{E.PLUS} {t('join_game', lang)} ({current_p}/{max_p})", f"join_lobby_{lobby_id}")],
-            [danger(f"{E.CROSS} {t('btn_cancel', lang)}", f"cancel_lobby_{lobby_id}")],
-        ]
-    else:
-        start_param = f"{lobby['game_type']}__{lobby_id}"
-        text = (
-            f"<a href='{preview_url}'>&#8205;</a>"
-            f"{E.PARTY}{config['icon']} <b>{t('lobby_full_title', lang)} ({game_name})</b>\n\n"
-            f"{E.PEOPLE} <b>بازیکنان میز:</b>\n{players_list}\n\n"
-            f"{E.PLAY} روی دکمه زیر بزنید تا وارد مینی‌اپ بازی شوید:"
-        )
-        rows = [
-            [make_miniapp_btn(f"{E.PLAY} {t('enter_game_table', lang)}", start_param, lobby["is_pm"], success)],
-            [danger(f"{E.CROSS} بستن میز", f"cancel_lobby_{lobby_id}")],
-        ]
-
+    caption, markup = _build_lobby_content(lobby, lobby_id, lang)
     try:
-        await bot.edit_message_text(
-            text=text,
-            chat_id=lobby["chat_id"],
-            message_id=lobby["msg_id"],
-            reply_markup=kb(rows),
-            parse_mode=ParseMode.HTML,
-            disable_web_page_preview=False,
-        )
+        if lobby.get("is_photo"):
+            await bot.edit_message_caption(
+                chat_id=lobby["chat_id"],
+                message_id=lobby["msg_id"],
+                caption=caption,
+                reply_markup=markup,
+                parse_mode=ParseMode.HTML,
+            )
+        else:
+            await bot.edit_message_text(
+                text=caption,
+                chat_id=lobby["chat_id"],
+                message_id=lobby["msg_id"],
+                reply_markup=markup,
+                parse_mode=ParseMode.HTML,
+            )
     except Exception:
         pass
 
@@ -153,10 +193,7 @@ async def cancel_lobby(cb: CallbackQuery):
 
     await cb.answer()
     try:
-        await cb.message.edit_text(
-            f"{E.CROSS} {t('lobby_cancelled', lang)}",
-            parse_mode=ParseMode.HTML,
-        )
+        await cb.message.delete()
     except Exception:
         pass
     active_lobbies.pop(lobby_id, None)
