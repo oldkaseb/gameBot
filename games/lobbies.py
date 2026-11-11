@@ -21,6 +21,7 @@ GAME_CONFIG = {
     "dooz":     {"max": 2, "name_key": "game_dooz",     "icon": E.TARGET},
     "doz4p":    {"max": 4, "name_key": "game_doz4p",    "icon": E.TARGET},
     "connect4": {"max": 2, "name_key": "game_connect4", "icon": E.GAME},
+    "hokm2p":   {"max": 2, "name_key": "game_hokm",     "icon": E.CARD},
     "hokm":     {"max": 4, "name_key": "game_hokm_4p",  "icon": E.CARD},
     "rps":      {"max": 2, "name_key": "game_rps",      "icon": E.PUZZLE},
     "memory":   {"max": 2, "name_key": "game_memory",   "icon": E.BRAIN},
