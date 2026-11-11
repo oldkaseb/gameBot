@@ -1,11 +1,11 @@
 # -*- coding: utf-8 -*-
-"""games/panel.py — پنل کامل بازی‌ها (اجرای مستقیم در گروه بدون ارسال به پیوی + پیش‌نمایش مینی‌اپ)"""
+"""games/panel.py — ارسال کارت بازی با بنر تصویری گرافیکی در گروه و باز کردن مستقیم مینی‌اپ RhinoGamesApp"""
 
 import os
-from urllib.parse import urlencode
-
 from aiogram import Router, F
-from aiogram.types import CallbackQuery, Message, InlineKeyboardButton
+from aiogram.types import (
+    CallbackQuery, Message, InlineKeyboardButton, BufferedInputFile, LinkPreviewOptions
+)
 from aiogram.enums import ParseMode, ChatType
 from aiogram.filters import Command
 
@@ -13,19 +13,18 @@ from emojis import E
 from langs import t, get_user_lang
 from utils.premium import success, primary, danger, kb
 from runtime import get_bot_username
+from webapp.backend.main import generate_game_banner
 
 router = Router(name="panel")
 MINI_APP_URL = os.environ.get("MINI_APP_URL", "https://games.rhinokaseb.abrdns.com").rstrip("/")
-# نام کوتاه مینی‌اپ ثبت‌شده در @BotFather (پیش‌فرض: app)
-MINI_APP_SHORT_NAME = os.environ.get("MINI_APP_SHORT_NAME", "app").strip() or "app"
+MINI_APP_SHORT_NAME = os.environ.get("MINI_APP_SHORT_NAME", "RhinoGamesApp").strip() or "RhinoGamesApp"
 
 
-def make_miniapp_btn(text: str, start_param: str, is_pm: bool, style_fn=primary) -> InlineKeyboardButton:
+def make_miniapp_btn(text: str, start_param: str, is_pm: bool, style_fn=success) -> InlineKeyboardButton:
     """
-    ساخت دکمه ورود به مینی‌اپ:
-    - در پیوی: استفاده از web_app_url مستقیم.
-    - در گروه: استفاده از لینک استاندارد Direct Mini App (t.me/BotUsername/app?startapp=...)
-      تا مینی‌اپ مستقیماً در همان گروه باز شود و خطای BUTTON_TYPE_INVALID ندهد.
+    در پیوی از web_app_url مستقیم استفاده می‌کند.
+    در گروه از لینک رسمی t.me/RhinoGamesBot/RhinoGamesApp?startapp=... استفاده می‌کند
+    تا پنجره مینی‌اپ مستقیماً وسط گروه باز شود و به پیوی نرود.
     """
     if is_pm:
         return style_fn(text, web_app_url=f"{MINI_APP_URL}/?startapp={start_param}")
@@ -48,12 +47,10 @@ async def show_panel(message: Message):
     )
 
     rows = [
-        # بازی‌های پازلی و انفرادی (ساخت میز و پیش‌نمایش مینی‌اپ در گروه)
         [primary(f"{E.PUZZLE} {t('game_2048_title', lang)}", f"gcard_2048_{uid}"),
          primary(f"{E.PUZZLE} {t('game_spuzzle', lang)}", f"gcard_spuzzle_{uid}")],
         [primary(f"{E.SPARK} {t('game_samegame', lang)}", f"gcard_samegame_{uid}")],
 
-        # بازی‌های چندنفره (تشکیل لابی در گروه، عضوگیری و سپس ورود به مینی‌اپ)
         [primary(f"{E.TARGET} {t('game_dooz', lang)}", f"lobby_dooz_{uid}"),
          primary(f"{E.TARGET} {t('game_doz4p', lang)}", f"lobby_doz4p_{uid}")],
         [success(f"{E.GAME} {t('game_connect4', lang)}", f"lobby_connect4_{uid}"),
@@ -61,12 +58,10 @@ async def show_panel(message: Message):
         [primary(f"{E.PUZZLE} {t('game_rps', lang)}", f"lobby_rps_{uid}"),
          primary(f"{E.BRAIN} {t('game_memory', lang)}", f"lobby_memory_{uid}")],
 
-        # بازی‌های سرعتی، تایپی و هوش (ساخت میز و پیش‌نمایش مینی‌اپ در گروه)
         [primary(f"{E.MIC} {t('game_typing', lang)}", f"gcard_typing_{uid}"),
          primary(f"{E.BRAIN} {t('game_hangman', lang)}", f"gcard_hangman_{uid}")],
         [primary(f"{E.TARGET} {t('game_guess_num', lang)}", f"gcard_guess_{uid}")],
 
-        # گردونه شانس و قرعه‌کشی گروهی
         [success(f"{E.TARGET} {t('game_gardone', lang)}", f"gardone_start_{uid}")],
         [danger(f"{E.CROSS} {t('btn_close', lang)}", f"rsgame_close_{uid}")],
     ]
@@ -75,7 +70,7 @@ async def show_panel(message: Message):
 
 @router.callback_query(F.data.startswith("gcard_"))
 async def send_group_game_card(cb: CallbackQuery):
-    """حذف منوی اصلی و نمایش کارت بازی به همراه پیش‌نمایش مینی‌اپ در همان گروه"""
+    """حذف منوی اصلی و ارسال کارت تصویری گرافیکی بازی در گروه"""
     parts = cb.data.split("_")
     try:
         game = parts[1]
@@ -95,7 +90,6 @@ async def send_group_game_card(cb: CallbackQuery):
     is_pm = cb.message.chat.type == ChatType.PRIVATE
     cid = cb.message.chat.id
     start_param = f"{game}__{cid}__{uid}"
-    preview_url = f"{MINI_APP_URL}/?game={game}&chat={cid}&uid={uid}"
 
     game_titles = {
         "2048": t("game_2048_title", lang),
@@ -107,11 +101,10 @@ async def send_group_game_card(cb: CallbackQuery):
     }
     gtitle = game_titles.get(game, game)
 
-    text = (
-        f"<a href='{preview_url}'>&#8205;</a>"
+    caption = (
         f"{E.GAME}{E.SPARK} <b>میز بازی {gtitle}</b>\n\n"
-        f"{E.USER} آغازکننده: <b>{cb.from_user.first_name or 'Player'}</b>\n"
-        f"{E.INFO} برای ورود مستقیم به مینی‌اپ بازی در همین صفحه روی دکمه زیر بزنید:"
+        f"{E.USER} بازیکن: <b>{cb.from_user.first_name or 'Player'}</b>\n"
+        f"{E.INFO} برای شروع بازی در همین گروه روی دکمه زیر بزنید:"
     )
 
     rows = [
@@ -119,19 +112,33 @@ async def send_group_game_card(cb: CallbackQuery):
         [danger(f"{E.CROSS} {t('btn_close', lang)}", f"rsgame_close_{uid}")],
     ]
 
+    # حذف منوی اصلی پس از انتخاب بازی
     try:
-        await cb.message.edit_text(
-            text,
+        await cb.message.delete()
+    except Exception:
+        pass
+
+    # ارسال کارت بازی با بنر تصویری گرافیکی
+    try:
+        png_bytes = generate_game_banner(game)
+        photo = BufferedInputFile(png_bytes, filename=f"{game}.png")
+        await cb.message.answer_photo(
+            photo=photo,
+            caption=caption,
             reply_markup=kb(rows),
             parse_mode=ParseMode.HTML,
-            disable_web_page_preview=False,
         )
     except Exception:
+        preview_url = f"{MINI_APP_URL}/?game={game}&chat={cid}&uid={uid}"
         await cb.message.answer(
-            text,
+            text=caption,
             reply_markup=kb(rows),
             parse_mode=ParseMode.HTML,
-            disable_web_page_preview=False,
+            link_preview_options=LinkPreviewOptions(
+                url=preview_url,
+                prefer_large_media=True,
+                show_above_text=True,
+            ),
         )
 
 
