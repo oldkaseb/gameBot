@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""پنل بازی‌ها — اجرای کامل داخل گروه بدون ارسال به پیوی + حفظ استایل primary / success / danger"""
+"""games/panel.py — پنل کامل بازی‌ها (اجرای مستقیم در گروه بدون ارسال به پیوی + پیش‌نمایش مینی‌اپ)"""
 
 import os
 from urllib.parse import urlencode
@@ -16,23 +16,22 @@ from runtime import get_bot_username
 
 router = Router(name="panel")
 MINI_APP_URL = os.environ.get("MINI_APP_URL", "https://games.rhinokaseb.abrdns.com").rstrip("/")
-MINI_APP_SHORT_NAME = os.environ.get("MINI_APP_SHORT_NAME", "").strip()
+# نام کوتاه مینی‌اپ ثبت‌شده در @BotFather (پیش‌فرض: app)
+MINI_APP_SHORT_NAME = os.environ.get("MINI_APP_SHORT_NAME", "app").strip() or "app"
 
 
 def make_miniapp_btn(text: str, start_param: str, is_pm: bool, style_fn=primary) -> InlineKeyboardButton:
     """
-    در پیوی از web_app_url مستقیم استفاده می‌کند.
-    در گروه (چون تلگرام web_app را روی دکمه معمولی گروه مسدود می‌کند و باعث باز نشدن پنل می‌شود)،
-    از لینک Direct Mini App تلگرام استفاده می‌کند که مینی‌اپ را مستقیماً وسط گروه باز می‌کند.
+    ساخت دکمه ورود به مینی‌اپ:
+    - در پیوی: استفاده از web_app_url مستقیم.
+    - در گروه: استفاده از لینک استاندارد Direct Mini App (t.me/BotUsername/app?startapp=...)
+      تا مینی‌اپ مستقیماً در همان گروه باز شود و خطای BUTTON_TYPE_INVALID ندهد.
     """
     if is_pm:
         return style_fn(text, web_app_url=f"{MINI_APP_URL}/?startapp={start_param}")
 
     bot_user = get_bot_username()
-    if MINI_APP_SHORT_NAME:
-        direct_url = f"https://t.me/{bot_user}/{MINI_APP_SHORT_NAME}?startapp={start_param}"
-    else:
-        direct_url = f"https://t.me/{bot_user}?startapp={start_param}"
+    direct_url = f"https://t.me/{bot_user}/{MINI_APP_SHORT_NAME}?startapp={start_param}"
     return style_fn(text, url=direct_url)
 
 
@@ -40,10 +39,8 @@ def make_miniapp_btn(text: str, start_param: str, is_pm: bool, style_fn=primary)
 @router.message(F.text.in_({"بازی", "بازی‌ها", "بازیها", "پنل", "game", "games", "panel"}))
 async def show_panel(message: Message):
     uid = message.from_user.id
-    cid = message.chat.id
     lang = get_user_lang(uid)
     name = message.from_user.first_name or "رفیق"
-    is_pm = message.chat.type == ChatType.PRIVATE
 
     text = (
         f"{E.GAME}{E.PARTY} <b>{t('game_panel', lang, name=name)}</b>\n\n"
@@ -51,7 +48,7 @@ async def show_panel(message: Message):
     )
 
     rows = [
-        # بازی‌های تکی و پازلی (ارسال کارت بازی و پیش‌نمایش در گروه)
+        # بازی‌های پازلی و انفرادی (ساخت میز و پیش‌نمایش مینی‌اپ در گروه)
         [primary(f"{E.PUZZLE} {t('game_2048_title', lang)}", f"gcard_2048_{uid}"),
          primary(f"{E.PUZZLE} {t('game_spuzzle', lang)}", f"gcard_spuzzle_{uid}")],
         [primary(f"{E.SPARK} {t('game_samegame', lang)}", f"gcard_samegame_{uid}")],
@@ -64,12 +61,12 @@ async def show_panel(message: Message):
         [primary(f"{E.PUZZLE} {t('game_rps', lang)}", f"lobby_rps_{uid}"),
          primary(f"{E.BRAIN} {t('game_memory', lang)}", f"lobby_memory_{uid}")],
 
-        # بازی‌های تایپی و سرعتی (ارسال کارت بازی در گروه)
+        # بازی‌های سرعتی، تایپی و هوش (ساخت میز و پیش‌نمایش مینی‌اپ در گروه)
         [primary(f"{E.MIC} {t('game_typing', lang)}", f"gcard_typing_{uid}"),
          primary(f"{E.BRAIN} {t('game_hangman', lang)}", f"gcard_hangman_{uid}")],
         [primary(f"{E.TARGET} {t('game_guess_num', lang)}", f"gcard_guess_{uid}")],
 
-        # گردونه شانس گروهی
+        # گردونه شانس و قرعه‌کشی گروهی
         [success(f"{E.TARGET} {t('game_gardone', lang)}", f"gardone_start_{uid}")],
         [danger(f"{E.CROSS} {t('btn_close', lang)}", f"rsgame_close_{uid}")],
     ]
@@ -78,10 +75,15 @@ async def show_panel(message: Message):
 
 @router.callback_query(F.data.startswith("gcard_"))
 async def send_group_game_card(cb: CallbackQuery):
-    """وقتی بازی انتخاب می‌شود، کارت آن با پیش‌نمایش مینی‌اپ مستقیماً در همان گروه باز می‌شود"""
+    """حذف منوی اصلی و نمایش کارت بازی به همراه پیش‌نمایش مینی‌اپ در همان گروه"""
     parts = cb.data.split("_")
-    game = parts[1]
-    host_id = int(parts[2])
+    try:
+        game = parts[1]
+        host_id = int(parts[2])
+    except (IndexError, ValueError):
+        await cb.answer(t("error", "fa"), show_alert=True)
+        return
+
     uid = cb.from_user.id
     lang = get_user_lang(uid)
 
@@ -108,8 +110,8 @@ async def send_group_game_card(cb: CallbackQuery):
     text = (
         f"<a href='{preview_url}'>&#8205;</a>"
         f"{E.GAME}{E.SPARK} <b>میز بازی {gtitle}</b>\n\n"
-        f"{E.USER} بازیکن: <b>{cb.from_user.first_name or 'Player'}</b>\n"
-        f"{E.INFO} برای شروع بازی در همین صفحه روی دکمه زیر بزنید:"
+        f"{E.USER} آغازکننده: <b>{cb.from_user.first_name or 'Player'}</b>\n"
+        f"{E.INFO} برای ورود مستقیم به مینی‌اپ بازی در همین صفحه روی دکمه زیر بزنید:"
     )
 
     rows = [
