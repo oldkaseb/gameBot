@@ -1,13 +1,13 @@
 # -*- coding: utf-8 -*-
-"""webapp/backend/main.py — سرور کامل مینی‌اپ ۷ زبانه + قفل عضویت اجباری داخل مینی‌اپ + حکم ۲ و ۴ نفره + گردونه شانس"""
+"""webapp/backend/main.py — مینی‌اپ اسلایدری (Carousel UI) + کارت ویژه راینو + ۳ بازی اعتیادآور Core Loop"""
 
 import io
 import json
 import os
 from pathlib import Path
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Query, Request
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, Response
+from fastapi.responses import HTMLResponse, Response, FileResponse
 from pydantic import BaseModel
 from PIL import Image, ImageDraw, ImageFont
 
@@ -25,20 +25,23 @@ app.add_middleware(
 
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 FONT_PATH = BASE_DIR / "Vazirmatn-SemiBold.ttf"
+CUSTOM_HERO_FILE = BASE_DIR / "rhino_banner.png"
 
-# اتاق‌های فعال حکم در حافظه سرور
 hokm_rooms: dict[str, HokmGame] = {}
 
 GAME_META = {
-    "hub":          {"title": "RHINO GAMES",        "c1": (30, 27, 75),  "c2": (79, 70, 229)},
+    "hub":          {"title": "RHINO™ COMMUNITY",   "c1": (15, 23, 42),  "c2": (79, 70, 229)},
+    "dungeon":      {"title": "DUNGEON HEIST",      "c1": (49, 10, 49),  "c2": (225, 29, 72)},
+    "cybervault":   {"title": "CYBER VAULT",        "c1": (6, 48, 75),   "c2": (6, 182, 212)},
+    "demontower":   {"title": "DEMON TOWER",        "c1": (69, 10, 10),  "c2": (249, 115, 22)},
+    "hokm":         {"title": "HOKM 4 PLAYERS",     "c1": (6, 78, 59),   "c2": (5, 150, 105)},
+    "hokm2p":       {"title": "HOKM 2 PLAYERS",     "c1": (6, 78, 59),   "c2": (16, 185, 129)},
     "2048":         {"title": "PUZZLE 2048",        "c1": (15, 23, 42),  "c2": (37, 99, 235)},
     "spuzzle":      {"title": "SLIDING PUZZLE",     "c1": (15, 23, 42),  "c2": (14, 165, 233)},
     "samegame":     {"title": "SAME GAME",          "c1": (15, 23, 42),  "c2": (168, 85, 247)},
     "dooz":         {"title": "TIC-TAC-TOE 2P",     "c1": (15, 23, 42),  "c2": (59, 130, 246)},
     "doz4p":        {"title": "TIC-TAC-TOE 4P",     "c1": (15, 23, 42),  "c2": (236, 72, 153)},
     "connect4":     {"title": "CONNECT FOUR",       "c1": (6, 78, 59),   "c2": (16, 185, 129)},
-    "hokm2p":       {"title": "HOKM 2 PLAYERS",     "c1": (6, 78, 59),   "c2": (16, 185, 129)},
-    "hokm":         {"title": "HOKM 4 PLAYERS",     "c1": (6, 78, 59),   "c2": (5, 150, 105)},
     "rps":          {"title": "ROCK PAPER SCISSORS","c1": (15, 23, 42),  "c2": (99, 102, 241)},
     "memory":       {"title": "MEMORY MATCH",       "c1": (15, 23, 42),  "c2": (139, 92, 246)},
     "typing":       {"title": "TYPING SPEED",       "c1": (15, 23, 42),  "c2": (245, 158, 11)},
@@ -49,7 +52,6 @@ GAME_META = {
 
 
 def generate_game_banner(game_key: str) -> bytes:
-    """تولید بنر گرافیکی ۸۰۰x۴۲۰ برای نمایش تصویری بازی در گروه"""
     meta = GAME_META.get(game_key, GAME_META["hub"])
     w, h = 800, 420
     img = Image.new("RGB", (w, h), meta["c1"])
@@ -64,22 +66,22 @@ def generate_game_banner(game_key: str) -> bytes:
         b = int(b1 * (1 - ratio) + b2 * ratio)
         draw.line([(0, y), (w, y)], fill=(r, g, b))
 
-    draw.rounded_rectangle([40, 40, w - 40, h - 40], radius=32, fill=(15, 23, 42), outline=(255, 255, 255), width=3)
-    draw.rounded_rectangle([55, 55, w - 55, 135], radius=20, fill=meta["c2"])
+    draw.rounded_rectangle([36, 36, w - 36, h - 36], radius=32, fill=(11, 17, 32), outline=(255, 255, 255), width=3)
+    draw.rounded_rectangle([54, 54, w - 54, 138], radius=22, fill=meta["c2"])
 
     try:
         font_big = ImageFont.truetype(str(FONT_PATH), 44)
-        font_med = ImageFont.truetype(str(FONT_PATH), 30)
+        font_med = ImageFont.truetype(str(FONT_PATH), 28)
         font_sm = ImageFont.truetype(str(FONT_PATH), 22)
     except Exception:
         font_big = ImageFont.load_default()
         font_med = ImageFont.load_default()
         font_sm = ImageFont.load_default()
 
-    draw.text((w // 2, 95), meta["title"], fill=(255, 255, 255), font=font_big, anchor="mm")
-    draw.text((w // 2, 215), "RHINO MINI-APP ARENA", fill=(165, 180, 252), font=font_med, anchor="mm")
-    draw.rounded_rectangle([220, 285, w - 220, 350], radius=18, fill=(16, 185, 129))
-    draw.text((w // 2, 317), "RHINO GAMES", fill=(255, 255, 255), font=font_sm, anchor="mm")
+    draw.text((w // 2, 96), meta["title"], fill=(255, 255, 255), font=font_big, anchor="mm")
+    draw.text((w // 2, 215), "RHINO™ GAMING ARENA", fill=(165, 180, 252), font=font_med, anchor="mm")
+    draw.rounded_rectangle([230, 285, w - 230, 350], radius=18, fill=(16, 185, 129))
+    draw.text((w // 2, 317), "PLAY NOW", fill=(255, 255, 255), font=font_sm, anchor="mm")
 
     buf = io.BytesIO()
     img.save(buf, format="PNG")
@@ -88,6 +90,8 @@ def generate_game_banner(game_key: str) -> bytes:
 
 @app.get("/api/banner/{game_type}.png")
 async def serve_game_banner(game_type: str):
+    if game_type == "rhino_hero" and CUSTOM_HERO_FILE.exists():
+        return FileResponse(str(CUSTOM_HERO_FILE))
     png_bytes = generate_game_banner(game_type)
     return Response(content=png_bytes, media_type="image/png")
 
@@ -115,7 +119,6 @@ async def health_check():
 
 @app.get("/api/check_join/{user_id}")
 async def api_check_join(user_id: int):
-    """بررسی عضویت اجباری کاربر در لحظه باز کردن مینی‌اپ در گروه یا پیوی"""
     try:
         from aiogram import Bot
         from runtime import check_forced_join
@@ -219,33 +222,39 @@ MINIAPP_TEMPLATE = """<!DOCTYPE html>
   <script src="https://cdn.tailwindcss.com"></script>
   <style>
     body {
-      background: radial-gradient(circle at top, #1e1b4b 0%, #0f172a 60%, #020617 100%);
+      background: radial-gradient(circle at top, #1e1b4b 0%, #090d16 65%, #020617 100%);
       color: #fff;
       font-family: system-ui, -apple-system, sans-serif;
       min-height: 100vh;
       margin: 0;
       user-select: none;
+      overflow-x: hidden;
     }
     .btn-primary {
       background: linear-gradient(135deg, #2563eb, #4f46e5);
-      box-shadow: 0 4px 15px rgba(37, 99, 235, 0.35);
+      box-shadow: 0 4px 16px rgba(37, 99, 235, 0.4);
     }
     .btn-success {
       background: linear-gradient(135deg, #059669, #10b981);
-      box-shadow: 0 4px 15px rgba(16, 185, 129, 0.35);
+      box-shadow: 0 4px 16px rgba(16, 185, 129, 0.4);
     }
     .btn-danger {
       background: linear-gradient(135deg, #e11d48, #ef4444);
-      box-shadow: 0 4px 15px rgba(225, 29, 72, 0.35);
+      box-shadow: 0 4px 16px rgba(225, 29, 72, 0.4);
     }
     .glass-card {
-      background: rgba(15, 23, 42, 0.82);
-      backdrop-filter: blur(14px);
+      background: rgba(15, 23, 42, 0.85);
+      backdrop-filter: blur(16px);
       border: 1px solid rgba(255, 255, 255, 0.14);
     }
     .game-grid-container {
       direction: ltr !important;
     }
+    @keyframes floatSlow {
+      0%, 100% { transform: translateY(0px); }
+      50% { transform: translateY(-6px); }
+    }
+    .float-anim { animation: floatSlow 3s ease-in-out infinite; }
     @keyframes neonPulse {
       0%, 100% { box-shadow: 0 0 25px rgba(236, 72, 153, 0.65), 0 0 50px rgba(59, 130, 246, 0.5); }
       50% { box-shadow: 0 0 45px rgba(16, 185, 129, 0.85), 0 0 80px rgba(245, 158, 11, 0.7); }
@@ -253,13 +262,14 @@ MINIAPP_TEMPLATE = """<!DOCTYPE html>
     .wheel-stage { animation: neonPulse 1.1s infinite alternate; }
   </style>
 </head>
-<body class="p-4 flex flex-col items-center">
+<body class="p-3 flex flex-col items-center">
   <div id="app" class="w-full max-w-md"></div>
 
   <script>
     const tg = window.Telegram?.WebApp;
     if (tg) { tg.ready(); tg.expand(); }
 
+    const HERO_CUSTOM_IMG = "__HERO_IMAGE__";
     const params = new URLSearchParams(window.location.search);
     const startParam = tg?.initDataUnsafe?.start_param || params.get('startapp') || params.get('tgWebAppStartParam') || '';
     let parsedGame = params.get('game') || '';
@@ -277,37 +287,198 @@ MINIAPP_TEMPLATE = """<!DOCTYPE html>
 
     const I18N = {
       fa: {
-        title: "مینی‌اپ بازی‌های راینو", sub: "بازی مورد نظر را انتخاب کنید", score: "امتیاز", back: "سایر بازی‌ها", reset: "شروع مجدد", up: "بالا", down: "پایین", left: "چپ", right: "راست", turn: "نوبت", win: "برنده", rock: "سنگ", paper: "کاغذ", scissors: "قیچی", wheel: "گردونه شانس راینو", wheelDone: "قرعه‌کشی تکمیل شد!", check: "بررسی",
-        lockTitle: "عضویت اجباری در کانال", lockDesc: "برای ورود به بازی، ابتدا در کانال‌های زیر عضو شوید و سپس دکمه «عضو شدم» را بزنید:", joinBtn: "عضویت در", checkJoinBtn: "عضو شدم (ورود به بازی)", notJoinedAlert: "هنوز در همه کانال‌ها عضو نشده‌اید!"
+        title: "مینی‌اپ بازی‌های راینو", sub: "با اسکرول یا دکمه‌های چپ و راست بازی را انتخاب کنید", score: "امتیاز", back: "بازگشت به کارت بازی‌ها", reset: "شروع مجدد", up: "بالا", down: "پایین", left: "چپ", right: "راست", turn: "نوبت", win: "برنده", rock: "سنگ", paper: "کاغذ", scissors: "قیچی", wheel: "گردونه شانس راینو", wheelDone: "قرعه‌کشی تکمیل شد!", check: "بررسی",
+        lockTitle: "عضویت اجباری در کانال", lockDesc: "برای ورود به بازی، ابتدا در کانال‌های زیر عضو شوید و سپس دکمه «عضو شدم» را بزنید:", joinBtn: "عضویت در", checkJoinBtn: "عضو شدم (ورود به بازی)", notJoinedAlert: "هنوز در همه کانال‌ها عضو نشده‌اید!",
+        playNow: "ورود و شروع بازی", swipeHint: "کارت‌ها را به چپ یا راست بکشید"
       },
       en: {
-        title: "Rhino Games Mini-App", sub: "Pick a game to play", score: "Score", back: "Other Games", reset: "Restart", up: "Up", down: "Down", left: "Left", right: "Right", turn: "Turn", win: "Winner", rock: "Rock", paper: "Paper", scissors: "Scissors", wheel: "Rhino Lucky Wheel", wheelDone: "Draw Completed!", check: "Submit",
-        lockTitle: "Channel Join Required", lockDesc: "To play, please join our channels first and tap 'I Joined':", joinBtn: "Join", checkJoinBtn: "I Joined (Start Game)", notJoinedAlert: "You haven't joined all channels yet!"
-      },
-      ar: {
-        title: "ألعاب رينو", sub: "اختر لعبة للبدء", score: "النقاط", back: "ألعاب أخرى", reset: "إعادة", up: "أعلى", down: "أسفل", left: "يسار", right: "يمين", turn: "دور", win: "الفائز", rock: "حجر", paper: "ورقة", scissors: "مقص", wheel: "عجلة الحظ", wheelDone: "انتهت القرعة!", check: "تحقق",
-        lockTitle: "الاشتراك الإجباري", lockDesc: "للعب، انضم إلى القنوات التالية أولاً ثم اضغط على اشتركت:", joinBtn: "انضمام إلى", checkJoinBtn: "اشتركت (دخول اللعبة)", notJoinedAlert: "لم تنضم إلى جميع القنوات بعد!"
-      },
-      tr: {
-        title: "Rhino Oyunları", sub: "Bir oyun seçin", score: "Puan", back: "Diğer Oyunlar", reset: "Yeniden", up: "Yukarı", down: "Aşağı", left: "Sol", right: "Sağ", turn: "Sıra", win: "Kazanan", rock: "Taş", paper: "Kağıt", scissors: "Makas", wheel: "Çarkıfelek", wheelDone: "Çekiliş Tamamlandı!", check: "Gönder",
-        lockTitle: "Kanala Katılma Zorunluluğu", lockDesc: "Oynamak için önce aşağıdaki kanallara katılın:", joinBtn: "Katıl:", checkJoinBtn: "Katıldım (Oyuna Gir)", notJoinedAlert: "Henüz tüm kanallara katılmadınız!"
-      },
-      ru: {
-        title: "Rhino Игры", sub: "Выберите игру", score: "Счёт", back: "Другие игры", reset: "Заново", up: "Вверх", down: "Вниз", left: "Влево", right: "Вправо", turn: "Ход", win: "Победитель", rock: "Камень", paper: "Бумага", scissors: "Ножницы", wheel: "Колесо удачи", wheelDone: "Розыгрыш завершён!", check: "Проверить",
-        lockTitle: "Обязательная подписка", lockDesc: "Чтобы играть, сначала подпишитесь на каналы ниже:", joinBtn: "Подписаться:", checkJoinBtn: "Я подписался (Играть)", notJoinedAlert: "Вы ещё не подписались на все каналы!"
-      },
-      de: {
-        title: "Rhino Spiele", sub: "Wähle ein Spiel", score: "Punkte", back: "Andere Spiele", reset: "Neustart", up: "Oben", down: "Unten", left: "Links", right: "Rechts", turn: "Zug", win: "Gewinner", rock: "Stein", paper: "Papier", scissors: "Schere", wheel: "Glücksrad", wheelDone: "Auslosung beendet!", check: "Prüfen",
-        lockTitle: "Kanalbeitritt erforderlich", lockDesc: "Bitte tritt zuerst unseren Kanälen bei, um zu spielen:", joinBtn: "Beitreten:", checkJoinBtn: "Beigetreten (Spiel starten)", notJoinedAlert: "Noch nicht allen Kanälen beigetreten!"
-      },
-      zh: {
-        title: "Rhino 游戏中心", sub: "选择一个游戏", score: "分数", back: "其他游戏", reset: "重新开始", up: "上", down: "下", left: "左", right: "右", turn: "回合", win: "赢家", rock: "石头", paper: "布", scissors: "剪刀", wheel: "幸运轮盘", wheelDone: "抽奖完成！", check: "提交",
-        lockTitle: "必须加入频道", lockDesc: "请先加入以下频道后再开始游戏：", joinBtn: "加入", checkJoinBtn: "我已加入（开始游戏）", notJoinedAlert: "您尚未加入所有频道！"
+        title: "Rhino Games Arena", sub: "Swipe or use arrows to browse games", score: "Score", back: "Back to Cards", reset: "Restart", up: "Up", down: "Down", left: "Left", right: "Right", turn: "Turn", win: "Winner", rock: "Rock", paper: "Paper", scissors: "Scissors", wheel: "Rhino Lucky Wheel", wheelDone: "Draw Completed!", check: "Submit",
+        lockTitle: "Channel Join Required", lockDesc: "To play, please join our channels first and tap 'I Joined':", joinBtn: "Join", checkJoinBtn: "I Joined (Start Game)", notJoinedAlert: "You haven't joined all channels yet!",
+        playNow: "LAUNCH GAME", swipeHint: "Swipe left or right to switch cards"
       }
     };
     const L = I18N[lang] || I18N.fa;
 
+    /* ─── سیستم ذخیره دائمی سکه، XP و لول برای بازی‌های Core Loop ─── */
+    let playerProfile = { coins: 250, xp: 0, level: 1, streak: 1, swordLvl: 1, shieldLvl: 1, bestFloor: 1 };
+    try {
+      const saved = localStorage.getItem('rhino_core_profile_v2');
+      if (saved) playerProfile = { ...playerProfile, ...JSON.parse(saved) };
+    } catch (e) {}
+
+    function saveProfile() {
+      playerProfile.level = Math.floor(playerProfile.xp / 100) + 1;
+      try { localStorage.setItem('rhino_core_profile_v2', JSON.stringify(playerProfile)); } catch (e) {}
+    }
+
+    function renderTopStatsBar() {
+      return `
+        <div class="glass-card rounded-2xl px-3.5 py-2.5 mb-3 flex justify-between items-center text-xs font-extrabold border border-indigo-500/30">
+          <div class="flex items-center gap-1.5 text-amber-300">
+            <span>🪙 ${playerProfile.coins.toLocaleString()}</span>
+          </div>
+          <div class="px-2.5 py-1 rounded-lg bg-indigo-600/60 text-white">
+            ⭐ LVL ${playerProfile.level} (${playerProfile.xp % 100}/100 XP)
+          </div>
+          <div class="text-emerald-400">
+            🔥 طبقه: ${playerProfile.bestFloor}
+          </div>
+        </div>
+      `;
+    }
+
+    /* ─── لیست کارت‌های اسلایدر (کارت اول: RHINO™ TEAM + تمام بازی‌ها) ─── */
+    const SLIDES = [
+      {
+        id: 'rhino_brand',
+        badge: 'RHINO™ OFFICIAL',
+        title: 'آرنا و باشگاه بازی راینو',
+        desc: 'به دنیای رقابت‌های آنلاین تیم راینو خوش آمدید! با جمع کردن سکه و بردن در بازی‌ها لول خود را ارتقا دهید. برای دیدن بازی‌ها ورق بزنید.',
+        theme: 'from-indigo-900 via-slate-900 to-purple-950',
+        btnClass: 'btn-primary',
+        btnText: 'شروع ماجراجویی (شکارچی سیاه‌چال)',
+        targetGame: 'dungeon',
+        isHero: true
+      },
+      {
+        id: 'dungeon',
+        badge: '🔥 بازی اعتیادآور جدید (Core Loop)',
+        title: 'شکارچی سیاه‌چال (طمع یا فرار)',
+        desc: 'درهای سیاه‌چال را باز کن و ضریب سکه بگیر! هر چقدر پایین‌تر بروی جایزه ۲ برابر می‌شود، اما اگر به تله شیطان بخوری همه غنائم آن دور می‌سوزد!',
+        theme: 'from-rose-950 via-slate-900 to-purple-950',
+        btnClass: 'btn-danger',
+        visual: '🏰 ⚔️ 💎'
+      },
+      {
+        id: 'cybervault',
+        badge: '⚡ بازی اعتیادآور جدید (Core Loop)',
+        title: 'هک گاوصندوق سایبری',
+        desc: 'در لحظه دقیق روی پالس سبز قفل لیزری ضربه بزن! هر قفل که باز شود سرعت بالاتر می‌رود و ضریب سکه‌هایت تصاعدی چند برابر می‌شود.',
+        theme: 'from-cyan-950 via-slate-900 to-blue-950',
+        btnClass: 'btn-primary',
+        visual: '🔐 ⚡ 💰'
+      },
+      {
+        id: 'demontower',
+        badge: '👹 بازی اعتیادآور جدید (RPG)',
+        title: 'برج شیاطین (نبرد بی‌پایان)',
+        desc: 'با کارت‌های شمشیر، سپر و جادوی خون به جنگ شیاطین طبقات برج برو، باس‌ها را شکست بده و تجهیزات کاراکترت را ارتقا بده.',
+        theme: 'from-amber-950 via-slate-900 to-red-950',
+        btnClass: 'btn-success',
+        visual: '👹 🛡️ 🔥'
+      },
+      {
+        id: 'hokm',
+        badge: '🃏 بازی ورق گروهی',
+        title: 'حکم ۴ نفره آنلاین',
+        desc: 'تعیین حاکم با آس پیک، انتخاب خال حکم، بریدن و رقابت تیمی تا ۷ امتیاز همراه با اعضای گروه یا یار هوشمند.',
+        theme: 'from-emerald-950 via-slate-900 to-teal-950',
+        btnClass: 'btn-success',
+        visual: '♠️ ♥️ ♦️ ♣️'
+      },
+      {
+        id: 'hokm2p',
+        badge: '🃏 دوئل کارتی',
+        title: 'حکم ۲ نفره نخبگان',
+        desc: 'رقابت نفس‌گیر تک‌به‌تک در میز حکم دو نفره با رعایت کامل قوانین خال زمین و حکم.',
+        theme: 'from-teal-950 via-slate-900 to-emerald-950',
+        btnClass: 'btn-success',
+        visual: '👑 ♠️ ♦️'
+      },
+      {
+        id: '2048',
+        badge: '🧩 پازل رکوردی',
+        title: 'پازل اعداد ۲۰۴۸',
+        desc: 'کاشی‌های هم‌عدد را ترکیب کن، امتیاز جمع کن و به کاشی طلایی ۲۰۴۸ برس.',
+        theme: 'from-blue-950 via-slate-900 to-indigo-950',
+        btnClass: 'btn-primary',
+        visual: '2️⃣ 0️⃣ 4️⃣ 8️⃣'
+      },
+      {
+        id: 'connect4',
+        badge: '🟢 استراتژیک',
+        title: 'چهار در یک ردیف',
+        desc: 'مهره‌ها را در ستون‌ها بینداز و زودتر از حریف ۴ مهره افقی، عمودی یا مورب ردیف کن.',
+        theme: 'from-emerald-950 via-slate-900 to-cyan-950',
+        btnClass: 'btn-success',
+        visual: '🔴 🟡 🔴 🟡'
+      },
+      {
+        id: 'dooz',
+        badge: '❌⭕ کلاسیک',
+        title: 'دوز ۲ نفره و ۴ نفره',
+        desc: 'نبرد سریع دوز روی صفحه ۳×۳ یا ۵×۵ چهارنفره.',
+        theme: 'from-indigo-950 via-slate-900 to-blue-950',
+        btnClass: 'btn-primary',
+        visual: '❌ ⚔️ ⭕'
+      },
+      {
+        id: 'spuzzle',
+        badge: '🔢 هوش و سرعت',
+        title: 'پازل کشویی ۱۵ تایی',
+        desc: 'کاشی‌های ۱ تا ۱۵ را در کمترین زمان ممکن به ترتیب مرتب کن.',
+        theme: 'from-sky-950 via-slate-900 to-indigo-950',
+        btnClass: 'btn-primary',
+        visual: '1️⃣ 2️⃣ 3️⃣ 🧩'
+      },
+      {
+        id: 'samegame',
+        badge: '🎨 پازل رنگی',
+        title: 'بازی جفت‌های رنگی',
+        desc: 'بلوک‌های همرنگ کنار هم را منفجر کن و بیشترین امتیاز را ثبت کن.',
+        theme: 'from-purple-950 via-slate-900 to-fuchsia-950',
+        btnClass: 'btn-primary',
+        visual: '🟥 🟦 🟩 🟨'
+      },
+      {
+        id: 'memory',
+        badge: '🧠 تمرکز',
+        title: 'مسابقه کارت‌های حافظه',
+        desc: 'کارت‌های مخفی را دو به دو برگردان و جفت‌های یکسان را پیدا کن.',
+        theme: 'from-violet-950 via-slate-900 to-indigo-950',
+        btnClass: 'btn-primary',
+        visual: '🃏 🧠 ✨'
+      },
+      {
+        id: 'rps',
+        badge: '✂️ سرعتی',
+        title: 'سنگ، کاغذ، قیچی',
+        desc: 'انتخاب مخفیانه و دوئل سریع سه امتیازی.',
+        theme: 'from-blue-950 via-slate-900 to-slate-950',
+        btnClass: 'btn-primary',
+        visual: '🪨 📄 ✂️'
+      },
+      {
+        id: 'typing',
+        badge: '⌨️ مهارت تایپ',
+        title: 'مسابقه تایپ سرعتی',
+        desc: 'جملات را با بیشترین سرعت و دقت تایپ کن و رکورد ثانیه ثبت کن.',
+        theme: 'from-amber-950 via-slate-900 to-slate-950',
+        btnClass: 'btn-success',
+        visual: '⌨️ ⚡ 🏆'
+      },
+      {
+        id: 'hangman',
+        badge: '🕵️ حدس کلمه',
+        title: 'حدس کلمه فارسی',
+        desc: 'قبل از تمام شدن جان‌ها، حروف کلمه مخفی را کشف کن.',
+        theme: 'from-rose-950 via-slate-900 to-slate-950',
+        btnClass: 'btn-primary',
+        visual: '🔤 🕵️ 💡'
+      },
+      {
+        id: 'guess',
+        badge: '🎯 ضریب هوشی',
+        title: 'حدس عدد مخفی',
+        desc: 'با راهنمایی‌های بالاتر و پایین‌تر عدد بین ۱ تا ۱۰۰ را پیدا کن.',
+        theme: 'from-teal-950 via-slate-900 to-slate-950',
+        btnClass: 'btn-primary',
+        visual: '🎯 1️⃣0️⃣0️⃣'
+      }
+    ];
+
     let currentGame = parsedGame || 'hub';
+    let slideIndex = 0;
     const realTgUid = tg?.initDataUnsafe?.user?.id || Number(params.get('uid')) || 0;
     const uid = realTgUid || Math.floor(Math.random()*900000 + 100000);
     const myName = tg?.initDataUnsafe?.user?.first_name || 'بازیکن';
@@ -333,9 +504,7 @@ MINIAPP_TEMPLATE = """<!DOCTYPE html>
         const data = await res.json();
         if (data && data.joined === false && data.channels && data.channels.length > 0) {
           isJoinVerified = false;
-          if (showAlertOnFail && tg?.showAlert) {
-            tg.showAlert(L.notJoinedAlert);
-          }
+          if (showAlertOnFail && tg?.showAlert) tg.showAlert(L.notJoinedAlert);
           return renderJoinLockScreen(root, data.channels);
         }
       } catch (e) {}
@@ -352,12 +521,10 @@ MINIAPP_TEMPLATE = """<!DOCTYPE html>
 
       root.innerHTML = `
         <div class="glass-card rounded-2xl p-6 text-center mt-6 border border-rose-500/40">
-          <div class="w-16 h-16 rounded-2xl btn-danger mx-auto mb-4 flex items-center justify-center text-2xl font-black">LOCK</div>
+          <div class="w-16 h-16 rounded-2xl btn-danger mx-auto mb-4 flex items-center justify-center text-2xl font-black">🔒</div>
           <h2 class="text-xl font-extrabold mb-2 text-white">${L.lockTitle}</h2>
           <p class="text-slate-300 text-sm mb-5 leading-relaxed">${L.lockDesc}</p>
-          <div class="flex flex-col gap-3 mb-4">
-            ${chButtons}
-          </div>
+          <div class="flex flex-col gap-3 mb-4">${chButtons}</div>
           <button onclick="verifyJoinAndRender(true)" class="btn-success w-full py-3.5 px-4 rounded-xl font-extrabold active:scale-95 transition">
             ${L.checkJoinBtn}
           </button>
@@ -367,14 +534,26 @@ MINIAPP_TEMPLATE = """<!DOCTYPE html>
 
     window.nav = function(g) {
       if (hokmPollTimer) { clearInterval(hokmPollTimer); hokmPollTimer = null; }
+      if (vaultTimer) { clearInterval(vaultTimer); vaultTimer = null; }
       currentGame = g;
-      if (!isJoinVerified) {
-        return verifyJoinAndRender(false);
-      }
+      if (!isJoinVerified) return verifyJoinAndRender(false);
       render();
     };
 
+    window.changeSlide = function(delta) {
+      slideIndex = (slideIndex + delta + SLIDES.length) % SLIDES.length;
+      renderHub(document.getElementById('app'));
+    };
+
+    window.goToSlide = function(idx) {
+      slideIndex = idx;
+      renderHub(document.getElementById('app'));
+    };
+
     async function reportWin(gameType, bestTime = null) {
+      playerProfile.xp += 35;
+      playerProfile.coins += 50;
+      saveProfile();
       if (!uid) return;
       try {
         await fetch('/api/win', {
@@ -388,6 +567,9 @@ MINIAPP_TEMPLATE = """<!DOCTYPE html>
     function render() {
       const root = document.getElementById('app');
       if (!root) return;
+      if (currentGame === 'dungeon') return renderDungeon(root);
+      if (currentGame === 'cybervault') return renderCyberVault(root);
+      if (currentGame === 'demontower') return renderDemonTower(root);
       if (currentGame === 'gardone_anim' || currentGame === 'gardone') return renderGardoneAnim(root);
       if (currentGame === '2048') return render2048(root);
       if (currentGame === 'spuzzle') return renderSpuzzle(root);
@@ -404,27 +586,338 @@ MINIAPP_TEMPLATE = """<!DOCTYPE html>
       return renderHub(root);
     }
 
+    /* ═══════════ منوی اصلی کاروسل / اسلایدر کارت‌ها (غیرلیستی) ═══════════ */
+    let touchStartX = 0;
     function renderHub(root) {
+      const s = SLIDES[slideIndex];
+      const dotsHtml = SLIDES.map((_, i) => `
+        <button onclick="goToSlide(${i})" class="h-2 rounded-full transition-all ${i === slideIndex ? 'w-6 bg-indigo-400' : 'w-2 bg-slate-600'}"></button>
+      `).join('');
+
+      const artworkHtml = s.isHero ? `
+        <div class="relative w-full h-48 rounded-2xl overflow-hidden mb-4 border border-indigo-400/40 shadow-2xl">
+          <img src="${HERO_CUSTOM_IMG}" onerror="this.src='/api/banner/hub.png'" class="w-full h-full object-cover" />
+          <div class="absolute inset-0 bg-gradient-to-t from-slate-950 via-transparent to-transparent flex flex-col justify-end p-4">
+            <span class="px-2.5 py-0.5 rounded-full bg-indigo-600 text-[11px] font-black w-fit mb-1">RHINO™ TEAM</span>
+            <h2 class="text-2xl font-black text-white drop-shadow">RHINO COMMUNITY</h2>
+          </div>
+        </div>
+      ` : `
+        <div class="w-full h-44 rounded-2xl bg-gradient-to-br ${s.theme} border border-white/15 mb-4 flex flex-col items-center justify-center relative overflow-hidden shadow-inner">
+          <div class="text-5xl float-anim mb-2">${s.visual}</div>
+          <span class="text-xs font-extrabold px-3 py-1 rounded-full bg-black/40 text-indigo-200 border border-white/10">${s.badge}</span>
+        </div>
+      `;
+
       root.innerHTML = `
-        <div class="glass-card rounded-2xl p-5 text-center mb-4">
-          <h1 class="text-2xl font-extrabold mb-1">${L.title}</h1>
-          <p class="text-slate-300 text-sm">${L.sub}</p>
+        ${renderTopStatsBar()}
+
+        <div id="carouselCard" class="glass-card rounded-3xl p-5 text-center relative transition-all shadow-2xl border border-indigo-500/30">
+          <div class="flex justify-between items-center mb-2 text-xs text-slate-400 font-bold">
+            <span>کارت ${slideIndex + 1} از ${SLIDES.length}</span>
+            <span>${L.swipeHint}</span>
+          </div>
+
+          ${artworkHtml}
+
+          <h1 class="text-2xl font-black mb-2 text-white">${s.title}</h1>
+          <p class="text-slate-300 text-sm leading-relaxed mb-5 min-h-[60px]">${s.desc}</p>
+
+          <!-- دکمه‌های چپ و راست و دکمه ورود به بازی -->
+          <div class="game-grid-container flex items-center gap-2.5 mb-3">
+            <button onclick="changeSlide(-1)" class="btn-primary w-14 py-3.5 rounded-2xl font-black text-xl active:scale-90 transition">◀</button>
+            <button onclick="nav('${s.targetGame || s.id}')" class="${s.btnClass} flex-1 py-3.5 px-4 rounded-2xl font-extrabold text-base active:scale-95 transition">
+              ${s.btnText || L.playNow}
+            </button>
+            <button onclick="changeSlide(1)" class="btn-primary w-14 py-3.5 rounded-2xl font-black text-xl active:scale-90 transition">▶</button>
+          </div>
+
+          ${s.id === 'dooz' ? `
+            <button onclick="nav('doz4p')" class="btn-success w-full py-2.5 rounded-xl font-bold text-xs mb-2">ورود به نسخه دوز ۴ نفره (۵×۵)</button>
+          ` : ''}
+
+          <!-- نقاط وضعیت اسلایدر -->
+          <div class="game-grid-container flex justify-center items-center gap-1.5 mt-3 flex-wrap">
+            ${dotsHtml}
+          </div>
         </div>
-        <div class="grid grid-cols-2 gap-3">
-          <button onclick="nav('hokm2p')" class="btn-success py-3 px-4 rounded-xl font-bold">حکم ۲ نفره</button>
-          <button onclick="nav('hokm')" class="btn-success py-3 px-4 rounded-xl font-bold">حکم ۴ نفره</button>
-          <button onclick="nav('2048')" class="btn-primary py-3 px-4 rounded-xl font-bold">2048</button>
-          <button onclick="nav('spuzzle')" class="btn-primary py-3 px-4 rounded-xl font-bold">پازل کشویی</button>
-          <button onclick="nav('samegame')" class="btn-primary py-3 px-4 rounded-xl font-bold">جفت‌ها</button>
-          <button onclick="nav('dooz')" class="btn-primary py-3 px-4 rounded-xl font-bold">دوز ۲ نفره</button>
-          <button onclick="nav('doz4p')" class="btn-primary py-3 px-4 rounded-xl font-bold">دوز ۴ نفره</button>
-          <button onclick="nav('connect4')" class="btn-success py-3 px-4 rounded-xl font-bold">چهار در ردیف</button>
-          <button onclick="nav('rps')" class="btn-primary py-3 px-4 rounded-xl font-bold">${L.rock}/${L.paper}/${L.scissors}</button>
-          <button onclick="nav('memory')" class="btn-primary py-3 px-4 rounded-xl font-bold">حافظه</button>
-          <button onclick="nav('typing')" class="btn-primary py-3 px-4 rounded-xl font-bold">تایپ سرعتی</button>
-          <button onclick="nav('hangman')" class="btn-primary py-3 px-4 rounded-xl font-bold">حدس کلمه</button>
-          <button onclick="nav('guess')" class="btn-primary py-3 px-4 rounded-xl font-bold col-span-2">حدس عدد (۱ تا ۱۰۰)</button>
+      `;
+
+      const cardEl = document.getElementById('carouselCard');
+      if (cardEl) {
+        cardEl.ontouchstart = (e) => { touchStartX = e.changedTouches[0].screenX; };
+        cardEl.ontouchend = (e) => {
+          const diff = e.changedTouches[0].screenX - touchStartX;
+          if (Math.abs(diff) > 40) {
+            if (diff > 0) changeSlide(1);
+            else changeSlide(-1);
+          }
+        };
+      }
+    }
+
+    /* ═══════════ بازی اعتیادآور ۱: شکارچی سیاه‌چال (Dungeon Heist — Push Your Luck) ═══════════ */
+    let dgFloor = 1, dgPot = 0, dgAlive = true, dgMsg = 'یکی از ۳ دروازه سیاه‌چال را انتخاب کن!', dgRevealed = null;
+
+    function initDungeon() {
+      dgFloor = 1; dgPot = 0; dgAlive = true; dgRevealed = null;
+      dgMsg = 'دروازه را باز کن: گنج بگیر یا با غنائم فرار کن!';
+    }
+
+    window.pickDungeonDoor = function(doorIdx) {
+      if (!dgAlive) return;
+      // هر در می‌تواند گنج بزرگ، گنج معمولی یا تله شیطان باشد
+      // شمشیر بالاتر شانس شکست دادن تله را افزایش می‌دهد
+      const outcomes = ['gem', 'coin', 'trap'];
+      for (let i = outcomes.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [outcomes[i], outcomes[j]] = [outcomes[j], outcomes[i]];
+      }
+      const picked = outcomes[doorIdx];
+      dgRevealed = outcomes;
+
+      if (picked === 'trap') {
+        const saveChance = Math.min(0.45, (playerProfile.shieldLvl - 1) * 0.08);
+        if (Math.random() < saveChance) {
+          const bonus = 15 * dgFloor;
+          dgPot += bonus;
+          dgMsg = `🛡️ سپر تو تله شیطان را شکست! +${bonus} سکه به غنائم اضافه شد!`;
+          dgFloor++;
+        } else {
+          dgAlive = false;
+          dgPot = 0;
+          dgMsg = '💀 به تله شیطان خوردی و تمام غنائم این دور سوخت! دوباره امتحان کن!';
+        }
+      } else if (picked === 'gem') {
+        const gain = (35 + playerProfile.swordLvl * 10) * dgFloor;
+        dgPot += gain;
+        dgMsg = `💎 الماس خونین پیدا کردی! +${gain} سکه در کیسه موقت! طمع می‌کنی یا فرار؟`;
+        dgFloor++;
+      } else {
+        const gain = (20 + playerProfile.swordLvl * 5) * dgFloor;
+        dgPot += gain;
+        dgMsg = `🪙 صندوقچه سکه! +${gain} سکه جمع شد! می‌مونی یا فرار می‌کنی؟`;
+        dgFloor++;
+      }
+      if (dgFloor > playerProfile.bestFloor) playerProfile.bestFloor = dgFloor;
+      saveProfile();
+      renderDungeon(document.getElementById('app'));
+    };
+
+    window.cashOutDungeon = function() {
+      if (dgPot <= 0) return;
+      playerProfile.coins += dgPot;
+      playerProfile.xp += Math.floor(dgPot / 4);
+      saveProfile();
+      reportWin('dungeon');
+      const savedAmount = dgPot;
+      initDungeon();
+      dgMsg = `🎉 فرار موفق! ${savedAmount} سکه به گاوصندوق دائمی تو منتقل شد!`;
+      renderDungeon(document.getElementById('app'));
+    };
+
+    window.upgradeGear = function(type) {
+      const cost = type === 'sword' ? playerProfile.swordLvl * 100 : playerProfile.shieldLvl * 120;
+      if (playerProfile.coins < cost) {
+        dgMsg = `⚠️ سکه کافی نداری! (${cost} سکه نیاز است)`;
+        return renderDungeon(document.getElementById('app'));
+      }
+      playerProfile.coins -= cost;
+      if (type === 'sword') playerProfile.swordLvl++;
+      else playerProfile.shieldLvl++;
+      saveProfile();
+      dgMsg = `⚡ ارتقا انجام شد! قدرت غنیمت و بقای تو بیشتر شد.`;
+      renderDungeon(document.getElementById('app'));
+    };
+
+    function renderDungeon(root) {
+      const doorsHtml = [0, 1, 2].map(i => `
+        <button onclick="pickDungeonDoor(${i})" ${!dgAlive ? 'disabled' : ''} class="aspect-[3/4] rounded-2xl ${dgAlive ? 'btn-primary hover:-translate-y-1' : 'bg-slate-800 opacity-50'} flex flex-col items-center justify-center p-3 border-2 border-indigo-400/40 shadow-xl active:scale-95 transition">
+          <span class="text-4xl mb-2">🚪</span>
+          <span class="font-extrabold text-xs">دروازه ${i + 1}</span>
+        </button>
+      `).join('');
+
+      root.innerHTML = `
+        ${renderTopStatsBar()}
+        <div class="glass-card p-5 rounded-3xl text-center mb-3 border border-rose-500/30">
+          <div class="flex justify-between items-center mb-3">
+            <span class="px-3 py-1 rounded-xl bg-rose-600/40 font-extrabold text-xs">طبقه فعلی: ${dgFloor}</span>
+            <span class="px-3 py-1 rounded-xl bg-amber-500/30 text-amber-300 font-extrabold text-sm">غنائم در خطر: ${dgPot} 🪙</span>
+          </div>
+          <p class="p-3 rounded-2xl bg-slate-900/90 font-bold text-sm text-emerald-300 mb-4">${dgMsg}</p>
+
+          <div class="grid grid-cols-3 gap-3 mb-4">${doorsHtml}</div>
+
+          <div class="flex gap-2 mb-3">
+            ${dgAlive && dgPot > 0 ? `
+              <button onclick="cashOutDungeon()" class="btn-success w-full py-3.5 rounded-xl font-black text-base">
+                🏃 فرار و ذخیره ${dgPot} سکه در گاوصندوق!
+              </button>
+            ` : ''}
+            ${!dgAlive ? `
+              <button onclick="initDungeon();render()" class="btn-danger w-full py-3.5 rounded-xl font-black text-base">
+                🔄 ورود دوباره به سیاه‌چال
+              </button>
+            ` : ''}
+          </div>
+
+          <div class="grid grid-cols-2 gap-2 pt-3 border-t border-white/10 text-xs">
+            <button onclick="upgradeGear('sword')" class="btn-primary py-2.5 px-2 rounded-xl font-bold">
+              ⚔️ شمشیر Lvl ${playerProfile.swordLvl} (${playerProfile.swordLvl * 100}🪙)
+            </button>
+            <button onclick="upgradeGear('shield')" class="btn-primary py-2.5 px-2 rounded-xl font-bold">
+              🛡️ سپر ضدتله Lvl ${playerProfile.shieldLvl} (${playerProfile.shieldLvl * 120}🪙)
+            </button>
+          </div>
         </div>
+        <button onclick="nav('hub')" class="btn-danger w-full py-3 rounded-xl font-bold">${L.back}</button>
+      `;
+    }
+
+    /* ═══════════ بازی اعتیادآور ۲: هک گاوصندوق سایبری (Cyber Vault — Reflex Core Loop) ═══════════ */
+    let vaultPos = 0, vaultDir = 1, vaultTarget = 50, vaultStreak = 0, vaultTimer = null, vaultMsg = 'وقتی نشانگر لیزری روی منطقه سبز قرار گرفت ضربه بزن!';
+
+    function startVaultLoop() {
+      if (vaultTimer) clearInterval(vaultTimer);
+      const speed = Math.max(12, 28 - vaultStreak * 2);
+      vaultTimer = setInterval(() => {
+        vaultPos += vaultDir * 3;
+        if (vaultPos >= 96) { vaultPos = 96; vaultDir = -1; }
+        if (vaultPos <= 4) { vaultPos = 4; vaultDir = 1; }
+        const cursor = document.getElementById('vaultCursor');
+        if (cursor) cursor.style.left = vaultPos + '%';
+      }, speed);
+    }
+
+    window.hackVaultTap = function() {
+      const diff = Math.abs(vaultPos - vaultTarget);
+      if (diff <= 14) {
+        vaultStreak++;
+        const reward = vaultStreak * 25;
+        playerProfile.coins += reward;
+        playerProfile.xp += 15;
+        saveProfile();
+        vaultTarget = Math.floor(Math.random() * 65) + 18;
+        vaultMsg = `⚡ قفل باز شد! استریک ${vaultStreak}x (+${reward} سکه)`;
+        if (vaultStreak % 3 === 0) reportWin('cybervault');
+      } else {
+        vaultStreak = 0;
+        vaultMsg = '🚨 آژیر امنیتی به صدا درآمد! استریک صفر شد، دوباره تمرکز کن!';
+      }
+      renderCyberVault(document.getElementById('app'));
+    };
+
+    function renderCyberVault(root) {
+      root.innerHTML = `
+        ${renderTopStatsBar()}
+        <div class="glass-card p-5 rounded-3xl text-center mb-4 border border-cyan-500/40">
+          <h2 class="text-xl font-black text-cyan-300 mb-1">هک گاوصندوق سایبری</h2>
+          <p class="text-xs text-slate-300 mb-4">ضریب استریک فعلی: <span class="text-amber-300 font-black">${vaultStreak}x</span></p>
+          <div class="p-3 rounded-xl bg-slate-900 font-bold text-sm text-emerald-400 mb-6">${vaultMsg}</div>
+
+          <div class="game-grid-container relative w-full h-14 bg-slate-950 rounded-2xl border-2 border-cyan-500/40 overflow-hidden mb-6">
+            <div style="left: ${vaultTarget - 12}%; width: 24%;" class="absolute top-0 bottom-0 bg-emerald-500/40 border-x-2 border-emerald-400"></div>
+            <div id="vaultCursor" style="left: ${vaultPos}%;" class="absolute top-1 bottom-1 w-3 -ml-1.5 rounded-full bg-rose-500 shadow-[0_0_15px_#f43f5e]"></div>
+          </div>
+
+          <button onclick="hackVaultTap()" class="btn-success w-full py-4 rounded-2xl font-black text-lg active:scale-95 transition">
+            ⚡ ضربه و شکستن قفل!
+          </button>
+        </div>
+        <button onclick="nav('hub')" class="btn-danger w-full py-3 rounded-xl font-bold">${L.back}</button>
+      `;
+      startVaultLoop();
+    }
+
+    /* ═══════════ بازی اعتیادآور ۳: برج شیاطین (Demon Tower — Endless Roguelike) ═══════════ */
+    let dtStage = 1, dtHp = 100, dtMaxHp = 100, dtBossHp = 80, dtBossMax = 80, dtLog = 'کارت حمله یا دفاع خود را برای این نوبت انتخاب کن!';
+
+    function initDemonTower() {
+      dtMaxHp = 100 + (playerProfile.level - 1) * 15;
+      dtHp = dtMaxHp;
+      dtBossMax = 60 + dtStage * 25;
+      dtBossHp = dtBossMax;
+    }
+
+    window.playTowerCard = function(type) {
+      if (dtHp <= 0) { initDemonTower(); return renderDemonTower(document.getElementById('app')); }
+      const baseAtk = 18 + playerProfile.swordLvl * 6 + playerProfile.level * 3;
+      const bossAtk = 12 + dtStage * 5;
+
+      if (type === 'strike') {
+        const dmg = baseAtk + Math.floor(Math.random() * 12);
+        dtBossHp -= dmg;
+        dtHp -= bossAtk;
+        dtLog = `⚔️ ${dmg} ضربه زدی و شیطان ${bossAtk} آسیب وارد کرد!`;
+      } else if (type === 'shield') {
+        const dmg = Math.floor(baseAtk * 0.6);
+        const blocked = Math.max(2, bossAtk - (10 + playerProfile.shieldLvl * 5));
+        dtBossHp -= dmg;
+        dtHp -= blocked;
+        dtLog = `🛡️ دفاع کردی! فقط ${blocked} آسیب دیدی و ${dmg} ضربه زدی!`;
+      } else if (type === 'blood') {
+        const heal = 22 + playerProfile.level * 4;
+        const dmg = Math.floor(baseAtk * 0.85);
+        dtBossHp -= dmg;
+        dtHp = Math.min(dtMaxHp, dtHp + heal - bossAtk);
+        dtLog = `🩸 جادوی خون! +${heal} جان گرفتی و ${dmg} آسیب زدی!`;
+      }
+
+      if (dtBossHp <= 0) {
+        const reward = dtStage * 40;
+        playerProfile.coins += reward;
+        playerProfile.xp += 30;
+        dtStage++;
+        if (dtStage > playerProfile.bestFloor) playerProfile.bestFloor = dtStage;
+        saveProfile();
+        reportWin('demontower');
+        dtBossMax = 60 + dtStage * 25;
+        dtBossHp = dtBossMax;
+        dtHp = Math.min(dtMaxHp, dtHp + 30);
+        dtLog = `🏆 شیطان طبقه شکسته شد! +${reward} سکه گرفتی و وارد طبقه ${dtStage} شدی!`;
+      } else if (dtHp <= 0) {
+        dtHp = 0;
+        dtLog = `💀 در طبقه ${dtStage} سقوط کردی! دوباره برخیز!`;
+      }
+      renderDemonTower(document.getElementById('app'));
+    };
+
+    function renderDemonTower(root) {
+      if (dtBossMax === 80 && dtStage === 1 && dtHp === 100) initDemonTower();
+      root.innerHTML = `
+        ${renderTopStatsBar()}
+        <div class="glass-card p-5 rounded-3xl text-center mb-3 border border-amber-500/30">
+          <div class="flex justify-between items-center text-xs font-extrabold mb-3">
+            <span class="px-3 py-1 rounded-xl bg-amber-500/30 text-amber-300">طبقه برج: ${dtStage}</span>
+            <span class="px-3 py-1 rounded-xl bg-emerald-600/40 text-emerald-300">جان شما: ${dtHp}/${dtMaxHp} ❤️</span>
+          </div>
+
+          <div class="my-4 p-4 rounded-2xl bg-gradient-to-b from-rose-950/80 to-slate-950 border border-rose-500/30">
+            <div class="text-5xl mb-2 float-anim">👹</div>
+            <div class="font-black text-rose-400">ارباب تاریکی — طبقه ${dtStage}</div>
+            <div class="text-xs text-slate-300 mt-1">جان شیطان: ${Math.max(0, dtBossHp)} / ${dtBossMax}</div>
+          </div>
+
+          <p class="p-2.5 rounded-xl bg-slate-900 text-xs font-bold text-amber-300 mb-4">${dtLog}</p>
+
+          ${dtHp > 0 ? `
+            <div class="grid grid-cols-3 gap-2">
+              <button onclick="playTowerCard('strike')" class="btn-danger py-3.5 px-2 rounded-2xl font-extrabold text-xs flex flex-col items-center gap-1">
+                <span class="text-2xl">⚔️</span><span>حمله سنگین</span>
+              </button>
+              <button onclick="playTowerCard('shield')" class="btn-primary py-3.5 px-2 rounded-2xl font-extrabold text-xs flex flex-col items-center gap-1">
+                <span class="text-2xl">🛡️</span><span>سپر و ضدحمله</span>
+              </button>
+              <button onclick="playTowerCard('blood')" class="btn-success py-3.5 px-2 rounded-2xl font-extrabold text-xs flex flex-col items-center gap-1">
+                <span class="text-2xl">🩸</span><span>جادوی خون</span>
+              </button>
+            </div>
+          ` : `
+            <button onclick="dtStage=1;initDemonTower();render()" class="btn-success w-full py-3.5 rounded-2xl font-black">شروع دوباره نبرد</button>
+          `}
+        </div>
+        <button onclick="nav('hub')" class="btn-danger w-full py-3 rounded-xl font-bold">${L.back}</button>
       `;
     }
 
@@ -1019,7 +1512,6 @@ MINIAPP_TEMPLATE = """<!DOCTYPE html>
       `;
     }
 
-    // بررسی اولیه عضویت اجباری قبل از رندر بازی
     verifyJoinAndRender(false);
   </script>
 </body>
@@ -1033,10 +1525,12 @@ async def serve_entry(request: Request, full_path: str):
     meta = GAME_META.get(game, GAME_META["hub"])
     base_url = os.environ.get("MINI_APP_URL", "https://games.rhinokaseb.abrdns.com").rstrip("/")
     og_img = f"{base_url}/api/banner/{game}.png"
+    hero_img = os.environ.get("RHINO_HERO_IMAGE", f"{base_url}/api/banner/rhino_hero.png")
 
     html_content = (
         MINIAPP_TEMPLATE
         .replace("__OG_TITLE__", meta["title"])
         .replace("__OG_IMAGE__", og_img)
+        .replace("__HERO_IMAGE__", hero_img)
     )
     return HTMLResponse(content=html_content, status_code=200)
