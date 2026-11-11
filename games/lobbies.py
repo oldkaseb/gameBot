@@ -1,17 +1,16 @@
 # -*- coding: utf-8 -*-
-"""لابی‌های گروهی: عضویت و لانچ مینی‌اپ مستقیماً داخل همان پیام گروه"""
+"""لابی چندنفره داخل گروه — عضوگیری در گروه و ورود مستقیم به مینی‌اپ در همان گروه"""
 
 import os
 import uuid
-from urllib.parse import urlencode
-
 from aiogram import Router, F
 from aiogram.types import CallbackQuery
-from aiogram.enums import ParseMode
+from aiogram.enums import ParseMode, ChatType
 
 from emojis import E
 from langs import t, get_user_lang
 from utils.premium import success, primary, danger, kb
+from games.panel import make_miniapp_btn
 
 router = Router(name="lobbies")
 MINI_APP_URL = os.environ.get("MINI_APP_URL", "https://games.rhinokaseb.abrdns.com").rstrip("/")
@@ -19,68 +18,87 @@ MINI_APP_URL = os.environ.get("MINI_APP_URL", "https://games.rhinokaseb.abrdns.c
 active_lobbies = {}
 
 GAME_CONFIG = {
-    "dooz":     {"max": 2, "title": "دوز ۲ نفره"},
-    "doz4p":    {"max": 4, "title": "دوز ۴ نفره"},
-    "connect4": {"max": 2, "title": "چهار در ردیف"},
-    "hokm":     {"max": 4, "title": "حکم ۴ نفره"},
-    "rps":      {"max": 2, "title": "سنگ کاغذ قیچی"},
-    "memory":   {"max": 2, "title": "بازی حافظه"},
+    "dooz":     {"max": 2, "name_key": "game_dooz",     "icon": E.TARGET},
+    "doz4p":    {"max": 4, "name_key": "game_doz4p",    "icon": E.TARGET},
+    "connect4": {"max": 2, "name_key": "game_connect4", "icon": E.GAME},
+    "hokm":     {"max": 4, "name_key": "game_hokm_4p",  "icon": E.CARD},
+    "rps":      {"max": 2, "name_key": "game_rps",      "icon": E.PUZZLE},
+    "memory":   {"max": 2, "name_key": "game_memory",   "icon": E.BRAIN},
 }
 
 
 @router.callback_query(F.data.startswith("lobby_"))
 async def create_lobby(cb: CallbackQuery):
     parts = cb.data.split("_")
-    game_type = parts[1]
-    host_id = int(parts[2])
-
-    uid = cb.from_user.id
-    if uid != host_id:
-        await cb.answer("این پنل توسط شما ساخته نشده است.", show_alert=True)
+    try:
+        game_type = parts[1]
+        host_id = int(parts[2])
+    except (IndexError, ValueError):
+        await cb.answer("Error", show_alert=True)
         return
 
-    cfg = GAME_CONFIG.get(game_type, {"max": 2, "title": game_type})
-    lobby_id = str(uuid.uuid4())[:8]
+    uid = cb.from_user.id
+    lang = get_user_lang(uid)
 
+    if uid != host_id:
+        await cb.answer(t("not_your_panel", lang), show_alert=True)
+        return
+
+    config = GAME_CONFIG.get(game_type)
+    if not config:
+        await cb.answer(t("game_not_active", lang), show_alert=True)
+        return
+
+    lobby_id = str(uuid.uuid4())[:8]
     active_lobbies[lobby_id] = {
         "game_type": game_type,
-        "title": cfg["title"],
         "host_id": host_id,
-        "max_players": cfg["max"],
+        "max_players": config["max"],
         "players": [{"id": uid, "name": cb.from_user.first_name or "P1"}],
-        "chat_id": cb.message.chat.id,
         "msg_id": cb.message.message_id,
+        "chat_id": cb.message.chat.id,
+        "is_pm": cb.message.chat.type == ChatType.PRIVATE,
     }
 
     await cb.answer()
-    await _render_lobby_message(cb.bot, lobby_id)
+    await _update_lobby_message(cb.bot, lobby_id, lang)
 
 
-async def _render_lobby_message(bot, lobby_id: str):
+async def _update_lobby_message(bot, lobby_id: str, lang: str):
     lobby = active_lobbies.get(lobby_id)
     if not lobby:
         return
 
-    cur = len(lobby["players"])
-    mx = lobby["max_players"]
-    p_names = "\n".join(f"  {idx}. {E.USER} <b>{p['name']}</b>" for idx, p in enumerate(lobby["players"], 1))
+    config = GAME_CONFIG[lobby["game_type"]]
+    game_name = t(config["name_key"], lang)
+    current_p = len(lobby["players"])
+    max_p = lobby["max_players"]
+    players_list = "\n".join(f"  {idx}. {E.USER} <b>{p['name']}</b>" for idx, p in enumerate(lobby["players"], 1))
+    preview_url = f"{MINI_APP_URL}/?game={lobby['game_type']}&session={lobby_id}"
 
-    text = (
-        f"{E.GAME}{E.SPARK} <b>میز بازی {lobby['title']}</b>\n\n"
-        f"ظرفیت: <b>{cur}/{mx}</b>\n"
-        f"لیست بازیکنان حاضر:\n{p_names}\n\n"
-        f"{E.HOURGLASS} برای پیوستن روی دکمه زیر کلیک کنید:"
-    )
-
-    rows = []
-    if cur < mx:
-        rows.append([success(f"{E.PLUS} پیوستن به بازی ({cur}/{mx})", f"join_lobby_{lobby_id}")])
+    if current_p < max_p:
+        text = (
+            f"<a href='{preview_url}'>&#8205;</a>"
+            f"{config['icon']} <b>{t('lobby_title', lang, game=game_name)}</b>\n\n"
+            f"{E.PEOPLE} {t('lobby_players', lang, cur=current_p, max=max_p)}:\n{players_list}\n\n"
+            f"{E.HOURGLASS} {t('waiting_players', lang)}"
+        )
+        rows = [
+            [success(f"{E.PLUS} {t('join_game', lang)} ({current_p}/{max_p})", f"join_lobby_{lobby_id}")],
+            [danger(f"{E.CROSS} {t('btn_cancel', lang)}", f"cancel_lobby_{lobby_id}")],
+        ]
     else:
-        params = urlencode({"game": lobby["game_type"], "session": lobby_id, "group": lobby["chat_id"]})
-        app_url = f"{MINI_APP_URL}/?{params}"
-        rows.append([success(f"{E.PLAY} ورود مستقیم به بازی (مینی‌اپ)", web_app_url=app_url)])
-
-    rows.append([danger(f"{E.CROSS} بستن میز", f"cancel_lobby_{lobby_id}")])
+        start_param = f"{lobby['game_type']}__{lobby_id}"
+        text = (
+            f"<a href='{preview_url}'>&#8205;</a>"
+            f"{E.PARTY}{config['icon']} <b>{t('lobby_full_title', lang)} ({game_name})</b>\n\n"
+            f"{E.PEOPLE} <b>بازیکنان میز:</b>\n{players_list}\n\n"
+            f"{E.PLAY} روی دکمه زیر بزنید تا وارد مینی‌اپ بازی شوید:"
+        )
+        rows = [
+            [make_miniapp_btn(f"{E.PLAY} {t('enter_game_table', lang)}", start_param, lobby["is_pm"], success)],
+            [danger(f"{E.CROSS} بستن میز", f"cancel_lobby_{lobby_id}")],
+        ]
 
     try:
         await bot.edit_message_text(
@@ -88,40 +106,57 @@ async def _render_lobby_message(bot, lobby_id: str):
             chat_id=lobby["chat_id"],
             message_id=lobby["msg_id"],
             reply_markup=kb(rows),
-            parse_mode=ParseMode.HTML
+            parse_mode=ParseMode.HTML,
+            disable_web_page_preview=False,
         )
     except Exception:
         pass
 
 
 @router.callback_query(F.data.startswith("join_lobby_"))
-async def on_join(cb: CallbackQuery):
+async def join_lobby(cb: CallbackQuery):
     lobby_id = cb.data.replace("join_lobby_", "")
     lobby = active_lobbies.get(lobby_id)
+    lang = get_user_lang(cb.from_user.id)
+
     if not lobby:
-        await cb.answer("میز منقضی شده است.", show_alert=True)
+        await cb.answer(t("lobby_expired", lang), show_alert=True)
         return
-
-    uid = cb.from_user.id
-    if any(p["id"] == uid for p in lobby["players"]):
-        await cb.answer("شما قبلاً وارد شدید!", show_alert=True)
+    if any(p["id"] == cb.from_user.id for p in lobby["players"]):
+        await cb.answer(t("already_joined", lang), show_alert=True)
         return
-
     if len(lobby["players"]) >= lobby["max_players"]:
-        await cb.answer("ظرفیت تکمیل است!", show_alert=True)
+        await cb.answer(t("game_full", lang), show_alert=True)
         return
 
-    lobby["players"].append({"id": uid, "name": cb.from_user.first_name or f"P{len(lobby['players'])+1}"})
-    await cb.answer("وارد میز شدید!")
-    await _render_lobby_message(cb.bot, lobby_id)
+    lobby["players"].append({
+        "id": cb.from_user.id,
+        "name": cb.from_user.first_name or f"P{len(lobby['players']) + 1}",
+    })
+    await cb.answer(t("lobby_joined", lang))
+    await _update_lobby_message(cb.bot, lobby_id, lang)
 
 
 @router.callback_query(F.data.startswith("cancel_lobby_"))
-async def on_cancel(cb: CallbackQuery):
+async def cancel_lobby(cb: CallbackQuery):
     lobby_id = cb.data.replace("cancel_lobby_", "")
     lobby = active_lobbies.get(lobby_id)
-    if lobby and (cb.from_user.id == lobby["host_id"]):
-        active_lobbies.pop(lobby_id, None)
-        await cb.message.edit_text(f"{E.CROSS} میز بازی بسته شد.", reply_markup=None)
-    else:
-        await cb.answer("فقط سازنده میز اجازه لغو دارد.", show_alert=True)
+    lang = get_user_lang(cb.from_user.id)
+
+    if not lobby:
+        await cb.answer(t("lobby_expired", lang), show_alert=True)
+        return
+
+    if cb.from_user.id != lobby["host_id"]:
+        await cb.answer(t("not_your_game", lang), show_alert=True)
+        return
+
+    await cb.answer()
+    try:
+        await cb.message.edit_text(
+            f"{E.CROSS} {t('lobby_cancelled', lang)}",
+            parse_mode=ParseMode.HTML,
+        )
+    except Exception:
+        pass
+    active_lobbies.pop(lobby_id, None)
