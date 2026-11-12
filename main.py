@@ -447,6 +447,27 @@ async def main():
         await db.close()
         await bot.session.close()
 
+@dp.message(F.successful_payment)
+    async def _on_successful_payment(msg: Message):
+        payload_str = msg.successful_payment.invoice_payload or ""
+        if payload_str.startswith("dtpack_"):
+            from games.demon_tower import STAR_PACKAGES, get_or_create_player
+            parts = payload_str.split("_")
+            pack_key = f"{parts[1]}_{parts[2]}"
+            pack = STAR_PACKAGES.get(pack_key)
+            if pack:
+                await get_or_create_player(msg.from_user.id)
+                await db.pool.execute(
+                    "UPDATE dt_players SET coins=coins+$1, xp=xp+$2 WHERE user_id=$3",
+                    pack["coins"], pack["xp"], msg.from_user.id
+                )
+                await msg.answer(
+                    f"🎉 <b>خرید شما در برج شیاطین با موفقیت انجام شد!</b>\n"
+                    f"🪙 +{pack['coins']:,} سکه | ⭐ +{pack['xp']:,} XP به حساب شما اضافه شد.",
+                    parse_mode=ParseMode.HTML,
+                )
+                return
+        await msg.answer(f"{E.HEART} از حمایت شما سپاسگزاریم!", parse_mode=ParseMode.HTML)
 
 if __name__ == "__main__":
     asyncio.run(main())
