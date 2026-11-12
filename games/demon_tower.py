@@ -350,6 +350,92 @@ async def get_or_create_player(uid: int) -> dict:
     }
 
 
+# نگهداری نبردهای زنده و تعاملی بازیکنان در حافظه سرور
+active_tower_battles: dict[int, dict] = {}
+
+
+def _roll_next_boss_state(boss_name: str, lang: str = "fa") -> tuple[str, str, int]:
+    """تعیین حرکت بعدی غول (حمله ۵ ثانیه‌ای، دفاع مطلق، حالت جاخالی، یا عادی)"""
+    roll = random.random()
+    if roll < 0.38:
+        msg = (
+            f"⚠️ «{boss_name}» خیز برداشته و می‌خواهد حمله مرگبار بزند! ۵ ثانیه فرصت داری دفاع یا جاخالی بدهی!"
+            if lang == "fa" else
+            f"⚠️ '{boss_name}' is charging a deadly attack! You have 5 seconds to Shield or Dodge!"
+        )
+        return "charging", msg, 5
+    elif roll < 0.65:
+        msg = (
+            f"🛡️ «{boss_name}» در حالت دفاع مطلق قرار گرفت! (باید گاردش را بشکنی)"
+            if lang == "fa" else
+            f"🛡️ '{boss_name}' entered Absolute Defense! (Use Guard Break)"
+        )
+        return "abs_defense", msg, 0
+    elif roll < 0.85:
+        msg = (
+            f"💨 «{boss_name}» گارد فرز گرفت و آماده جاخالی دادن به ضربات سنگین است!"
+            if lang == "fa" else
+            f"💨 '{boss_name}' is agile and ready to dodge heavy strikes!"
+        )
+        return "evasive", msg, 0
+    else:
+        msg = (
+            f"👹 «{boss_name}» در حالت رجزخوانی و آماده نبرد است!"
+            if lang == "fa" else
+            f"👹 '{boss_name}' is roaring and ready to clash!"
+        )
+        return "normal", msg, 0
+
+
+async def _finalize_tower_battle(uid: int, p: dict, boss: dict, bt: dict, won: bool, lang: str) -> dict:
+    """ثبت نهایی نتیجه نبرد در دیتابیس پس از کشته شدن غول یا بازیکن"""
+    now = time.time()
+    active_tower_battles.pop(uid, None)
+    new_humanity = max(0, p["humanity"] - random.randint(12, 20))
+    sleep_until = (now + 2 * 86400) if new_humanity == 0 else 0
+
+    if won:
+        final_hp = max(1, bt["p_hp"])
+        inv = p["inventory"]
+        if boss.get("drop_item"):
+            inv.append({"name": boss["drop_item"], "price": boss.get("drop_price", 50)})
+
+        await db.pool.execute(
+            """UPDATE dt_players
+               SET hp=$1, humanity=$2, sleep_until=$3,
+                   coins=coins+$4, xp=xp+$5, current_floor=current_floor+1, inventory=$6
+               WHERE user_id=$7""",
+            final_hp, new_humanity, sleep_until,
+            boss["reward_coins"], boss["reward_xp"], json.dumps(inv), uid
+        )
+        dmg_taken = max(0, p["hp"] - final_hp)
+        msg = _dt_msg(
+            lang, "floor_won",
+            floor=boss["floor_num"], boss=boss["boss_name"],
+            coins=boss["reward_coins"], xp=boss["reward_xp"],
+            drop=boss.get("drop_item") or "—", dmg=dmg_taken, hum=new_humanity
+        )
+        if sleep_until > 0:
+            msg += _dt_msg(lang, "sleep_triggered")
+        st = await get_or_create_player(uid)
+        st["active_battle"] = None
+        return {"ok": True, "battle_over": True, "won": True, "msg": msg, "state": st}
+    else:
+        await db.pool.execute(
+            "UPDATE dt_players SET hp=5, humanity=$1, sleep_until=$2 WHERE user_id=$3",
+            new_humanity, sleep_until, uid
+        )
+        st = await get_or_create_player(uid)
+        st["active_battle"] = None
+        return {
+            "ok": False,
+            "battle_over": True,
+            "won": False,
+            "error": _dt_msg(lang, "floor_lost", boss=boss["boss_name"]),
+            "state": st,
+        }
+
+
 async def handle_tower_api_action(payload: dict) -> dict:
     uid = int(payload.get("uid") or 0)
     name = payload.get("name") or "Player"
@@ -358,6 +444,7 @@ async def handle_tower_api_action(payload: dict) -> dict:
     now = time.time()
 
     full_state = await get_or_create_player(uid)
+    full_state["active_battle"] = active_tower_battles.get(uid)
     p = full_state["player"]
 
     if p["is_banned"]:
@@ -373,7 +460,9 @@ async def handle_tower_api_action(payload: dict) -> dict:
         if g not in ("male", "female"):
             return {"ok": False, "error": "Invalid", "state": full_state}
         await db.pool.execute("UPDATE dt_players SET gender=$1 WHERE user_id=$2", g, uid)
-        return {"ok": True, "msg": _dt_msg(lang, "gender_saved"), "state": await get_or_create_player(uid)}
+        st = await get_or_create_player(uid)
+        st["active_battle"] = active_tower_battles.get(uid)
+        return {"ok": True, "msg": _dt_msg(lang, "gender_saved"), "state": st}
 
     if action == "buy_or_equip_item":
         item_id = int(payload.get("item_id") or 0)
@@ -389,7 +478,9 @@ async def handle_tower_api_action(payload: dict) -> dict:
         if itype == "weapon":
             if item_id in owned_w:
                 await db.pool.execute("UPDATE dt_players SET equipped_weapon=$1 WHERE user_id=$2", item_id, uid)
-                return {"ok": True, "msg": _dt_msg(lang, "equipped", name=item_row["name"]), "state": await get_or_create_player(uid)}
+                st = await get_or_create_player(uid)
+                st["active_battle"] = active_tower_battles.get(uid)
+                return {"ok": True, "msg": _dt_msg(lang, "equipped", name=item_row["name"]), "state": st}
             if p["coins"] < price:
                 return {"ok": False, "error": _dt_msg(lang, "not_enough_coins", price=price), "state": full_state}
             owned_w.append(item_id)
@@ -397,11 +488,15 @@ async def handle_tower_api_action(payload: dict) -> dict:
                 "UPDATE dt_players SET coins=coins-$1, owned_weapons=$2, equipped_weapon=$3 WHERE user_id=$4",
                 price, json.dumps(owned_w), item_id, uid
             )
-            return {"ok": True, "msg": _dt_msg(lang, "bought_equipped", name=item_row["name"]), "state": await get_or_create_player(uid)}
+            st = await get_or_create_player(uid)
+            st["active_battle"] = active_tower_battles.get(uid)
+            return {"ok": True, "msg": _dt_msg(lang, "bought_equipped", name=item_row["name"]), "state": st}
         else:
             if item_id in owned_a:
                 await db.pool.execute("UPDATE dt_players SET equipped_armor=$1 WHERE user_id=$2", item_id, uid)
-                return {"ok": True, "msg": _dt_msg(lang, "equipped", name=item_row["name"]), "state": await get_or_create_player(uid)}
+                st = await get_or_create_player(uid)
+                st["active_battle"] = active_tower_battles.get(uid)
+                return {"ok": True, "msg": _dt_msg(lang, "equipped", name=item_row["name"]), "state": st}
             if p["coins"] < price:
                 return {"ok": False, "error": _dt_msg(lang, "not_enough_coins", price=price), "state": full_state}
             owned_a.append(item_id)
@@ -409,9 +504,12 @@ async def handle_tower_api_action(payload: dict) -> dict:
                 "UPDATE dt_players SET coins=coins-$1, owned_armors=$2, equipped_armor=$3 WHERE user_id=$4",
                 price, json.dumps(owned_a), item_id, uid
             )
-            return {"ok": True, "msg": _dt_msg(lang, "bought_equipped", name=item_row["name"]), "state": await get_or_create_player(uid)}
+            st = await get_or_create_player(uid)
+            st["active_battle"] = active_tower_battles.get(uid)
+            return {"ok": True, "msg": _dt_msg(lang, "bought_equipped", name=item_row["name"]), "state": st}
 
-    if action == "battle_floor":
+    # ─── شروع نبرد تعاملی و چندمرحله‌ای با غول طبقه ───
+    if action in ("battle_floor", "battle_start"):
         if not p["gender"]:
             return {"ok": False, "error": _dt_msg(lang, "pick_gender_first"), "state": full_state}
         if p["sleep_rem"] > 0:
@@ -432,47 +530,230 @@ async def handle_tower_api_action(payload: dict) -> dict:
         if not boss:
             return {"ok": False, "error": _dt_msg(lang, "all_cleared"), "state": full_state}
 
-        player_dmg = max(8, p["atk"] + int(p["spd"] * 0.4) - int(boss["def"] * 0.5))
-        boss_dmg = max(6, boss["atk"] - int(p["def"] * 0.55))
-        rounds_to_kill = math.ceil(boss["hp"] / player_dmg)
-        total_damage_taken = max(8, min(p["hp"], rounds_to_kill * boss_dmg + random.randint(-5, 10)))
+        # تقویت جان غول برای طولانی‌تر و نفس‌گیر شدن نبرد تعاملی
+        scaled_boss_hp = max(180, int(boss["hp"] * 2.2))
+        b_state, b_prompt, b_window = _roll_next_boss_state(boss["boss_name"], lang)
 
-        new_hp = max(0, p["hp"] - total_damage_taken)
-        new_humanity = max(0, p["humanity"] - random.randint(12, 20))
-        sleep_until = (now + 2 * 86400) if new_humanity == 0 else 0
+        battle_session = {
+            "floor_num": boss["floor_num"],
+            "boss_name": boss["boss_name"],
+            "boss_photo": boss.get("photo") or "",
+            "boss_hp": scaled_boss_hp,
+            "boss_max_hp": scaled_boss_hp,
+            "boss_atk": boss["atk"],
+            "boss_def": boss["def"],
+            "p_hp": p["hp"],
+            "p_max_hp": p["max_hp"],
+            "p_rage": 25,  # خشم اولیه برای مهارت‌های ویژه
+            "turn": 1,
+            "boss_state": b_state,  # normal | charging | abs_defense | evasive | stunned
+            "state_prompt": b_prompt,
+            "deadline_sec": b_window,
+            "state_ts": now,
+            "logs": [
+                f"⚔️ نبرد با «{boss['boss_name']}» در طبقه {boss['floor_num']} آغاز شد!" if lang == "fa"
+                else f"⚔️ Battle against '{boss['boss_name']}' (Floor {boss['floor_num']}) started!"
+            ],
+        }
+        active_tower_battles[uid] = battle_session
+        full_state["active_battle"] = battle_session
+        return {"ok": True, "state": full_state}
 
-        if new_hp > 0:
-            inv = p["inventory"]
-            if boss.get("drop_item"):
-                inv.append({"name": boss["drop_item"], "price": boss.get("drop_price", 50)})
+    # ─── اجرای حرکت بازیکن در نبرد زنده (یا اتمام مهلت ۵ ثانیه‌ای دفاع) ───
+    if action == "battle_move":
+        bt = active_tower_battles.get(uid)
+        boss = full_state["current_boss"]
+        if not bt or not boss:
+            return {"ok": False, "error": "نبرد فعالی وجود ندارد!", "state": full_state}
 
-            await db.pool.execute(
-                """UPDATE dt_players
-                   SET hp=$1, humanity=$2, sleep_until=$3,
-                       coins=coins+$4, xp=xp+$5, current_floor=current_floor+1, inventory=$6
-                   WHERE user_id=$7""",
-                new_hp, new_humanity, sleep_until,
-                boss["reward_coins"], boss["reward_xp"], json.dumps(inv), uid
+        move = str(payload.get("move") or "quick")
+        b_name = bt["boss_name"]
+        b_state = bt["boss_state"]
+        base_atk = max(10, p["atk"] - int(bt["boss_def"] * 0.35))
+        base_boss_dmg = max(8, bt["boss_atk"] - int(p["def"] * 0.45))
+        log_line = ""
+
+        # بررسی اینکه آیا بازیکن در حالت شارژ حمله ۵ ثانیه‌ای دیر عمل کرده یا تایم‌اوت شده
+        timed_out = (move == "timeout") or (b_state == "charging" and (now - bt["state_ts"]) > 6.2 and move not in ("shield", "dodge"))
+
+        if timed_out:
+            heavy_hit = int(base_boss_dmg * 1.85) + random.randint(4, 12)
+            bt["p_hp"] = max(0, bt["p_hp"] - heavy_hit)
+            log_line = (
+                f"💥 ۵ ثانیه تمام شد و دفاع نکردی! «{b_name}» ضربه مرگبار زد و {heavy_hit} جان کم کرد!"
+                if lang == "fa" else
+                f"💥 5s expired! '{b_name}' landed a crushing blow for {heavy_hit} DMG!"
             )
-            msg = _dt_msg(
-                lang, "floor_won",
-                floor=boss["floor_num"], boss=boss["boss_name"],
-                coins=boss["reward_coins"], xp=boss["reward_xp"],
-                drop=boss.get("drop_item") or "—", dmg=total_damage_taken, hum=new_humanity
-            )
-            if sleep_until > 0:
-                msg += _dt_msg(lang, "sleep_triggered")
-            return {"ok": True, "msg": msg, "state": await get_or_create_player(uid)}
+            next_st, next_pr, next_w = _roll_next_boss_state(b_name, lang)
+
+        elif b_state == "charging":
+            # غول در حال شارژ حمله ۵ ثانیه‌ای است
+            if move == "shield":
+                reduced = max(2, int(base_boss_dmg * 0.2))
+                counter = int(base_atk * 0.75)
+                bt["p_hp"] = max(0, bt["p_hp"] - reduced)
+                bt["boss_hp"] = max(0, bt["boss_hp"] - counter)
+                bt["p_rage"] = min(100, bt["p_rage"] + 25)
+                log_line = (
+                    f"🛡️ به موقع سپر گرفتی! ضربه «{b_name}» دفع شد (فقط {reduced} آسیب) و {counter} ضدحمله زدی! غول گیج شد!"
+                    if lang == "fa" else
+                    f"🛡️ Timely Shield! Blocked attack ({reduced} DMG) and countered for {counter}! Boss is Stunned!"
+                )
+                next_st = "stunned"
+                next_pr = f"😵 «{b_name}» گیج و بی‌دفاع شده! با ضربه سنگین یا جادوی خون حمله کن!" if lang == "fa" else f"😵 '{b_name}' is Stunned! Use Heavy Strike!"
+                next_w = 0
+            elif move == "dodge":
+                 Dodge_chance = min(0.88, 0.65 + (p["spd"] * 0.005))
+                if random.random() < Dodge_chance:
+                    bt["p_rage"] = min(100, bt["p_rage"] + 30)
+                    log_line = (
+                        f"💨 با سرعت بالا از حمله مرگبار «{b_name}» جاخالی دادی و هیچ آسیبی ندیدی! (+30 خشم)"
+                        if lang == "fa" else
+                        f"💨 Dodged '{b_name}'s deadly attack completely! (+30 Rage)"
+                    )
+                    next_st, next_pr, next_w = _roll_next_boss_state(b_name, lang)
+                else:
+                    hit = int(base_boss_dmg * 1.1)
+                    bt["p_hp"] = max(0, bt["p_hp"] - hit)
+                    log_line = f"⚠️ جاخالی کامل نبود و {hit} آسیب دیدی!" if lang == "fa" else f"⚠️ Partial dodge! Took {hit} DMG!"
+                    next_st, next_pr, next_w = _roll_next_boss_state(b_name, lang)
+            else:
+                # بازیکن به جای دفاع در برابر حمله ۵ ثانیه‌ای، حمله زده!
+                heavy_hit = int(base_boss_dmg * 1.7)
+                dmg_done = int(base_atk * 0.6)
+                bt["boss_hp"] = max(0, bt["boss_hp"] - dmg_done)
+                bt["p_hp"] = max(0, bt["p_hp"] - heavy_hit)
+                log_line = (
+                    f"❌ به جای دفاع حمله زدی! {dmg_done} آسیب زدی ولی ضربه سنگین «{b_name}» {heavy_hit} جان از تو کم کرد!"
+                    if lang == "fa" else
+                    f"❌ Attacked instead of defending! Dealt {dmg_done}, but took {heavy_hit} heavy DMG!"
+                )
+                next_st, next_pr, next_w = _roll_next_boss_state(b_name, lang)
+
+        elif b_state == "abs_defense":
+            # غول در حالت دفاع مطلق است
+            if move == "break":
+                dmg = int(base_atk * 1.35)
+                bt["boss_hp"] = max(0, bt["boss_hp"] - dmg)
+                bt["p_rage"] = min(100, bt["p_rage"] + 25)
+                log_line = (
+                    f"🔨 سپر دفاع مطلق «{b_name}» را متلاشی کردی! {dmg} آسیب وارد شد و غول گیج شد!"
+                    if lang == "fa" else
+                    f"🔨 Shattered Absolute Defense! Dealt {dmg} DMG and stunned the boss!"
+                )
+                next_st = "stunned"
+                next_pr = f"😵 گارد «{b_name}» شکسته و گیج است! ضربه سنگین بزن!" if lang == "fa" else f"😵 Guard broken! Boss is Stunned!"
+                next_w = 0
+            elif move == "blood" and bt["p_rage"] >= 50:
+                bt["p_rage"] -= 50
+                dmg = int(base_atk * 1.5)
+                heal = int(p["max_hp"] * 0.22)
+                bt["boss_hp"] = max(0, bt["boss_hp"] - dmg)
+                bt["p_hp"] = min(bt["p_max_hp"], bt["p_hp"] + heal)
+                log_line = f"🩸 جادوی خون از دفاع مطلق رد شد! {dmg} آسیب زدی و +{heal} جان گرفتی!"
+                next_st, next_pr, next_w = _roll_next_boss_state(b_name, lang)
+            else:
+                recoil = max(6, int(base_boss_dmg * 0.85))
+                bt["p_hp"] = max(0, bt["p_hp"] - recoil)
+                log_line = (
+                    f"🛡️ «{b_name}» در حالت دفاع مطلق بود! ضربه‌ات برگشت خورد و {recoil} آسیب دیدی! (از شکستن گارد استفاده کن)"
+                    if lang == "fa" else
+                    f"🛡️ '{b_name}' is in Absolute Defense! Attack reflected for {recoil} DMG!"
+                )
+                next_st, next_pr, next_w = _roll_next_boss_state(b_name, lang)
+
+        elif b_state == "evasive":
+            # غول آماده جاخالی دادن است
+            if move == "heavy":
+                counter = int(base_boss_dmg * 0.9)
+                bt["p_hp"] = max(0, bt["p_hp"] - counter)
+                log_line = (
+                    f"💨 «{b_name}» از ضربه سنگین تو جاخالی داد و {counter} ضدحمله زد! (از حمله سریع استفاده کن)"
+                    if lang == "fa" else
+                    f"💨 '{b_name}' dodged your Heavy Strike and countered for {counter} DMG!"
+                )
+                next_st, next_pr, next_w = _roll_next_boss_state(b_name, lang)
+            elif move == "quick":
+                dmg = int(base_atk * 1.25)
+                bt["boss_hp"] = max(0, bt["boss_hp"] - dmg)
+                bt["p_rage"] = min(100, bt["p_rage"] + 25)
+                log_line = (
+                    f"⚡ حمله سریع تو قبل از جاخالی به «{b_name}» نشست و {dmg} آسیب زد!"
+                    if lang == "fa" else
+                    f"⚡ Quick Strike caught '{b_name}' for {dmg} DMG!"
+                )
+                next_st, next_pr, next_w = _roll_next_boss_state(b_name, lang)
+            elif move == "blood" and bt["p_rage"] >= 50:
+                bt["p_rage"] -= 50
+                dmg = int(base_atk * 1.6)
+                heal = int(p["max_hp"] * 0.25)
+                bt["boss_hp"] = max(0, bt["boss_hp"] - dmg)
+                bt["p_hp"] = min(bt["p_max_hp"], bt["p_hp"] + heal)
+                log_line = f"🩸 جادوی خون! {dmg} آسیب زدی و +{heal} جان بازیابی شد!"
+                next_st, next_pr, next_w = _roll_next_boss_state(b_name, lang)
+            else:
+                dmg = int(base_atk * 0.7)
+                bt["boss_hp"] = max(0, bt["boss_hp"] - dmg)
+                log_line = f"⚔️ {dmg} آسیب به «{b_name}» وارد شد."
+                next_st, next_pr, next_w = _roll_next_boss_state(b_name, lang)
+
         else:
-            await db.pool.execute(
-                "UPDATE dt_players SET hp=5, humanity=$1, sleep_until=$2 WHERE user_id=$3",
-                new_humanity, sleep_until, uid
-            )
-            return {
-                "ok": False,
-                "error": _dt_msg(lang, "floor_lost", boss=boss["boss_name"]),
-                "state": await get_or_create_player(uid),
-            }
+            # حالت عادی (normal) یا گیج‌شده (stunned)
+            mult = 1.65 if b_state == "stunned" else 1.0
+            boss_retaliation = 0 if b_state == "stunned" else int(base_boss_dmg * random.uniform(0.65, 1.0))
+
+            if move == "heavy":
+                if b_state != "stunned" and random.random() < 0.22:
+                    bt["p_hp"] = max(0, bt["p_hp"] - boss_retaliation)
+                    log_line = f"💨 «{b_name}» در آخرین لحظه جاخالی داد و {boss_retaliation} آسیب زد!"
+                else:
+                    dmg = int(base_atk * 1.55 * mult)
+                    bt["boss_hp"] = max(0, bt["boss_hp"] - dmg)
+                    bt["p_hp"] = max(0, bt["p_hp"] - boss_retaliation)
+                    bt["p_rage"] = min(100, bt["p_rage"] + 20)
+                    log_line = f"💥 ضربه سنگین! {dmg} خسارت به «{b_name}» زدی" + (f" و {boss_retaliation} آسیب دیدی." if boss_retaliation else "!")
+            elif move == "quick":
+                dmg = int(base_atk * 1.0 * mult)
+                bt["boss_hp"] = max(0, bt["boss_hp"] - dmg)
+                bt["p_hp"] = max(0, bt["p_hp"] - int(boss_retaliation * 0.7))
+                bt["p_rage"] = min(100, bt["p_rage"] + 25)
+                log_line = f"⚡ حمله سریع! {dmg} آسیب به «{b_name}» وارد شد (+25 خشم)."
+            elif move == "blood":
+                if bt["p_rage"] < 50:
+                    return {"ok": False, "error": "خشم (Rage) کافی نداری! حداقل ۵۰٪ خشم لازم است.", "state": full_state}
+                bt["p_rage"] -= 50
+                dmg = int(base_atk * 1.8 * mult)
+                heal = int(p["max_hp"] * 0.28)
+                bt["boss_hp"] = max(0, bt["boss_hp"] - dmg)
+                bt["p_hp"] = min(bt["p_max_hp"], bt["p_hp"] + heal - int(boss_retaliation * 0.5))
+                log_line = f"🩸 جادوی خونین! {dmg} خسارت مرگبار زدی و +{heal} جان خودت را شفا دادی!"
+            elif move == "break":
+                dmg = int(base_atk * 0.8 * mult)
+                bt["boss_hp"] = max(0, bt["boss_hp"] - dmg)
+                bt["p_hp"] = max(0, bt["p_hp"] - boss_retaliation)
+                log_line = f"🔨 ضربه گاردشکن ({dmg} آسیب)."
+            else:
+                bt["p_rage"] = min(100, bt["p_rage"] + 15)
+                log_line = f"🛡️ حالت تدافعی گرفتی (+15 خشم)."
+
+            next_st, next_pr, next_w = _roll_next_boss_state(b_name, lang)
+
+        bt["turn"] += 1
+        bt["logs"].insert(0, log_line)
+        bt["logs"] = bt["logs"][:6]
+
+        # بررسی پایان نبرد (مرگ غول یا مرگ بازیکن)
+        if bt["boss_hp"] <= 0:
+            return await _finalize_tower_battle(uid, p, boss, bt, won=True, lang=lang)
+        if bt["p_hp"] <= 0:
+            return await _finalize_tower_battle(uid, p, boss, bt, won=False, lang=lang)
+
+        bt["boss_state"] = next_st
+        bt["state_prompt"] = next_pr
+        bt["deadline_sec"] = next_w
+        bt["state_ts"] = time.time()
+        full_state["active_battle"] = bt
+        return {"ok": True, "state": full_state}
 
     if action == "enter_hospital":
         if p["hospital_rem"] > 0:
@@ -485,25 +766,16 @@ async def handle_tower_api_action(payload: dict) -> dict:
         wait_seconds = max(15, missing_hp * 2 + missing_hum * 2)
         until_ts = now + wait_seconds
         await db.pool.execute("UPDATE dt_players SET hospital_until=$1 WHERE user_id=$2", until_ts, uid)
-        return {
-            "ok": True,
-            "msg": _dt_msg(lang, "hospital_entered", sec=wait_seconds),
-            "state": await get_or_create_player(uid),
-        }
+        st = await get_or_create_player(uid)
+        return {"ok": True, "msg": _dt_msg(lang, "hospital_entered", sec=wait_seconds), "state": st}
 
     if action == "sell_loot":
         inv = p["inventory"]
         if not inv:
             return {"ok": False, "error": _dt_msg(lang, "empty_loot"), "state": full_state}
         total_val = sum(int(x.get("price", 50)) for x in inv)
-        await db.pool.execute(
-            "UPDATE dt_players SET coins=coins+$1, inventory='[]' WHERE user_id=$2", total_val, uid
-        )
-        return {
-            "ok": True,
-            "msg": _dt_msg(lang, "loot_sold", val=total_val),
-            "state": await get_or_create_player(uid),
-        }
+        await db.pool.execute("UPDATE dt_players SET coins=coins+$1, inventory='[]' WHERE user_id=$2", total_val, uid)
+        return {"ok": True, "msg": _dt_msg(lang, "loot_sold", val=total_val), "state": await get_or_create_player(uid)}
 
     if action == "bank_deposit":
         amt = int(payload.get("amount") or 0)
