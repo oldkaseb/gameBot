@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""webapp/backend/main.py — مینی‌اپ گیم باکس راینو + برج شیاطین + پنل مینی‌اپی مخفی مالک با آپلود مستقیم عکس"""
+"""webapp/backend/main.py — مینی‌اپ گیم باکس راینو + برج شیاطین + پنل مینی‌اپی مخفی فرماندهی کل ربات با آپلود مستقیم عکس"""
 
 import io
 import json
@@ -769,7 +769,7 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
           </div>
           <div class="flex items-center gap-1.5">
             ${isOwner && currentGame !== 'tower_admin' ? `
-              <button onclick="nav('tower_admin')" class="btn-primary px-2.5 py-1 rounded-xl text-[11px] font-black text-amber-200">👑 پنل برج</button>
+              <button onclick="nav('tower_admin')" class="btn-primary px-2.5 py-1 rounded-xl text-[11px] font-black text-amber-200">👑 پنل مدیریت</button>
             ` : ''}
             <button onclick="cycleLang()" class="glass-soft px-2.5 py-1 rounded-xl text-xs font-extrabold text-amber-300">
               🌐 ${langFlags[lang] || 'FA'}
@@ -813,6 +813,7 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
     window.nav = function(g, skipLobbyGate = false) {
       if (hokmPollTimer) { clearInterval(hokmPollTimer); hokmPollTimer = null; }
       if (guessPollTimer) { clearInterval(guessPollTimer); guessPollTimer = null; }
+      if (window.dtBattleTimer) { clearInterval(window.dtBattleTimer); window.dtBattleTimer = null; }
       currentGame = g;
 
       const lobbyGames = { hokm: 4, hokm2p: 2, dooz: 2, doz4p: 4, connect4: 2, rps: 2, memory: 2 };
@@ -902,10 +903,10 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
     }
 
     /* ═══════════════════════════════════════════════════════════════════════════
-       مینی‌اپ مخفی «پنل فرماندهی برج شیاطین» (ویژه مالک — فرم‌های خانه‌به‌خانه + آپلود مستقیم عکس)
+       مینی‌اپ مخفی «فرماندهی کل ربات و برج شیاطین» (۱۰ تب کامل ویژه مالک)
        ═══════════════════════════════════════════════════════════════════════════ */
     let admState = null;
-    let admTab = 'floors'; // floors | items | chars | gifts | popup | users | vouchers
+    let admTab = 'bot_stats';
     let admMsg = '';
     let admErr = '';
     let admLookedUpUser = null;
@@ -1025,7 +1026,7 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
         root.innerHTML = `<div class="p-8 text-center"><div class="glass-panel p-6 rounded-3xl text-rose-400 font-black">⛔ دسترسی غیرمجاز (فقط مالک ربات)</div></div>`;
         return;
       }
-      root.innerHTML = `<div class="p-6 text-center"><div class="glass-panel p-6 rounded-3xl font-bold">در حال بارگذاری پنل فرماندهی برج...</div></div>`;
+      root.innerHTML = `<div class="p-6 text-center"><div class="glass-panel p-6 rounded-3xl font-bold">در حال بارگذاری پنل فرماندهی کل ربات...</div></div>`;
       callTowerAdminApi('state');
     }
 
@@ -1038,13 +1039,16 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
       if (!admState) return;
 
       const tabs = [
-        { id: 'floors',   lbl: '👹 طبقات و غول' },
-        { id: 'items',    lbl: '⚔️ سلاح و زره' },
-        { id: 'chars',    lbl: '🚻 عکس کاراکتر' },
-        { id: 'vouchers', lbl: '🎟️ ووچرها' },
-        { id: 'gifts',    lbl: '🎁 کد هدیه' },
-        { id: 'popup',    lbl: '📢 پاپ‌آپ' },
-        { id: 'users',    lbl: '👤 کاربران' }
+        { id: 'bot_stats',    lbl: '📊 آمار و همگانی' },
+        { id: 'bot_channels', lbl: '🔒 قفل کانال' },
+        { id: 'bot_groups',   lbl: '👥 گروه‌ها' },
+        { id: 'users',        lbl: '👤 کاربران و بن' },
+        { id: 'floors',       lbl: '👹 طبقات برج' },
+        { id: 'items',        lbl: '⚔️ سلاح و زره' },
+        { id: 'chars',        lbl: '🚻 عکس کاراکتر' },
+        { id: 'vouchers',     lbl: '🎟️ ووچرها' },
+        { id: 'gifts',        lbl: '🎁 کد هدیه' },
+        { id: 'popup',        lbl: '📢 پاپ‌آپ' }
       ];
       const tabsHtml = tabs.map(t => `
         <button onclick="admSwitchTab('${t.id}')" class="px-3 py-2 rounded-xl text-xs font-black shrink-0 ${admTab === t.id ? 'btn-primary text-white' : 'glass-soft text-slate-300'}">
@@ -1054,8 +1058,105 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
 
       let sectionHtml = '';
 
+      /* ۰-الف. تب آمار کل ربات و ارسال همگانی */
+      if (admTab === 'bot_stats') {
+        const st = admState.bot_stats || {};
+        sectionHtml = `
+          <div class="glass-panel p-4 rounded-3xl space-y-3 text-xs">
+            <h3 class="font-black text-sm text-amber-300 text-center">📊 آمار زنده کل ربات راینو</h3>
+            <div class="grid grid-cols-2 gap-2 text-center font-extrabold">
+              <div class="glass-soft p-3 rounded-2xl"><div class="text-slate-400 text-[10px]">کل کاربران</div><div class="text-lg text-emerald-300">${st.users || 0}</div></div>
+              <div class="glass-soft p-3 rounded-2xl"><div class="text-slate-400 text-[10px]">کل گروه‌ها</div><div class="text-lg text-sky-300">${st.groups || 0}</div></div>
+              <div class="glass-soft p-3 rounded-2xl"><div class="text-slate-400 text-[10px]">بازیکنان برج</div><div class="text-lg text-amber-300">${admState.players_count || 0}</div></div>
+              <div class="glass-soft p-3 rounded-2xl"><div class="text-slate-400 text-[10px]">مجموع استارز</div><div class="text-lg text-purple-300">⭐ ${st.stars || 0}</div></div>
+            </div>
+
+            <div class="border-t border-white/10 pt-3 space-y-2.5">
+              <h4 class="font-black text-sm text-indigo-300 text-center">📢 ارسال پیام همگانی (Broadcast)</h4>
+              <select id="bc_target" class="w-full p-2.5 rounded-xl bg-slate-900 border border-white/20 text-white font-bold text-center">
+                <option value="users">👤 ارسال به تمام کاربران (پیوی)</option>
+                <option value="groups">👥 ارسال به تمام گروه‌ها</option>
+              </select>
+              <textarea id="bc_text" rows="3" placeholder="متن پیام همگانی را بنویسید (پشتیبانی از تگ‌های HTML)..." class="w-full p-2.5 rounded-xl glass-soft text-white"></textarea>
+              <div class="grid grid-cols-2 gap-2">
+                <input id="bc_btxt" type="text" placeholder="متن دکمه شیشه‌ای (اختیاری)" class="p-2 rounded-xl glass-soft text-white text-center" />
+                <input id="bc_burl" type="text" placeholder="لینک دکمه (https://...)" class="p-2 rounded-xl glass-soft text-white text-center" />
+              </div>
+              <button onclick="callTowerAdminApi('bot_broadcast',{target_type:document.getElementById('bc_target').value,text:document.getElementById('bc_text').value,btn_text:document.getElementById('bc_btxt').value,btn_url:document.getElementById('bc_burl').value})" class="btn-success w-full py-3.5 rounded-2xl font-black text-sm">
+                🚀 شروع ارسال همگانی
+              </button>
+            </div>
+          </div>
+        `;
+      }
+
+      /* ۰-ب. تب مدیریت کانال‌های عضویت اجباری (Forced Join) */
+      else if (admTab === 'bot_channels') {
+        const chRows = (admState.forced_channels || []).map(c => `
+          <div class="glass-soft p-3 rounded-2xl flex justify-between items-center text-xs">
+            <div>
+              <div class="font-black text-amber-300">${c.title || c.chat_id}</div>
+              <div class="text-[10px] text-slate-300">ID: ${c.chat_id} ${c.username ? '(@'+c.username+')' : ''}</div>
+            </div>
+            <button onclick="callTowerAdminApi('bot_del_channel',{chat_id:'${c.chat_id}'})" class="btn-danger px-3 py-1.5 rounded-xl text-[10px] font-black">حذف</button>
+          </div>
+        `).join('');
+
+        sectionHtml = `
+          <div class="glass-panel p-4 rounded-3xl space-y-2.5 text-xs">
+            <h3 class="font-black text-sm text-amber-300 text-center">🔒 افزودن کانال به قفل عضویت اجباری</h3>
+            <p class="text-[11px] text-slate-300 text-center">ابتدا ربات را در کانال مورد نظر ادمین کنید، سپس مشخصاتش را وارد نمایید:</p>
+            <div>
+              <label class="block text-[11px] text-slate-300 mb-1">یوزرنیم کانال (با @) یا آیدی عددی (-100...):</label>
+              <input id="fc_cid" type="text" placeholder="مثلاً: @RHINOBOT_TM" class="w-full p-2.5 rounded-xl glass-soft text-center font-black text-white" />
+            </div>
+            <div class="grid grid-cols-2 gap-2">
+              <div>
+                <label class="block text-[11px] text-slate-300 mb-1">عنوان نمایشی دکمه:</label>
+                <input id="fc_title" type="text" placeholder="مثلاً: کانال رسمی راینو" class="w-full p-2.5 rounded-xl glass-soft text-center text-white" />
+              </div>
+              <div>
+                <label class="block text-[11px] text-slate-300 mb-1">یوزرنیم بدون @ (جهت لینک):</label>
+                <input id="fc_uname" type="text" placeholder="RHINOBOT_TM" class="w-full p-2.5 rounded-xl glass-soft text-center text-white" />
+              </div>
+            </div>
+            <button onclick="callTowerAdminApi('bot_add_channel',{chat_id:document.getElementById('fc_cid').value,title:document.getElementById('fc_title').value,username:document.getElementById('fc_uname').value})" class="btn-success w-full py-3.5 rounded-2xl font-black text-sm">
+              ➕ افزودن کانال به قفل اجباری
+            </button>
+          </div>
+
+          <div class="glass-panel p-3.5 rounded-3xl space-y-2 mt-3">
+            <h4 class="text-xs font-black text-indigo-300 text-center">لیست کانال‌های عضویت اجباری فعال</h4>
+            <div class="flex flex-col gap-2">${chRows || '<div class="text-center text-xs text-slate-400">هیچ کانالی ثبت نشده است.</div>'}</div>
+          </div>
+        `;
+      }
+
+      /* ۰-ج. تب لیست گروه‌ها، دریافت لینک ورود و خروج ربات از گروه */
+      else if (admTab === 'bot_groups') {
+        const gRows = (admState.groups_list || []).map(g => `
+          <div class="glass-soft p-3 rounded-2xl flex justify-between items-center gap-2 text-xs">
+            <div class="truncate">
+              <div class="font-black text-white truncate">${g.title || 'Group'}</div>
+              <div class="text-[10px] text-slate-400 font-mono">${g.chat_id}</div>
+            </div>
+            <div class="flex gap-1 shrink-0">
+              <button onclick="callTowerAdminApi('bot_group_link',{chat_id:${g.chat_id}})" class="btn-primary px-2.5 py-1.5 rounded-xl text-[10px] font-bold">🔗 لینک</button>
+              <button onclick="callTowerAdminApi('bot_leave_group',{chat_id:${g.chat_id}})" class="btn-danger px-2.5 py-1.5 rounded-xl text-[10px] font-bold">🚪 خروج</button>
+            </div>
+          </div>
+        `).join('');
+
+        sectionHtml = `
+          <div class="glass-panel p-4 rounded-3xl space-y-2.5">
+            <h3 class="font-black text-sm text-amber-300 text-center">👥 لیست گروه‌های فعال ربات (${(admState.groups_list || []).length})</h3>
+            <div class="flex flex-col gap-2">${gRows || '<div class="text-center text-xs text-slate-400">گروهی ثبت نشده است.</div>'}</div>
+          </div>
+        `;
+      }
+
       /* ۱. تب طبقات و غول‌ها (فرم خانه‌به‌خانه + آپلود مستقیم عکس) */
-      if (admTab === 'floors') {
+      else if (admTab === 'floors') {
         const fList = (admState.floors || []).map(f => `
           <div class="glass-soft p-2.5 rounded-2xl flex items-center justify-between gap-2 text-xs">
             <div class="flex items-center gap-2">
@@ -1075,7 +1176,6 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
         sectionHtml = `
           <div class="glass-panel p-4 rounded-3xl space-y-2.5 text-xs">
             <h3 class="font-black text-sm text-amber-300 text-center mb-1">👹 افزودن / ویرایش طبقه و غول (خانه‌به‌خانه)</h3>
-
             <div class="grid grid-cols-2 gap-2">
               <div>
                 <label class="block text-[11px] text-slate-300 mb-1">شماره طبقه:</label>
@@ -1087,9 +1187,8 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
               </div>
             </div>
 
-            <!-- آپلود مستقیم عکس غول از گالری -->
             <div class="glass-soft p-3 rounded-2xl text-center">
-              <label class="block text-[11px] text-amber-200 font-bold mb-2">📷 عکس غول (آپلود مستقیم از گالری گوشی/سیستم):</label>
+              <label class="block text-[11px] text-amber-200 font-bold mb-2">📷 عکس غول (آپلود مستقیم از گالری):</label>
               <input type="file" accept="image/*" onchange="handleImageUpload(this, 'floor_photo', 'prev_floor_photo')" class="w-full text-[11px] text-slate-300" />
               <img id="prev_floor_photo" class="hidden w-28 h-28 object-cover rounded-2xl mx-auto mt-2 border border-amber-400" />
             </div>
@@ -1147,9 +1246,7 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
               </div>
             </div>
 
-            <button onclick="admSubmitFloor()" class="btn-success w-full py-3.5 rounded-2xl font-black text-sm mt-2">
-              💾 ذخیره طبقه و غول
-            </button>
+            <button onclick="admSubmitFloor()" class="btn-success w-full py-3.5 rounded-2xl font-black text-sm mt-2">💾 ذخیره طبقه و غول</button>
           </div>
 
           <div class="glass-panel p-3.5 rounded-3xl space-y-2 mt-3">
@@ -1159,7 +1256,7 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
         `;
       }
 
-      /* ۲. تب سلاح‌ها و زره‌ها (فرم خانه‌به‌خانه + آپلود مستقیم عکس) */
+      /* ۲. تب سلاح‌ها و زره‌ها */
       else if (admTab === 'items') {
         const iList = (admState.items || []).map(it => `
           <div class="glass-soft p-2.5 rounded-2xl flex items-center justify-between gap-2 text-xs">
@@ -1176,8 +1273,7 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
 
         sectionHtml = `
           <div class="glass-panel p-4 rounded-3xl space-y-2.5 text-xs">
-            <h3 class="font-black text-sm text-amber-300 text-center">⚔️ افزودن سلاح یا زره جدید (خانه‌به‌خانه)</h3>
-
+            <h3 class="font-black text-sm text-amber-300 text-center">⚔️ افزودن سلاح یا زره جدید</h3>
             <div class="grid grid-cols-2 gap-2">
               <div>
                 <label class="block text-[11px] text-slate-300 mb-1">نوع آیتم:</label>
@@ -1204,27 +1300,13 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
             </div>
 
             <div class="grid grid-cols-2 gap-2">
-              <div>
-                <label class="block text-[11px] text-rose-300 mb-1">❤️ افزایش جان (+HP):</label>
-                <input id="ai_hp" type="number" value="40" class="w-full p-2 rounded-xl glass-soft text-center font-bold text-white" />
-              </div>
-              <div>
-                <label class="block text-[11px] text-amber-300 mb-1">⚔️ افزایش حمله (+ATK):</label>
-                <input id="ai_atk" type="number" value="50" class="w-full p-2 rounded-xl glass-soft text-center font-bold text-white" />
-              </div>
-              <div>
-                <label class="block text-[11px] text-sky-300 mb-1">🛡️ افزایش دفاع (+DEF):</label>
-                <input id="ai_def" type="number" value="20" class="w-full p-2 rounded-xl glass-soft text-center font-bold text-white" />
-              </div>
-              <div>
-                <label class="block text-[11px] text-emerald-300 mb-1">⚡ تغییر سرعت (+SPD):</label>
-                <input id="ai_spd" type="number" value="5" class="w-full p-2 rounded-xl glass-soft text-center font-bold text-white" />
-              </div>
+              <div><label class="block text-[11px] text-rose-300 mb-1">❤️ +HP:</label><input id="ai_hp" type="number" value="40" class="w-full p-2 rounded-xl glass-soft text-center font-bold text-white" /></div>
+              <div><label class="block text-[11px] text-amber-300 mb-1">⚔️ +ATK:</label><input id="ai_atk" type="number" value="50" class="w-full p-2 rounded-xl glass-soft text-center font-bold text-white" /></div>
+              <div><label class="block text-[11px] text-sky-300 mb-1">🛡️ +DEF:</label><input id="ai_def" type="number" value="20" class="w-full p-2 rounded-xl glass-soft text-center font-bold text-white" /></div>
+              <div><label class="block text-[11px] text-emerald-300 mb-1">⚡ +SPD:</label><input id="ai_spd" type="number" value="5" class="w-full p-2 rounded-xl glass-soft text-center font-bold text-white" /></div>
             </div>
 
-            <button onclick="admSubmitItem()" class="btn-success w-full py-3.5 rounded-2xl font-black text-sm">
-              ➕ افزودن به لیست تجهیزات برج
-            </button>
+            <button onclick="admSubmitItem()" class="btn-success w-full py-3.5 rounded-2xl font-black text-sm">➕ افزودن به لیست تجهیزات برج</button>
           </div>
 
           <div class="glass-panel p-3.5 rounded-3xl space-y-2 mt-3">
@@ -1234,34 +1316,29 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
         `;
       }
 
-      /* ۳. تب آپلود مستقیم عکس کاراکتر مرد و زن */
+      /* ۳. تب عکس کاراکتر مرد و زن */
       else if (admTab === 'chars') {
         sectionHtml = `
           <div class="glass-panel p-4 rounded-3xl space-y-4 text-xs text-center">
             <h3 class="font-black text-sm text-amber-300">🚻 آپلود مستقیم تصاویر کاراکتر مرد و زن</h3>
-
             <div class="glass-soft p-3.5 rounded-2xl">
               <div class="font-black text-sky-300 mb-2">🚹 تصویر کاراکتر مرد</div>
               ${admState.male_img ? `<img src="${admState.male_img}" class="w-28 h-32 object-cover rounded-xl mx-auto mb-2 border border-sky-400" />` : ''}
               <input type="file" accept="image/*" onchange="handleImageUpload(this, 'male_photo', 'prev_male_photo')" class="w-full text-[11px]" />
               <img id="prev_male_photo" class="hidden w-28 h-32 object-cover rounded-xl mx-auto mt-2 border-2 border-emerald-400" />
             </div>
-
             <div class="glass-soft p-3.5 rounded-2xl">
               <div class="font-black text-pink-300 mb-2">🚺 تصویر کاراکتر زن</div>
               ${admState.female_img ? `<img src="${admState.female_img}" class="w-28 h-32 object-cover rounded-xl mx-auto mb-2 border border-pink-400" />` : ''}
               <input type="file" accept="image/*" onchange="handleImageUpload(this, 'female_photo', 'prev_female_photo')" class="w-full text-[11px]" />
               <img id="prev_female_photo" class="hidden w-28 h-32 object-cover rounded-xl mx-auto mt-2 border-2 border-emerald-400" />
             </div>
-
-            <button onclick="admSubmitChars()" class="btn-success w-full py-3.5 rounded-2xl font-black text-sm">
-              💾 ذخیره تصاویر کاراکترها
-            </button>
+            <button onclick="admSubmitChars()" class="btn-success w-full py-3.5 rounded-2xl font-black text-sm">💾 ذخیره تصاویر کاراکترها</button>
           </div>
         `;
       }
 
-      /* ۴. تب مدیریت درخواست‌های ووچر با باکس یادداشت */
+      /* ۴. تب مدیریت درخواست‌های ووچر */
       else if (admTab === 'vouchers') {
         const vRows = (admState.vouchers || []).map(v => `
           <div class="glass-soft p-3 rounded-2xl text-xs space-y-2 border border-white/10">
@@ -1294,7 +1371,7 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
         `;
       }
 
-      /* ۵. تب ساخت کد هدیه خانه‌به‌خانه */
+      /* ۵. تب ساخت کد هدیه */
       else if (admTab === 'gifts') {
         const gRows = (admState.gifts || []).map(g => {
           const usedCnt = JSON.parse(g.used_by || '[]').length;
@@ -1317,22 +1394,12 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
               <input id="ag_code" type="text" placeholder="مثلاً: RHINO2026" class="w-full p-2.5 rounded-xl glass-soft text-center font-black text-white" />
             </div>
             <div class="grid grid-cols-3 gap-2">
-              <div>
-                <label class="block text-[11px] text-amber-300 mb-1">مقدار سکه:</label>
-                <input id="ag_coins" type="number" value="2000" class="w-full p-2 rounded-xl glass-soft text-center font-bold text-white" />
-              </div>
-              <div>
-                <label class="block text-[11px] text-purple-300 mb-1">مقدار XP:</label>
-                <input id="ag_xp" type="number" value="300" class="w-full p-2 rounded-xl glass-soft text-center font-bold text-white" />
-              </div>
-              <div>
-                <label class="block text-[11px] text-emerald-300 mb-1">ظرفیت مجاز:</label>
-                <input id="ag_uses" type="number" value="50" class="w-full p-2 rounded-xl glass-soft text-center font-bold text-white" />
-              </div>
+              <div><label class="block text-[11px] text-amber-300 mb-1">سکه:</label><input id="ag_coins" type="number" value="2000" class="w-full p-2 rounded-xl glass-soft text-center font-bold text-white" /></div>
+              <div><label class="block text-[11px] text-purple-300 mb-1">XP:</label><input id="ag_xp" type="number" value="300" class="w-full p-2 rounded-xl glass-soft text-center font-bold text-white" /></div>
+              <div><label class="block text-[11px] text-emerald-300 mb-1">ظرفیت:</label><input id="ag_uses" type="number" value="50" class="w-full p-2 rounded-xl glass-soft text-center font-bold text-white" /></div>
             </div>
             <button onclick="admSubmitGift()" class="btn-success w-full py-3.5 rounded-2xl font-black text-sm">➕ ثبت کد هدیه</button>
           </div>
-
           <div class="glass-panel p-3.5 rounded-3xl space-y-2 mt-3">
             <h4 class="text-xs font-black text-indigo-300 text-center">کدهای هدیه فعال</h4>
             <div class="flex flex-col gap-2">${gRows}</div>
@@ -1340,43 +1407,34 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
         `;
       }
 
-      /* ۶. تب ساخت پاپ‌آپ تبلیغاتی شناور با آپلود عکس */
+      /* ۶. تب ساخت پاپ‌آپ تبلیغاتی شناور */
       else if (admTab === 'popup') {
         sectionHtml = `
           <div class="glass-panel p-4 rounded-3xl space-y-2.5 text-xs">
-            <h3 class="font-black text-sm text-amber-300 text-center">📢 تنظیم پاپ‌آپ تبلیغاتی شناور در منوی برج</h3>
-            <div>
-              <label class="block text-[11px] text-slate-300 mb-1">متن پیام پاپ‌آپ:</label>
-              <textarea id="ap_text" rows="3" placeholder="متن تبلیغ یا اطلاعیه..." class="w-full p-2.5 rounded-xl glass-soft text-white"></textarea>
-            </div>
+            <h3 class="font-black text-sm text-amber-300 text-center">📢 تنظیم پاپ‌آپ تبلیغاتی شناور</h3>
+            <textarea id="ap_text" rows="3" placeholder="متن تبلیغ یا اطلاعیه..." class="w-full p-2.5 rounded-xl glass-soft text-white"></textarea>
             <div class="glass-soft p-3 rounded-2xl text-center">
-              <label class="block text-[11px] text-amber-200 font-bold mb-1">📷 عکس پاپ‌آپ (اختیاری — آپلود مستقیم از گالری):</label>
+              <label class="block text-[11px] text-amber-200 font-bold mb-1">📷 عکس پاپ‌آپ (آپلود مستقیم از گالری):</label>
               <input type="file" accept="image/*" onchange="handleImageUpload(this, 'popup_photo', 'prev_popup_photo')" class="w-full text-[11px]" />
               <img id="prev_popup_photo" class="hidden w-32 h-24 object-cover rounded-xl mx-auto mt-2 border border-amber-400" />
             </div>
             <div class="grid grid-cols-2 gap-2">
-              <div>
-                <label class="block text-[11px] text-slate-300 mb-1">متن دکمه (اختیاری):</label>
-                <input id="ap_btxt" type="text" placeholder="مثلاً: عضویت در کانال" class="w-full p-2 rounded-xl glass-soft text-white" />
-              </div>
-              <div>
-                <label class="block text-[11px] text-slate-300 mb-1">لینک دکمه (اختیاری):</label>
-                <input id="ap_burl" type="text" placeholder="https://t.me/..." class="w-full p-2 rounded-xl glass-soft text-white" />
-              </div>
+              <input id="ap_btxt" type="text" placeholder="متن دکمه (اختیاری)" class="w-full p-2 rounded-xl glass-soft text-white" />
+              <input id="ap_burl" type="text" placeholder="لینک دکمه (https://...)" class="w-full p-2 rounded-xl glass-soft text-white" />
             </div>
             <div>
-              <label class="block text-[11px] text-amber-300 mb-1">⏳ مدت زمان نمایش شناور (به ساعت):</label>
+              <label class="block text-[11px] text-amber-300 mb-1">⏳ مدت نمایش شناور (ساعت):</label>
               <input id="ap_hrs" type="number" value="24" class="w-full p-2.5 rounded-xl glass-soft text-center font-black text-white" />
             </div>
             <div class="grid grid-cols-2 gap-2 pt-2">
-              <button onclick="admSubmitPopup(false)" class="btn-success py-3 rounded-2xl font-black">✅ فعال‌سازی پاپ‌آپ</button>
-              <button onclick="admSubmitPopup(true)" class="btn-danger py-3 rounded-2xl font-black">🗑️ حذف پاپ‌آپ فعلی</button>
+              <button onclick="admSubmitPopup(false)" class="btn-success py-3 rounded-2xl font-black">✅ فعال‌سازی</button>
+              <button onclick="admSubmitPopup(true)" class="btn-danger py-3 rounded-2xl font-black">🗑️ حذف پاپ‌آپ</button>
             </div>
           </div>
         `;
       }
 
-      /* ۷. تب مدیریت کاربران، شارژ و مسدودسازی + قفل توسعه بازی */
+      /* ۷. تب مدیریت کاربران، شارژ برج، مسدودسازی سراسری ربات و ادمین کردن */
       else if (admTab === 'users') {
         const u = admLookedUpUser;
         sectionHtml = `
@@ -1388,7 +1446,7 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
               </button>
             </div>
 
-            <h3 class="font-black text-sm text-amber-300 text-center pt-1">🔍 بررسی، شارژ و مسدودسازی بازیکن</h3>
+            <h3 class="font-black text-sm text-amber-300 text-center pt-1">🔍 جستجو، شارژ و مدیریت کاربر در کل ربات</h3>
             <div class="flex gap-2">
               <input id="au_uid" type="number" value="${u ? u.user_id : ''}" placeholder="آیدی عددی کاربر..." class="flex-1 p-2.5 rounded-xl glass-soft text-center font-black text-white" />
               <button onclick="callTowerAdminApi('Lookup_user',{target_uid:Number(document.getElementById('au_uid').value)})" class="btn-primary px-4 rounded-xl font-black">جستجو</button>
@@ -1396,19 +1454,22 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
 
             ${u ? `
               <div class="glass-soft p-3 rounded-2xl space-y-1.5 border border-amber-400/40">
-                <div class="flex justify-between"><span>شناسه کاربر:</span><b>${u.user_id} (${u.gender || 'بدون کاراکتر'})</b></div>
-                <div class="flex justify-between"><span>لول / XP:</span><b class="text-purple-300">Lvl ${u.level} (${u.xp} XP)</b></div>
+                <div class="flex justify-between"><span>کاربر:</span><b>${u.first_name || ''} (${u.user_id})</b></div>
+                <div class="flex justify-between"><span>لول / XP برج:</span><b class="text-purple-300">Lvl ${u.level} (${u.xp} XP)</b></div>
                 <div class="flex justify-between"><span>موجودی کیف / بانک:</span><b class="text-amber-300">${u.coins.toLocaleString()} 🪙 / ${u.bank_coins.toLocaleString()} 🏦</b></div>
-                <div class="flex justify-between"><span>طبقه فعلی / انسانیت:</span><b>طبقه ${u.current_floor} | ${u.humanity}% 🧠</b></div>
-                <div class="flex justify-between"><span>وضعیت حساب:</span><b class="${u.is_banned ? 'text-rose-400' : 'text-emerald-400'}">${u.is_banned ? '🚫 مسدود' : '🟢 آزاد'}</b></div>
+                <div class="flex justify-between"><span>طبقه / انسانیت:</span><b>طبقه ${u.current_floor} | ${u.humanity}% 🧠</b></div>
+                <div class="flex justify-between"><span>وضعیت در برج:</span><b class="${u.is_banned ? 'text-rose-400' : 'text-emerald-400'}">${u.is_banned ? '🚫 مسدود در برج' : '🟢 آزاد در برج'}</b></div>
+                <div class="flex justify-between"><span>وضعیت در کل ربات:</span><b class="${u.global_banned ? 'text-rose-400' : 'text-emerald-400'}">${u.global_banned ? '⛔ بن سراسری' : '🟢 فعال'}</b></div>
 
                 <div class="grid grid-cols-2 gap-2 pt-2 border-t border-white/10">
                   <input id="au_addc" type="number" placeholder="سکه اهدایی (+)" class="p-2 rounded-xl bg-slate-900 text-center text-white font-bold" />
                   <input id="au_addx" type="number" placeholder="XP اهدایی (+)" class="p-2 rounded-xl bg-slate-900 text-center text-white font-bold" />
                 </div>
                 <div class="grid grid-cols-2 gap-2 pt-1">
-                  <button onclick="callTowerAdminApi('charge_user',{target_uid:${u.user_id},add_coins:Number(document.getElementById('au_addc').value||0),add_xp:Number(document.getElementById('au_addx').value||0)})" class="btn-success py-2.5 rounded-xl font-black">⚡ شارژ کاربر</button>
-                  <button onclick="callTowerAdminApi('toggle_ban_user',{target_uid:${u.user_id}})" class="btn-danger py-2.5 rounded-xl font-black">${u.is_banned ? '🟢 رفع مسدودیت' : '🚫 مسدود کردن'}</button>
+                  <button onclick="callTowerAdminApi('charge_user',{target_uid:${u.user_id},add_coins:Number(document.getElementById('au_addc').value||0),add_xp:Number(document.getElementById('au_addx').value||0)})" class="btn-success py-2 rounded-xl font-black">⚡ شارژ در برج</button>
+                  <button onclick="callTowerAdminApi('toggle_ban_user',{target_uid:${u.user_id}})" class="btn-danger py-2 rounded-xl font-black">${u.is_banned ? '🟢 آزادی در برج' : '🚫 بن از برج'}</button>
+                  <button onclick="callTowerAdminApi('bot_global_ban',{target_id:${u.user_id},ban:${!u.global_banned}})" class="btn-danger py-2 rounded-xl font-black">${u.global_banned ? '🟢 آن‌بن کل ربات' : '⛔ بن از کل ربات'}</button>
+                  <button onclick="callTowerAdminApi('bot_set_admin',{target_id:${u.user_id},is_admin:${!u.is_bot_admin}})" class="btn-primary py-2 rounded-xl font-black">${u.is_bot_admin ? 'حذف ادمین' : '👑 ارتقا به ادمین'}</button>
                 </div>
               </div>
             ` : ''}
@@ -1417,11 +1478,11 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
       }
 
       root.innerHTML = `
-        ${renderTopBar('👑 پنل فرماندهی برج')}
+        ${renderTopBar('👑 فرماندهی کل ربات')}
         <div class="flex-1 overflow-y-auto px-3 pb-6 flex flex-col">
           <div class="flex gap-1.5 overflow-x-auto pb-2 mb-2 shrink-0">${tabsHtml}</div>
-          ${admMsg ? `<div class="p-3 rounded-2xl bg-emerald-600/35 border border-emerald-400 text-xs font-extrabold text-center mb-2.5">${admMsg}</div>` : ''}
-          ${admErr ? `<div class="p-3 rounded-2xl bg-rose-600/40 border border-rose-400 text-xs font-extrabold text-center mb-2.5">${admErr}</div>` : ''}
+          ${admMsg ? `<div class="p-3 rounded-2xl bg-emerald-600/35 border border-emerald-400 text-xs font-extrabold text-center mb-2.5 whitespace-pre-line">${admMsg}</div>` : ''}
+          ${admErr ? `<div class="p-3 rounded-2xl bg-rose-600/40 border border-rose-400 text-xs font-extrabold text-center mb-2.5 whitespace-pre-line">${admErr}</div>` : ''}
           ${sectionHtml}
           <button onclick="nav('demontower')" class="btn-primary w-full py-3 rounded-2xl font-black text-xs mt-3">👹 ورود به محیط بازی برج شیاطین</button>
         </div>
@@ -1553,7 +1614,6 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
         if (window.dtBattleTimer) { clearInterval(window.dtBattleTimer); window.dtBattleTimer = null; }
         const bt = dtData.active_battle;
 
-        // اگر نبرد زنده در جریان است، میدان نبرد تعاملی با ۶ دکمه و تایمر ۵ ثانیه‌ای نمایش داده شود
         if (bt) {
           const bossHpPct = Math.max(0, Math.min(100, Math.round((bt.boss_hp / bt.boss_max_hp) * 100)));
           const myHpPct = Math.max(0, Math.min(100, Math.round((bt.p_hp / bt.p_max_hp) * 100)));
@@ -1576,7 +1636,6 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
           bodyHtml = `
             ${alertHtml}
             <div class="glass-panel p-3.5 rounded-3xl mb-2.5 border ${isCharging ? 'border-rose-500 shadow-[0_0_25px_rgba(244,63,94,0.45)]' : 'border-white/15'}">
-              <!-- هدر وضعیت غول و نوار جان غول -->
               <div class="flex items-center gap-3 mb-2">
                 ${bt.boss_photo ? `<img src="${bt.boss_photo}" class="w-16 h-16 rounded-2xl object-cover border-2 border-rose-500 shrink-0" />` : `<div class="w-16 h-16 rounded-2xl bg-rose-950 flex items-center justify-center text-4xl shrink-0">👹</div>`}
                 <div class="flex-1 min-w-0">
@@ -1594,7 +1653,6 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
                 </div>
               </div>
 
-              <!-- هشدار وضعیت لحظه‌ای غول و تایمر ۵ ثانیه‌ای دفاع -->
               <div class="p-3 rounded-2xl border text-center font-black text-xs mb-3 ${stateColors[bt.boss_state] || stateColors.normal}">
                 <div>${bt.state_prompt}</div>
                 ${isCharging ? `
@@ -1606,7 +1664,6 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
                 ` : ''}
               </div>
 
-              <!-- نوار جان و خشم بازیکن -->
               <div class="glass-soft p-2.5 rounded-2xl mb-3">
                 <div class="flex justify-between text-xs font-extrabold mb-1">
                   <span class="text-emerald-300">❤️ جان شما: ${bt.p_hp} / ${bt.p_max_hp}</span>
@@ -1620,7 +1677,6 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
                 </div>
               </div>
 
-              <!-- ۶ دکمه تاکتیکی نبرد -->
               <div class="grid grid-cols-2 gap-2 mb-3">
                 <button onclick="dtAct('battle_move',{move:'quick'})" class="btn-primary py-3 px-2 rounded-2xl font-black text-xs flex flex-col items-center">
                   <span>⚡ حمله سریع</span>
@@ -1648,14 +1704,12 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
                 </button>
               </div>
 
-              <!-- گزارش لحظه‌به‌لحظه نبرد -->
               <div class="glass-soft p-2.5 rounded-2xl max-h-28 overflow-y-auto space-y-1 text-right">
                 ${logsHtml}
               </div>
             </div>
           `;
 
-          // راه‌اندازی تایمر ۵ ثانیه‌ای واقعی در صورت شارژ حمله غول
           if (isCharging) {
             let rem = 5.0;
             setTimeout(() => {
@@ -1677,7 +1731,6 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
             }, 50);
           }
         } else {
-          // صفحه آماده‌سازی قبل از ورود به نبرد طبقه (انتخاب سلاح و مشاهده مشخصات غول)
           const myWeapons = (dtData.items || []).filter(i => i.item_type === 'weapon' && p.owned_weapons.includes(i.id));
           const wSelectHtml = myWeapons.map(w => `
             <button onclick="dtSelectedWeapon=${w.id};drawDemonTower(document.getElementById('app'))" class="px-3 py-2 rounded-xl text-xs font-bold border ${dtSelectedWeapon === w.id ? 'btn-success border-white' : 'glass-soft border-white/10'}">
