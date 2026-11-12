@@ -1,16 +1,14 @@
 # -*- coding: utf-8 -*-
-"""games/__init__.py — ثبت روترهای بازی، پنل، لابی و گردونه شانس"""
+"""games/__init__.py — ثبت تمام روترهای بازی‌ها و پنل برج شیاطین"""
 
 from aiogram import Dispatcher
-
 from games.panel import router as panel_router
 from games.lobbies import router as lobbies_router
 from games.gardone import router as gardone_router
 from games.demon_tower import router as demon_tower_router
 
 
-
-def register_all_games(dp: Dispatcher):
+def register_all_games(dp: Dispatcher) -> None:
     dp.include_router(panel_router)
     dp.include_router(lobbies_router)
     dp.include_router(gardone_router)
