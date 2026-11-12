@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""webapp/backend/main.py — مینی‌اپ ۷ زبانه کامل با نام‌های کوتاه بازی‌ها، گلس‌مورفیسم و میز حکم فرش ایرانی"""
+"""webapp/backend/main.py — سرور کامل مینی‌اپ گیم باکس راینو + برج شیاطین ۷ زبانه + حکم فرش ایرانی"""
 
 import io
 import json
@@ -31,12 +31,15 @@ FONT_PATH = BASE_DIR / "Vazirmatn-SemiBold.ttf"
 CUSTOM_HERO_FILE = BASE_DIR / "rhino_banner.png"
 CUSTOM_MENU_BG = BASE_DIR / "menu_bg.png"
 CUSTOM_CARPET_BG = BASE_DIR / "hokm_carpet.png"
+CUSTOM_TOWER_BG = BASE_DIR / "tower_bg.png"
+CUSTOM_TOWER_HERO = BASE_DIR / "tower_hero.png"
 
 hokm_rooms: dict[str, HokmGame] = {}
 guess_rooms: dict[str, dict] = {}
 
 GAME_META = {
     "hub":          {"title": "RHINO GAME BOX", "c1": (15, 23, 42),  "c2": (79, 70, 229)},
+    "demontower":   {"title": "DEMON TOWER",    "c1": (69, 10, 10),  "c2": (220, 38, 38)},
     "hokm":         {"title": "HOKM 4P",        "c1": (127, 17, 22), "c2": (185, 28, 28)},
     "hokm2p":       {"title": "HOKM 2P",        "c1": (127, 17, 22), "c2": (185, 28, 28)},
     "2048":         {"title": "2048",           "c1": (15, 23, 42),  "c2": (37, 99, 235)},
@@ -99,6 +102,10 @@ async def serve_custom_bg(bg_name: str):
         return FileResponse(str(CUSTOM_MENU_BG), media_type="image/png")
     if bg_name == "carpet" and CUSTOM_CARPET_BG.exists():
         return FileResponse(str(CUSTOM_CARPET_BG), media_type="image/png")
+    if bg_name == "tower_bg" and CUSTOM_TOWER_BG.exists():
+        return FileResponse(str(CUSTOM_TOWER_BG), media_type="image/png")
+    if bg_name == "tower_hero" and CUSTOM_TOWER_HERO.exists():
+        return FileResponse(str(CUSTOM_TOWER_HERO), media_type="image/png")
     return Response(status_code=404)
 
 
@@ -155,9 +162,31 @@ class GuessActionPayload(BaseModel):
     guess_val: int | None = None
 
 
+class TowerActionPayload(BaseModel):
+    uid: int
+    name: str = "Player"
+    lang: str = "fa"
+    action: str = "state"
+    gender: str | None = None
+    item_id: int | None = None
+    weapon_id: int | None = None
+    amount: int | None = None
+    target: str | None = None
+    pack_id: str | None = None
+    code: str | None = None
+    coins: int | None = None
+    voucher_type: str | None = None
+
+
 @app.get("/health")
 async def health_check():
     return {"status": "ok"}
+
+
+@app.post("/api/tower/action")
+async def tower_action_endpoint(payload: TowerActionPayload):
+    from games.demon_tower import handle_tower_api_action
+    return await handle_tower_api_action(payload.model_dump())
 
 
 @app.get("/api/check_join/{user_id}")
@@ -398,7 +427,7 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
       color: #fff;
       font-family: system-ui, -apple-system, sans-serif;
     }
-    input, textarea {
+    input, textarea, select {
       user-select: text !important;
       -webkit-user-select: text !important;
     }
@@ -412,7 +441,7 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
       overflow: hidden;
     }
     .glass-panel {
-      background: rgba(15, 23, 42, 0.42);
+      background: rgba(15, 23, 42, 0.45);
       backdrop-filter: blur(16px);
       -webkit-backdrop-filter: blur(16px);
       border: 1px solid rgba(255, 255, 255, 0.14);
@@ -440,6 +469,14 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
       border: 1px solid rgba(255,255,255,0.22);
     }
     .ltr-grid { direction: ltr !important; }
+
+    .tower-bg-wrap {
+      background-image:
+        __TOWER_BG__
+        radial-gradient(circle at top, rgba(153, 27, 27, 0.45) 0%, rgba(15, 23, 42, 0.92) 70%);
+      background-size: cover;
+      background-position: center;
+    }
 
     .persian-carpet {
       position: relative;
@@ -510,10 +547,11 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
 
     function isUserTyping() {
       const el = document.activeElement;
-      return el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA');
+      return el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT');
     }
 
     const HERO_CUSTOM_IMG = "__HERO_IMAGE__";
+    const TOWER_HERO_IMG = "__TOWER_HERO__";
     const BOT_USERNAME = "__BOT_USERNAME__";
     const SHORT_NAME = "__SHORT_NAME__";
     const params = new URLSearchParams(window.location.search);
@@ -535,7 +573,7 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
     }
     applyDir();
 
-    /* ═══════════ دیکشنری کامل ۷ زبانه با نام‌های کوتاه برای تمام بازی‌ها ═══════════ */
+    /* ═══════════ دیکشنری کامل ۷ زبانه برای کل مینی‌اپ و برج شیاطین ═══════════ */
     const I18N = {
       fa: {
         heroTitle: "گیم باکس راینو",
@@ -573,8 +611,44 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
         chatPlaceholder: "پیام شفاف بالای اسم...",
         sendBtn: "ارسال",
         micOn: "🎙️ روشن", micOff: "🔇 مایک",
+        dt: {
+          floorBtn: "طبقه",
+          enterBattle: "ورود به نبرد",
+          charBtn: "🦸 کاراکتر",
+          hospBtn: "🏥 بیمارستان",
+          vaultBtn: "🏦 خزانه",
+          shopBtn: "🛒 فروشگاه",
+          giftBtn: "🎁 کد هدیه",
+          voucherBtn: "🎟️ درخواست ووچر",
+          accBtn: "👤 حسابم",
+          backTower: "بازگشت به منوی برج",
+          humanity: "انسانیت",
+          bossPower: "قدرت غول",
+          bossWeak: "نقطه ضعف",
+          bossReward: "پاداش مرحله",
+          pickWeaponHint: "سلاح خود را برای ورود به مرحله انتخاب کنید:",
+          startBattleBtn: "⚔️ شروع نبرد طبقه",
+          pickGenderTitle: "انتخاب کاراکتر (یک‌بار و غیرقابل تغییر)",
+          male: "مرد 🚹", female: "زن 🚺",
+          equipped: "تجهیز شده", select: "انتخاب", buy: "خرید",
+          hospDesc: "پس از هر جنگ برای بازیابی جان و انسانیت به بیمارستان بیایید. اگر انسانیت صفر شود ۲ روز به خواب می‌روید!",
+          healBtn: "💉 بستری شدن و درمان کامل",
+          deposit: "سپرده‌گذاری", withdraw: "برداشت",
+          sellLootBtn: "💰 فروش غنیمت‌ها",
+          transferTitle: "💸 انتقال سکه به کاربر دیگر (۳٪ مالیات)",
+          transferBtn: "ارسال سکه (کسر ۳٪ مالیات)",
+          redeemBtn: "دریافت هدیه",
+          vchOfferHint: "مقدار سکه پیشنهادی...",
+          vchTypes: ["ووچر استارز", "ووچر گیفت", "ووچر سندر", "ووچر شارژ ربات"],
+          vchSendBtn: "ارسال درخواست برای مالک",
+          vchChatTitle: "💬 وضعیت درخواست‌های ووچر (در انتظار پاسخ مالک)",
+          vchPending: "⏳ در انتظار پاسخ مالک...",
+          vchApproved: "✅ تایید شد — پیام کد ووچر را از پیوی برای @oldkaseb فوروارد کنید",
+          vchRejected: "❌ رد شد (سکه عودت داده شد)",
+          ownerNote: "یادداشت مالک"
+        },
         games: {
-          wip1: "شکارچی سیاه‌چال", wip2: "هک گاوصندوق", wip3: "برج شیاطین",
+          wip1: "شکارچی سیاه‌چال", wip2: "هک گاوصندوق", wip3: "برج شیاطین", wip3Sub: "RPG • طبقات و غول‌ها",
           hokm: "حکم ۴", hokmSub: "۴ نفره • فرش ایرانی",
           hokm2p: "حکم ۲", hokm2pSub: "۲ نفره • تک‌به‌تک",
           dooz: "دوز ۲", doozSub: "۲ نفره • حلقه رنگی",
@@ -626,8 +700,44 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
         chatPlaceholder: "Quick popup message...",
         sendBtn: "Send",
         micOn: "🎙️ On", micOff: "🔇 Mic",
+        dt: {
+          floorBtn: "Floor",
+          enterBattle: "Battle",
+          charBtn: "🦸 Character",
+          hospBtn: "🏥 Hospital",
+          vaultBtn: "🏦 Vault",
+          shopBtn: "🛒 Shop",
+          giftBtn: "🎁 Gift Code",
+          voucherBtn: "🎟️ Voucher",
+          accBtn: "👤 My Account",
+          backTower: "Back to Tower Menu",
+          humanity: "Humanity",
+          bossPower: "Boss Power",
+          bossWeak: "Weakness",
+          bossReward: "Stage Reward",
+          pickWeaponHint: "Select your weapon for this floor:",
+          startBattleBtn: "⚔️ Start Floor Battle",
+          pickGenderTitle: "Choose Character (Permanent & One-time)",
+          male: "Male 🚹", female: "Female 🚺",
+          equipped: "Equipped", select: "Equip", buy: "Buy",
+          hospDesc: "Heal after battles to restore HP and Humanity. If Humanity hits 0, you sleep for 2 days!",
+          healBtn: "💉 Enter Hospital & Heal",
+          deposit: "Deposit", withdraw: "Withdraw",
+          sellLootBtn: "💰 Sell All Loot",
+          transferTitle: "💸 Transfer Coins (3% Tax)",
+          transferBtn: "Send Coins (3% Tax)",
+          redeemBtn: "Redeem Code",
+          vchOfferHint: "Offered Coins...",
+          vchTypes: ["Stars Voucher", "Gift Voucher", "Sender Voucher", "Bot Charge Voucher"],
+          vchSendBtn: "Send Request to Owner",
+          vchChatTitle: "💬 Voucher Requests (Waiting for Owner)",
+          vchPending: "⏳ Waiting for Owner response...",
+          vchApproved: "✅ Approved — Forward voucher code from Bot PM to @oldkaseb",
+          vchRejected: "❌ Rejected (Coins refunded)",
+          ownerNote: "Owner Note"
+        },
         games: {
-          wip1: "Dungeon Heist", wip2: "Cyber Vault", wip3: "Demon Tower",
+          wip1: "Dungeon Heist", wip2: "Cyber Vault", wip3: "Demon Tower", wip3Sub: "RPG • Bosses & Loot",
           hokm: "Hokm 4P", hokmSub: "4 Players • Cards",
           hokm2p: "Hokm 2P", hokm2pSub: "2 Players • Duel",
           dooz: "Rings 2P", doozSub: "2 Players • Color",
@@ -679,8 +789,44 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
         chatPlaceholder: "رسالة سريعة...",
         sendBtn: "إرسال",
         micOn: "🎙️ متصل", micOff: "🔇 مايك",
+        dt: {
+          floorBtn: "الطابق",
+          enterBattle: "دخول المعركة",
+          charBtn: "🦸 الشخصية",
+          hospBtn: "🏥 المستشفى",
+          vaultBtn: "🏦 الخزنة",
+          shopBtn: "🛒 المتجر",
+          giftBtn: "🎁 كود هدية",
+          voucherBtn: "🎟️ طلب قسيمة",
+          accBtn: "👤 حسابي",
+          backTower: "العودة لقائمة البرج",
+          humanity: "الإنسانية",
+          bossPower: "قوة الوحش",
+          bossWeak: "نقطة الضعف",
+          bossReward: "مكافأة المرحلة",
+          pickWeaponHint: "اختر سلاحك لدخول هذا الطابق:",
+          startBattleBtn: "⚔️ بدء معركة الطابق",
+          pickGenderTitle: "اختر الشخصية (لمرة واحدة فقط)",
+          male: "رجل 🚹", female: "امرأة 🚺",
+          equipped: "مجهز", select: "اختيار", buy: "شراء",
+          hospDesc: "عالج نفسك بعد كل معركة. إذا وصلت الإنسانية إلى الصفر ستنام لمدة يومين!",
+          healBtn: "💉 دخول المستشفى والعلاج",
+          deposit: "إيداع", withdraw: "سحب",
+          sellLootBtn: "💰 بيع الغنائم",
+          transferTitle: "💸 تحويل عملات (ضريبة 3%)",
+          transferBtn: "إرسال العملات (خصم 3%)",
+          redeemBtn: "تفعيل الكود",
+          vchOfferHint: "كمية العملات المقترحة...",
+          vchTypes: ["قسيمة ستارز", "قسيمة هدية", "قسيمة مرسل", "قسيمة شحن البوت"],
+          vchSendBtn: "إرسال الطلب للمالك",
+          vchChatTitle: "💬 حالة طلبات القسائم (بانتظار المالك)",
+          vchPending: "⏳ بانتظار رد المالك...",
+          vchApproved: "✅ تمت الموافقة — حول رسالة الكود من خاص البوت إلى @oldkaseb",
+          vchRejected: "❌ مرفوض (أعيدت العملات)",
+          ownerNote: "ملاحظة المالك"
+        },
         games: {
-          wip1: "صائد القبو", wip2: "الخزنة الذكية", wip3: "برج الشياطين",
+          wip1: "صائد القبو", wip2: "الخزنة الذكية", wip3: "برج الشياطين", wip3Sub: "RPG • وحوش وغنائم",
           hokm: "حكم 4", hokmSub: "4 لاعبين • ورق",
           hokm2p: "حكم 2", hokm2pSub: "لاعبين • مبارزة",
           dooz: "دوز 2", doozSub: "لاعبين • حلقات",
@@ -732,8 +878,44 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
         chatPlaceholder: "Hızlı mesaj...",
         sendBtn: "Gönder",
         micOn: "🎙️ Açık", micOff: "🔇 Mik",
+        dt: {
+          floorBtn: "Kat",
+          enterBattle: "Savaşa Gir",
+          charBtn: "🦸 Karakter",
+          hospBtn: "🏥 Hastane",
+          vaultBtn: "🏦 Hazine",
+          shopBtn: "🛒 Mağaza",
+          giftBtn: "🎁 Hediye Kodu",
+          voucherBtn: "🎟️ Kupon İste",
+          accBtn: "👤 Hesabım",
+          backTower: "Kule Menüsüne Dön",
+          humanity: "İnsanlık",
+          bossPower: "Canavar Gücü",
+          bossWeak: "Zayıف Nokta",
+          bossReward: "Kat Ödülü",
+          pickWeaponHint: "Bu kata girmek için silahını seç:",
+          startBattleBtn: "⚔️ Kat Savaşına Başla",
+          pickGenderTitle: "Karakter Seç (Kalıcı ve Tek Seferlik)",
+          male: "Erkek 🚹", female: "Kadın 🚺",
+          equipped: "Kuşanıldı", select: "Seç", buy: "Satın Al",
+          hospDesc: "Savaşlardan sonra iyileşin. İnsanlık 0 olursa 2 gün uyursunuz!",
+          healBtn: "💉 Hastaneye Yat ve İyileş",
+          deposit: "Yatır", withdraw: "Çek",
+          sellLootBtn: "💰 Ganimetleri Sat",
+          transferTitle: "💸 Altın Gönder (%3 Vergi)",
+          transferBtn: "Gönder (%3 Vergi)",
+          redeemBtn: "Kodu Kullan",
+          vchOfferHint: "Teklif edilen altın...",
+          vchTypes: ["Stars Kuponu", "Hediye Kuponu", "Gönderici Kuponu", "Bot Şarj Kuponu"],
+          vchSendBtn: "Kurucuya Gönder",
+          vchChatTitle: "💬 Kupon Talepleri (Kurucu Yanıtı Bekleniyor)",
+          vchPending: "⏳ Kurucu yanıtı bekleniyor...",
+          vchApproved: "✅ Onaylandı — Bot özelden gelen kodu @oldkaseb hesabına iletin",
+          vchRejected: "❌ Reddedildi (Altın iade edildi)",
+          ownerNote: "Kurucu Notu"
+        },
         games: {
-          wip1: "Zindan Avcısı", wip2: "Siber Kasa", wip3: "Şeytan Kulesi",
+          wip1: "Zindan Avcısı", wip2: "Siber Kasa", wip3: "Şeytan Kulesi", wip3Sub: "RPG • Katlar & Boss",
           hokm: "Hokm 4K", hokmSub: "4 Kişilik • Kart",
           hokm2p: "Hokm 2K", hokm2pSub: "2 Kişilik • Düello",
           dooz: "XOX 2K", doozSub: "2 Kişilik • Renkli",
@@ -785,8 +967,44 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
         chatPlaceholder: "Сообщение...",
         sendBtn: "Отпр",
         micOn: "🎙️ Вкл", micOff: "🔇 Мик",
+        dt: {
+          floorBtn: "Этаж",
+          enterBattle: "В бой",
+          charBtn: "🦸 Герой",
+          hospBtn: "🏥 Больница",
+          vaultBtn: "🏦 Казна",
+          shopBtn: "🛒 Магазин",
+          giftBtn: "🎁 Промокод",
+          voucherBtn: "🎟️ Ваучер",
+          accBtn: "👤 Профиль",
+          backTower: "Назад в меню башни",
+          humanity: "Человечность",
+          bossPower: "Сила босса",
+          bossWeak: "Слабость",
+          bossReward: "Награда",
+          pickWeaponHint: "Выберите оружие для входа на этаж:",
+          startBattleBtn: "⚔️ Начать бой на этаже",
+          pickGenderTitle: "Выбор героя (Один раз навсегда)",
+          male: "Мужчина 🚹", female: "Женщина 🚺",
+          equipped: "Надето", select: "Выбрать", buy: "Купить",
+          hospDesc: "Лечитесь после боёв. Если человечность упадёт до 0, герой уснёт на 2 дня!",
+          healBtn: "💉 Лечь в больницу",
+          deposit: "Вклад", withdraw: "Снять",
+          sellLootBtn: "💰 Продать добычу",
+          transferTitle: "💸 Перевод монет (налог 3%)",
+          transferBtn: "Отправить (налог 3%)",
+          redeemBtn: "Активировать",
+          vchOfferHint: "Предложите монеты...",
+          vchTypes: ["Ваучер Stars", "Гифт Ваучер", "Ваучер Отправителя", "Пополнение бота"],
+          vchSendBtn: "Отправить владельцу",
+          vchChatTitle: "💬 Запросы ваучеров (Ожидание владельца)",
+          vchPending: "⏳ Ожидание ответа владельца...",
+          vchApproved: "✅ Одобрено — Перешлите код из ЛС бота владельцу @oldkaseb",
+          vchRejected: "❌ Отклонено (монеты возвращены)",
+          ownerNote: "Заметка владельца"
+        },
         games: {
-          wip1: "Подземелье", wip2: "Кибер Сейф", wip3: "Башня Демонов",
+          wip1: "Подземелье", wip2: "Кибер Сейф", wip3: "Башня Демонов", wip3Sub: "RPG • Боссы и Лут",
           hokm: "Хокм 4", hokmSub: "4 игрока • Карты",
           hokm2p: "Хокм 2", hokm2pSub: "2 игрока • Дуэль",
           dooz: "Кольца 2", doozSub: "2 игрока • Цвет",
@@ -838,8 +1056,44 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
         chatPlaceholder: "Nachricht...",
         sendBtn: "Senden",
         micOn: "🎙️ An", micOff: "🔇 Mik",
+        dt: {
+          floorBtn: "Etage",
+          enterBattle: "Kampf",
+          charBtn: "🦸 Charakter",
+          hospBtn: "🏥 Klinik",
+          vaultBtn: "🏦 Tresor",
+          shopBtn: "🛒 Shop",
+          giftBtn: "🎁 Gutschein",
+          voucherBtn: "🎟️ Voucher",
+          accBtn: "👤 Konto",
+          backTower: "Zurück zum Turm",
+          humanity: "Menschlichkeit",
+          bossPower: "Bosskraft",
+          bossWeak: "Schwäche",
+          bossReward: "Belohnung",
+          pickWeaponHint: "Wähle deine Waffe für diese Etage:",
+          startBattleBtn: "⚔️ Etagenkampf starten",
+          pickGenderTitle: "Charakter wählen (Einmalig)",
+          male: "Mann 🚹", female: "Frau 🚺",
+          equipped: "Aktiv", select: "Wählen", buy: "Kaufen",
+          hospDesc: "Heile dich nach Kämpfen. Bei 0 Menschlichkeit schläfst du 2 Tage!",
+          healBtn: "💉 Heilen",
+          deposit: "Einzahlen", withdraw: "Abheben",
+          sellLootBtn: "💰 Beute verkaufen",
+          transferTitle: "💸 Münzen senden (3% Steuer)",
+          transferBtn: "Senden (3% Steuer)",
+          redeemBtn: "Einlösen",
+          vchOfferHint: "Angebotene Münzen...",
+          vchTypes: ["Stars Voucher", "Gift Voucher", "Sender Voucher", "Bot Guthaben"],
+          vchSendBtn: "An Owner senden",
+          vchChatTitle: "💬 Voucher-Status (Warte auf Owner)",
+          vchPending: "⏳ Warte auf Owner...",
+          vchApproved: "✅ Genehmigt — Leite den Code aus dem Bot-Chat an @oldkaseb weiter",
+          vchRejected: "❌ Abgelehnt (Münzen erstattet)",
+          ownerNote: "Owner Notiz"
+        },
         games: {
-          wip1: "Dungeon Heist", wip2: "Cyber Tresor", wip3: "Dämonenturm",
+          wip1: "Dungeon Heist", wip2: "Cyber Tresor", wip3: "Dämonenturm", wip3Sub: "RPG • Bosse & Beute",
           hokm: "Hokm 4P", hokmSub: "4 Spieler • Karten",
           hokm2p: "Hokm 2P", hokm2pSub: "2 Spieler • Duell",
           dooz: "Ringe 2P", doozSub: "2 Spieler • Farbe",
@@ -891,8 +1145,44 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
         chatPlaceholder: "快捷消息...",
         sendBtn: "发送",
         micOn: "🎙️ 开启", micOff: "🔇 麦克风",
+        dt: {
+          floorBtn: "第",
+          enterBattle: "进入战斗",
+          charBtn: "🦸 角色与武器",
+          hospBtn: "🏥 医院",
+          vaultBtn: "🏦 金库与银行",
+          shopBtn: "🛒 星币商店",
+          giftBtn: "🎁 兑换码",
+          voucherBtn: "🎟️ 申请代金券",
+          accBtn: "👤 我的账户",
+          backTower: "返回恶魔塔菜单",
+          humanity: "人性值",
+          bossPower: "首领技能",
+          bossWeak: "弱点",
+          bossReward: "通关奖励",
+          pickWeaponHint: "选择进入本层的武器：",
+          startBattleBtn: "⚔️ 开始本层战斗",
+          pickGenderTitle: "选择角色（仅一次，不可更改）",
+          male: "男性猎人 🚹", female: "女性猎人 🚺",
+          equipped: "已装备", select: "装备", buy: "购买",
+          hospDesc: "战斗后在此恢复生命与人性值。若人性值归零，将沉睡2天！",
+          healBtn: "💉 住院治疗并恢复",
+          deposit: "存入", withdraw: "取出",
+          sellLootBtn: "💰 出售所有战利品",
+          transferTitle: "💸 转账给其他玩家（3% 税费）",
+          transferBtn: "发送金币（扣除 3% 税费）",
+          redeemBtn: "领取奖励",
+          vchOfferHint: "输入提供的金币数量...",
+          vchTypes: ["Stars 代金券", "Gift 代金券", "Sender 代金券", "机器人充值券"],
+          vchSendBtn: "发送申请给管理员",
+          vchChatTitle: "💬 代金券申请状态（等待管理员回复）",
+          vchPending: "⏳ 等待管理员回复...",
+          vchApproved: "✅ 已批准 — 请将机器人私聊中的代金券代码转发给 @oldkaseb",
+          vchRejected: "❌ 已拒绝（金币已退还）",
+          ownerNote: "管理员备注"
+        },
         games: {
-          wip1: "地牢夺宝", wip2: "赛博金库", wip3: "恶魔之塔",
+          wip1: "地牢夺宝", wip2: "赛博金库", wip3: "恶魔之塔", wip3Sub: "RPG • 闯关与首领",
           hokm: "王牌 4人", hokmSub: "4人 • 扑克",
           hokm2p: "王牌 2人", hokm2pSub: "2人 • 对决",
           dooz: "彩环 2人", doozSub: "2人 • 连线",
@@ -953,7 +1243,7 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
       else window.open(url, '_blank');
     };
 
-    window.verifyJoinAndRender = async function(showAlertOnFail = false) {
+    window.verifyJoinAndRender = async function() {
       const root = document.getElementById('app');
       if (!realTgUid) { isJoinVerified = true; return render(); }
       try {
@@ -968,7 +1258,7 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
               <div class="glass-panel p-6 rounded-3xl text-center">
                 <div class="text-3xl mb-2">🔒</div>
                 <div class="flex flex-col gap-2.5 my-4">${chBtns}</div>
-                <button onclick="verifyJoinAndRender(true)" class="btn-success w-full py-3.5 rounded-xl font-black">✅ OK</button>
+                <button onclick="verifyJoinAndRender()" class="btn-success w-full py-3.5 rounded-xl font-black">✅ OK</button>
               </div>
             </div>
           `;
@@ -999,15 +1289,15 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
       render();
     };
 
-    /* ═══════════ صفحه اصلی گیم باکس راینو (نام‌های کوتاه + کاملاً ۷ زبانه) ═══════════ */
+    /* ═══════════ صفحه اصلی گیم باکس راینو ═══════════ */
     function renderHub(root) {
       const G = T().games;
       const wipGames = [
         { title: G.wip1, icon: "🏰" },
-        { title: G.wip2, icon: "🔐" },
-        { title: G.wip3, icon: "👹" }
+        { title: G.wip2, icon: "🔐" }
       ];
       const activeGames = [
+        { id: "demontower", title: G.wip3,   badge: G.wip3Sub,     icon: "👹", cls: "btn-danger" },
         { id: "hokm",     title: G.hokm,     badge: G.hokmSub,     icon: "♠️", cls: "btn-success" },
         { id: "hokm2p",   title: G.hokm2p,   badge: G.hokm2pSub,   icon: "👑", cls: "btn-success" },
         { id: "dooz",     title: G.dooz,     badge: G.doozSub,     icon: "🟢", cls: "btn-primary" },
@@ -1024,10 +1314,12 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
       ];
 
       const wipHtml = wipGames.map(w => `
-        <div class="glass-soft rounded-2xl p-2.5 flex flex-col items-center justify-center text-center opacity-80">
-          <span class="text-2xl mb-1">${w.icon}</span>
-          <span class="font-extrabold text-xs text-slate-200 truncate w-full">${w.title}</span>
-          <span class="mt-1 px-2 py-0.5 rounded-lg bg-amber-500/20 border border-amber-400/40 text-amber-300 text-[10px] font-black">🛠️ ${T().wipBadge}</span>
+        <div class="glass-soft rounded-2xl p-2.5 flex items-center justify-between opacity-80">
+          <div class="flex items-center gap-2 min-w-0">
+            <span class="text-xl">${w.icon}</span>
+            <span class="font-extrabold text-xs text-slate-200 truncate">${w.title}</span>
+          </div>
+          <span class="px-2 py-0.5 rounded-lg bg-amber-500/20 border border-amber-400/40 text-amber-300 text-[10px] font-black shrink-0">🛠️ ${T().wipBadge}</span>
         </div>
       `).join('');
 
@@ -1062,11 +1354,377 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
             </div>
           </div>
 
-          <!-- ۳ بازی در حال ساخت در یک ردیف ۳ ستونی جمع‌وجور -->
-          <div class="grid grid-cols-3 gap-2">${wipHtml}</div>
-
-          <!-- گرید ۲ ستونی بازی‌ها با نام‌های کوتاه -->
+          <div class="grid grid-cols-2 gap-2">${wipHtml}</div>
           <div class="grid grid-cols-2 gap-2">${gamesHtml}</div>
+        </div>
+      `;
+    }
+
+    /* ═══════════════════════════════════════════════════════════════════════════
+       بازی کامل برج شیاطین (Demon Tower RPG) — ۷ زبانه کامل + ۸ بخش
+       ═══════════════════════════════════════════════════════════════════════════ */
+    let dtData = null;
+    let dtTab = 'main';
+    let dtMsg = '';
+    let dtErr = '';
+    let dtSelectedWeapon = 0;
+    let dtPopupDismissed = false;
+
+    async function callTowerApi(action = 'state', extra = {}) {
+      try {
+        const res = await fetch('/api/tower/action', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({ uid: Number(uid), name: myName, lang: lang, action: action, ...extra })
+        });
+        const data = await res.json();
+        dtMsg = data.msg || '';
+        dtErr = data.ok === false ? (data.error || '') : '';
+        if (data.invoice_link && tg?.openInvoice) {
+          tg.openInvoice(data.invoice_link, () => callTowerApi('state'));
+          return;
+        } else if (data.invoice_link) {
+          window.open(data.invoice_link, '_blank');
+        }
+        if (data.state) {
+          dtData = data.state;
+          if (!dtSelectedWeapon) dtSelectedWeapon = dtData.player?.equipped_weapon || 1;
+          drawDemonTower(document.getElementById('app'));
+        }
+      } catch (e) {}
+    }
+
+    window.dtNav = function(tab) {
+      dtTab = tab; dtMsg = ''; dtErr = '';
+      drawDemonTower(document.getElementById('app'));
+    };
+    window.dtAct = function(act, extra = {}) { callTowerApi(act, extra); };
+
+    function startDemonTowerApp(root) {
+      dtTab = 'main';
+      root.innerHTML = `<div class="p-6 text-center"><div class="glass-panel p-6 rounded-3xl font-bold">...</div></div>`;
+      callTowerApi('state');
+    }
+
+    function drawDemonTower(root) {
+      if (!root || currentGame !== 'demontower' || !dtData) return;
+      const p = dtData.player;
+      const boss = dtData.current_boss;
+      const D = T().dt;
+
+      if (dtData.dev_mode && !dtData.is_owner) {
+        root.innerHTML = `
+          ${renderTopBar(T().games.wip3)}
+          <div class="flex-1 flex items-center justify-center p-5 tower-bg-wrap">
+            <div class="glass-panel p-6 rounded-3xl text-center border border-amber-400/50">
+              <div class="text-5xl mb-3">🛠️</div>
+              <h2 class="text-base font-black text-amber-300">${dtErr || 'Under Development (Owner Only)'}</h2>
+            </div>
+          </div>
+        `;
+        return;
+      }
+
+      const pop = (!dtPopupDismissed && dtData.popup) ? dtData.popup : null;
+      const popupHtml = pop ? `
+        <div class="fixed inset-0 z-50 bg-black/75 backdrop-blur-md flex items-center justify-center p-5">
+          <div class="glass-panel p-5 rounded-3xl max-w-sm w-full text-center border border-amber-400/50">
+            ${pop.photo ? `<img src="${pop.photo}" class="w-full h-40 object-cover rounded-2xl mb-3" />` : ''}
+            <p class="text-sm font-bold text-white mb-4 whitespace-pre-line">${pop.text}</p>
+            <div class="flex gap-2">
+              ${pop.btn_text && pop.btn_url ? `<button onclick="openChannelLink('${pop.btn_url}')" class="btn-success flex-1 py-2.5 rounded-xl font-black text-xs">${pop.btn_text}</button>` : ''}
+              <button onclick="dtPopupDismissed=true;drawDemonTower(document.getElementById('app'))" class="btn-danger flex-1 py-2.5 rounded-xl font-bold text-xs">✖</button>
+            </div>
+          </div>
+        </div>
+      ` : '';
+
+      const alertHtml = `
+        ${dtMsg ? `<div class="p-3 rounded-2xl bg-emerald-600/35 border border-emerald-400 text-xs font-extrabold text-emerald-100 mb-3 whitespace-pre-line text-center">${dtMsg}</div>` : ''}
+        ${dtErr ? `<div class="p-3 rounded-2xl bg-rose-600/40 border border-rose-400 text-xs font-extrabold text-rose-100 mb-3 whitespace-pre-line text-center">${dtErr}</div>` : ''}
+      `;
+
+      let bodyHtml = '';
+
+      if (dtTab === 'main') {
+        bodyHtml = `
+          <div class="glass-panel rounded-3xl overflow-hidden mb-3 shrink-0">
+            ${TOWER_HERO_IMG ? `
+              <img src="${TOWER_HERO_IMG}" class="w-full h-36 object-cover border-b border-white/10" />
+            ` : `
+              <img src="/api/banner/demontower.png" class="w-full h-36 object-cover border-b border-white/10" />
+            `}
+            <div class="p-3 flex justify-between items-center text-xs font-extrabold">
+              <span class="text-amber-300">🪙 ${p.coins.toLocaleString()}</span>
+              <span class="text-emerald-300">❤️ ${p.hp}/${p.max_hp}</span>
+              <span class="text-sky-300">🧠 ${D.humanity}: ${p.humanity}%</span>
+              <span class="text-purple-300">⭐ Lvl ${p.level}</span>
+            </div>
+          </div>
+
+          ${alertHtml}
+
+          <button onclick="dtNav('floor')" class="btn-danger w-full py-4 px-4 rounded-2xl font-black text-base mb-2.5 flex items-center justify-between shadow-lg">
+            <span>⚔️ ${D.floorBtn} ${p.current_floor} (${boss ? boss.boss_name : '✓'})</span>
+            <span class="text-xs bg-black/30 px-2.5 py-1 rounded-xl">${D.enterBattle} ◀</span>
+          </button>
+
+          <div class="grid grid-cols-2 gap-2.5">
+            <button onclick="dtNav('char')" class="glass-panel p-3.5 rounded-2xl font-black text-sm flex items-center justify-center gap-2">${D.charBtn}</button>
+            <button onclick="dtNav('hospital')" class="glass-panel p-3.5 rounded-2xl font-black text-sm flex items-center justify-center gap-2">${D.hospBtn}</button>
+            <button onclick="dtNav('vault')" class="glass-panel p-3.5 rounded-2xl font-black text-sm flex items-center justify-center gap-2">${D.vaultBtn}</button>
+            <button onclick="dtNav('shop')" class="glass-panel p-3.5 rounded-2xl font-black text-sm flex items-center justify-center gap-2">${D.shopBtn}</button>
+            <button onclick="dtNav('gift')" class="glass-panel p-3.5 rounded-2xl font-black text-sm flex items-center justify-center gap-2">${D.giftBtn}</button>
+            <button onclick="dtNav('voucher')" class="glass-panel p-3.5 rounded-2xl font-black text-sm flex items-center justify-center gap-2">${D.voucherBtn}</button>
+            <button onclick="dtNav('account')" class="btn-primary col-span-2 p-3.5 rounded-2xl font-black text-sm text-center">${D.accBtn}</button>
+          </div>
+        `;
+      }
+
+      else if (dtTab === 'floor') {
+        const myWeapons = (dtData.items || []).filter(i => i.item_type === 'weapon' && p.owned_weapons.includes(i.id));
+        const wSelectHtml = myWeapons.map(w => `
+          <button onclick="dtSelectedWeapon=${w.id};drawDemonTower(document.getElementById('app'))" class="px-3 py-2 rounded-xl text-xs font-bold border ${dtSelectedWeapon === w.id ? 'btn-success border-white' : 'glass-soft border-white/10'}">
+            ⚔️ ${w.name} (+${w.atk_bonus} ATK)
+          </button>
+        `).join('');
+
+        bodyHtml = `
+          ${alertHtml}
+          ${boss ? `
+            <div class="glass-panel p-4 rounded-3xl text-center mb-3">
+              ${boss.photo ? `<img src="${boss.photo}" class="w-full h-40 object-cover rounded-2xl mb-3" />` : `<div class="text-6xl my-3">👹</div>`}
+              <div class="text-xs font-black text-rose-400">${D.floorBtn} ${boss.floor_num}</div>
+              <h2 class="text-xl font-black text-amber-300 mb-1">${boss.boss_name}</h2>
+              <p class="text-xs text-slate-200 mb-3">${boss.description}</p>
+              <div class="grid grid-cols-3 gap-2 text-xs font-extrabold glass-soft p-2.5 rounded-2xl mb-2">
+                <span class="text-rose-300">❤️ HP: ${boss.hp}</span>
+                <span class="text-amber-300">⚔️ ATK: ${boss.atk}</span>
+                <span class="text-sky-300">🛡️ DEF: ${boss.def}</span>
+              </div>
+              <div class="text-[11px] text-slate-300 text-start space-y-1 glass-soft p-2.5 rounded-2xl mb-3">
+                <div>🔥 <b>${D.bossPower}:</b> ${boss.power_desc}</div>
+                <div>⚡ <b>${D.bossWeak}:</b> ${boss.weakness}</div>
+                <div>🎁 <b>${D.bossReward}:</b> ${boss.reward_coins} 🪙 + ${boss.reward_xp} XP + «${boss.drop_item}»</div>
+              </div>
+
+              <div class="text-xs font-bold text-amber-200 mb-2">${D.pickWeaponHint}</div>
+              <div class="flex flex-wrap gap-1.5 justify-center mb-4">${wSelectHtml}</div>
+
+              <button onclick="dtAct('battle_floor', {weapon_id: dtSelectedWeapon})" class="btn-danger w-full py-4 rounded-2xl font-black text-base">
+                ${D.startBattleBtn} ${boss.floor_num}
+              </button>
+            </div>
+          ` : `<div class="glass-panel p-6 rounded-3xl text-center font-black text-emerald-300">🎉</div>`}
+          <button onclick="dtNav('main')" class="btn-primary w-full py-3 rounded-2xl font-bold text-xs">${D.backTower}</button>
+        `;
+      }
+
+      else if (dtTab === 'char') {
+        const genderSection = !p.gender ? `
+          <div class="glass-panel p-4 rounded-3xl text-center mb-3 border border-amber-400/50">
+            <h3 class="text-sm font-black text-amber-300 mb-3">${D.pickGenderTitle}</h3>
+            <div class="grid grid-cols-2 gap-3">
+              <button onclick="dtAct('choose_gender', {gender:'male'})" class="glass-soft p-3 rounded-2xl flex flex-col items-center border hover:border-amber-400">
+                ${dtData.male_img ? `<img src="${dtData.male_img}" class="w-24 h-28 object-cover rounded-xl mb-2" />` : `<div class="text-5xl my-4">🥷</div>`}
+                <span class="font-black text-xs text-sky-300">${D.male}</span>
+              </button>
+              <button onclick="dtAct('choose_gender', {gender:'female'})" class="glass-soft p-3 rounded-2xl flex flex-col items-center border hover:border-amber-400">
+                ${dtData.female_img ? `<img src="${dtData.female_img}" class="w-24 h-28 object-cover rounded-xl mb-2" />` : `<div class="text-5xl my-4">🧝‍♀️</div>`}
+                <span class="font-black text-xs text-pink-300">${D.female}</span>
+              </button>
+            </div>
+          </div>
+        ` : `
+          <div class="glass-panel p-3.5 rounded-2xl flex items-center justify-between mb-3 text-xs font-bold">
+            <span><b class="text-amber-300">${p.gender === 'male' ? D.male : D.female}</b></span>
+            <span>⚔️ ATK: ${p.atk} | 🛡️ DEF: ${p.def} | ⚡ SPD: ${p.spd}</span>
+          </div>
+        `;
+
+        const itemsHtml = (dtData.items || []).map(it => {
+          const isW = it.item_type === 'weapon';
+          const owned = isW ? p.owned_weapons.includes(it.id) : p.owned_armors.includes(it.id);
+          const equipped = isW ? (p.equipped_weapon === it.id) : (p.equipped_armor === it.id);
+          return `
+            <div class="glass-panel p-3 rounded-2xl flex items-center justify-between gap-2">
+              <div class="flex items-center gap-2.5">
+                ${it.photo ? `<img src="${it.photo}" class="w-12 h-12 rounded-xl object-cover" />` : `<div class="w-12 h-12 rounded-xl glass-soft flex items-center justify-center text-2xl">${isW ? '⚔️' : '🛡️'}</div>`}
+                <div class="text-start">
+                  <div class="font-black text-xs text-white">${it.name}</div>
+                  <div class="text-[10px] text-emerald-300 font-bold">
+                    +HP:${it.hp_bonus} | +ATK:${it.atk_bonus} | +DEF:${it.def_bonus} | SPD:${it.spd_bonus}
+                  </div>
+                </div>
+              </div>
+              <button onclick="dtAct('buy_or_equip_item', {item_id:${it.id}})" class="${equipped ? 'btn-success' : (owned ? 'btn-primary' : 'btn-danger')} px-3 py-2 rounded-xl text-[11px] font-black shrink-0">
+                ${equipped ? D.equipped : (owned ? D.select : `${it.price} 🪙 ${D.buy}`)}
+              </button>
+            </div>
+          `;
+        }).join('');
+
+        bodyHtml = `
+          ${alertHtml}
+          ${genderSection}
+          <div class="flex flex-col gap-2 mb-3">${itemsHtml}</div>
+          <button onclick="dtNav('main')" class="btn-primary w-full py-3 rounded-2xl font-bold text-xs">${D.backTower}</button>
+        `;
+      }
+
+      else if (dtTab === 'hospital') {
+        bodyHtml = `
+          ${alertHtml}
+          <div class="glass-panel p-5 rounded-3xl text-center mb-3">
+            <div class="text-5xl mb-2">🏥</div>
+            <h2 class="text-lg font-black text-emerald-300 mb-2">${D.hospBtn}</h2>
+            <p class="text-xs text-slate-300 leading-relaxed mb-4">${D.hospDesc}</p>
+            <div class="grid grid-cols-2 gap-2 glass-soft p-3 rounded-2xl text-xs font-extrabold mb-4">
+              <span class="text-rose-300">❤️ HP: ${p.hp} / ${p.max_hp}</span>
+              <span class="text-sky-300">🧠 ${D.humanity}: ${p.humanity}%</span>
+            </div>
+            ${p.sleep_rem > 0 ? `<div class="p-3 rounded-xl bg-rose-600/40 text-xs font-bold mb-3">😴 (${Math.ceil(p.sleep_rem/60)}m)</div>` : ''}
+            ${p.hospital_rem > 0 ? `
+              <div class="p-3 rounded-xl bg-amber-500/30 text-amber-200 text-xs font-extrabold mb-3">
+                ⏳ ${p.hospital_rem}s
+              </div>
+              <button onclick="dtAct('state')" class="btn-primary w-full py-3 rounded-xl font-bold text-xs">🔄</button>
+            ` : `
+              <button onclick="dtAct('enter_hospital')" class="btn-success w-full py-4 rounded-2xl font-black text-sm">
+                ${D.healBtn}
+              </button>
+            `}
+          </div>
+          <button onclick="dtNav('main')" class="btn-primary w-full py-3 rounded-2xl font-bold text-xs">${D.backTower}</button>
+        `;
+      }
+
+      else if (dtTab === 'vault') {
+        const lootCount = (p.inventory || []).length;
+        const lootVal = (p.inventory || []).reduce((a, b) => a + (b.price || 50), 0);
+        bodyHtml = `
+          ${alertHtml}
+          <div class="glass-panel p-4 rounded-3xl mb-3 text-center">
+            <h2 class="text-base font-black text-amber-300 mb-2">${D.vaultBtn} (2% / h)</h2>
+            <div class="grid grid-cols-2 gap-2 glass-soft p-3 rounded-2xl text-xs font-extrabold mb-3">
+              <span class="text-amber-300">🪙 ${p.coins.toLocaleString()}</span>
+              <span class="text-emerald-300">🏦 ${p.bank_coins.toLocaleString()}</span>
+            </div>
+
+            <div class="flex gap-2 mb-3">
+              <input id="bankAmt" type="number" placeholder="🪙..." class="flex-1 p-2.5 rounded-xl glass-soft text-center text-white text-xs font-bold" />
+              <button onclick="dtAct('bank_deposit', {amount: Number(document.getElementById('bankAmt').value)})" class="btn-success px-3 py-2 rounded-xl text-xs font-black">${D.deposit}</button>
+              <button onclick="dtAct('bank_withdraw', {amount: Number(document.getElementById('bankAmt').value)})" class="btn-primary px-3 py-2 rounded-xl text-xs font-black">${D.withdraw}</button>
+            </div>
+
+            <div class="border-t border-white/10 pt-3 mb-3">
+              <div class="text-xs font-bold mb-2">🎒 (${lootCount}) = ${lootVal} 🪙</div>
+              <button onclick="dtAct('sell_loot')" class="btn-primary w-full py-2.5 rounded-xl font-black text-xs">${D.sellLootBtn}</button>
+            </div>
+
+            <div class="border-t border-white/10 pt-3">
+              <div class="text-xs font-black text-amber-200 mb-2">${D.transferTitle}</div>
+              <input id="trTarget" type="text" placeholder="@username / ID" class="w-full p-2.5 rounded-xl glass-soft text-center text-white text-xs font-bold mb-2" />
+              <input id="trAmt" type="number" placeholder="🪙" class="w-full p-2.5 rounded-xl glass-soft text-center text-white text-xs font-bold mb-2" />
+              <button onclick="dtAct('transfer_coins', {target: document.getElementById('trTarget').value, amount: Number(document.getElementById('trAmt').value)})" class="btn-danger w-full py-3 rounded-xl font-black text-xs">
+                ${D.transferBtn}
+              </button>
+            </div>
+          </div>
+          <button onclick="dtNav('main')" class="btn-primary w-full py-3 rounded-2xl font-bold text-xs">${D.backTower}</button>
+        `;
+      }
+
+      else if (dtTab === 'shop') {
+        const packsHtml = (dtData.star_packages || []).map(pk => `
+          <div class="glass-panel p-3.5 rounded-2xl flex items-center justify-between">
+            <div class="text-start">
+              <div class="font-black text-xs text-amber-300">${pk.title}</div>
+              <div class="text-[11px] text-emerald-300 font-bold mt-0.5">+${pk.coins.toLocaleString()} 🪙 | +${pk.xp.toLocaleString()} XP</div>
+            </div>
+            <button onclick="dtAct('create_star_invoice', {pack_id:'${pk.id}'})" class="btn-success px-3.5 py-2 rounded-xl font-black text-xs shrink-0">
+              ⭐ ${pk.stars} Stars
+            </button>
+          </div>
+        `).join('');
+        bodyHtml = `
+          ${alertHtml}
+          <div class="flex flex-col gap-2.5 mb-3">${packsHtml}</div>
+          <button onclick="dtNav('main')" class="btn-primary w-full py-3 rounded-2xl font-bold text-xs">${D.backTower}</button>
+        `;
+      }
+
+      else if (dtTab === 'gift') {
+        bodyHtml = `
+          ${alertHtml}
+          <div class="glass-panel p-5 rounded-3xl text-center mb-3">
+            <div class="text-4xl mb-2">🎁</div>
+            <h3 class="text-base font-black text-amber-300 mb-3">${D.giftBtn}</h3>
+            <input id="giftInp" type="text" placeholder="CODE..." class="w-full p-3.5 rounded-2xl glass-soft text-center font-black text-white mb-3" />
+            <button onclick="dtAct('redeem_gift', {code: document.getElementById('giftInp').value})" class="btn-success w-full py-3.5 rounded-2xl font-black">${D.redeemBtn}</button>
+          </div>
+          <button onclick="dtNav('main')" class="btn-primary w-full py-3 rounded-2xl font-bold text-xs">${D.backTower}</button>
+        `;
+      }
+
+      else if (dtTab === 'voucher') {
+        const optsHtml = D.vchTypes.map(vt => `<option value="${vt}">${vt}</option>`).join('');
+        const vListHtml = (dtData.vouchers || []).map(v => {
+          const stBadge = v.status === 'approved'
+            ? `<span class="text-emerald-300 font-black">${D.vchApproved} (${v.voucher_code})</span>`
+            : (v.status === 'rejected' ? `<span class="text-rose-400 font-black">${D.vchRejected}</span>` : `<span class="text-amber-300 font-black">${D.vchPending}</span>`);
+          return `
+            <div class="glass-soft p-3 rounded-2xl text-start text-xs space-y-1 border border-white/10">
+              <div class="flex justify-between"><b>🎁 ${v.voucher_type}</b><span>🪙 ${v.coins_offered.toLocaleString()}</span></div>
+              <div>${stBadge}</div>
+              ${v.owner_note ? `<div class="p-2 rounded-xl bg-indigo-950/80 text-amber-200">💬 <b>${D.ownerNote}:</b> ${v.owner_note}</div>` : ''}
+            </div>
+          `;
+        }).join('');
+
+        bodyHtml = `
+          ${alertHtml}
+          <div class="glass-panel p-4 rounded-3xl mb-3">
+            <h3 class="text-sm font-black text-amber-300 text-center mb-3">${D.voucherBtn}</h3>
+            <input id="vchCoins" type="number" placeholder="${D.vchOfferHint} (${p.coins} 🪙)" class="w-full p-3 rounded-xl glass-soft text-center font-bold text-xs text-white mb-2.5" />
+            <select id="vchType" class="w-full p-3 rounded-xl bg-slate-900 border border-white/20 text-white text-xs font-bold mb-3 text-center">
+              ${optsHtml}
+            </select>
+            <button onclick="dtAct('request_voucher', {coins: Number(document.getElementById('vchCoins').value), voucher_type: document.getElementById('vchType').value})" class="btn-success w-full py-3 rounded-2xl font-black text-xs">
+              ${D.vchSendBtn}
+            </button>
+          </div>
+
+          <div class="glass-panel p-3.5 rounded-3xl mb-3">
+            <div class="text-xs font-black text-indigo-300 mb-2 text-center">${D.vchChatTitle}</div>
+            <div class="flex flex-col gap-2 max-h-52 overflow-y-auto">${vListHtml || '—'}</div>
+          </div>
+          <button onclick="dtNav('main')" class="btn-primary w-full py-3 rounded-2xl font-bold text-xs">${D.backTower}</button>
+        `;
+      }
+
+      else if (dtTab === 'account') {
+        bodyHtml = `
+          <div class="glass-panel p-5 rounded-3xl text-start space-y-2 text-xs font-bold mb-3">
+            <h3 class="text-base font-black text-amber-300 text-center mb-3">${D.accBtn}</h3>
+            <div class="flex justify-between glass-soft p-2.5 rounded-xl"><span>ID:</span><b>${myName} (${p.user_id})</b></div>
+            <div class="flex justify-between glass-soft p-2.5 rounded-xl"><span>${D.charBtn}:</span><b>${p.gender === 'male' ? D.male : (p.gender === 'female' ? D.female : '—')}</b></div>
+            <div class="flex justify-between glass-soft p-2.5 rounded-xl"><span>Level / XP:</span><b class="text-purple-300">Level ${p.level} (${p.xp} XP)</b></div>
+            <div class="flex justify-between glass-soft p-2.5 rounded-xl"><span>${D.floorBtn}:</span><b class="text-rose-400">${p.current_floor}</b></div>
+            <div class="flex justify-between glass-soft p-2.5 rounded-xl"><span>🪙 / 🏦:</span><b class="text-amber-300">${p.coins.toLocaleString()} / ${p.bank_coins.toLocaleString()}</b></div>
+            <div class="flex justify-between glass-soft p-2.5 rounded-xl"><span>❤️ / 🧠:</span><b class="text-emerald-300">${p.hp}/${p.max_hp} | ${p.humanity}%</b></div>
+            <div class="flex justify-between glass-soft p-2.5 rounded-xl"><span>ATK / DEF / SPD:</span><b>⚔️${p.atk} | 🛡️${p.def} | ⚡${p.spd}</b></div>
+            <div class="flex justify-between glass-soft p-2.5 rounded-xl"><span>⚔️ / 🛡️:</span><b>${p.weapon_name} / ${p.armor_name}</b></div>
+          </div>
+          <button onclick="dtNav('main')" class="btn-primary w-full py-3 rounded-2xl font-bold text-xs">${D.backTower}</button>
+        `;
+      }
+
+      root.innerHTML = `
+        ${popupHtml}
+        ${renderTopBar(T().games.wip3)}
+        <div class="flex-1 overflow-y-auto px-3 pb-6 flex flex-col tower-bg-wrap">
+          ${bodyHtml}
         </div>
       `;
     }
@@ -1077,18 +1735,13 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
       lobbyState.step = 'options';
       renderLobbyGate(document.getElementById('app'));
     };
-
-    window.startLobbyWithBot = function() {
-      nav(lobbyState.game, true);
-    };
-
+    window.startLobbyWithBot = function() { nav(lobbyState.game, true); };
     window.openInviteBoxes = function() {
       lobbyState.step = 'invite_boxes';
       lobbyState.inviteWarning = '';
       lobbyState.inviteSuccess = '';
       renderLobbyGate(document.getElementById('app'));
     };
-
     window.submitBotInvites = async function() {
       const inputs = document.querySelectorAll('.invite-user-input');
       const targets = Array.from(inputs).map(i => i.value.trim()).filter(Boolean);
@@ -1107,14 +1760,8 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
           })
         });
         const data = await res.json();
-        if (data.not_started?.length > 0) {
-          lobbyState.inviteWarning = `${T().notStartedWarn}\n(${data.not_started.join(' , ')})`;
-        } else {
-          lobbyState.inviteWarning = '';
-        }
-        if (data.invited?.length > 0) {
-          lobbyState.inviteSuccess = `✅ (${data.invited.join(' , ')})`;
-        }
+        lobbyState.inviteWarning = data.not_started?.length > 0 ? `${T().notStartedWarn}\n(${data.not_started.join(' , ')})` : '';
+        lobbyState.inviteSuccess = data.invited?.length > 0 ? `✅ (${data.invited.join(' , ')})` : '';
         renderLobbyGate(document.getElementById('app'));
       } catch (e) {}
     };
@@ -1124,7 +1771,6 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
       const directTableUrl = `https://t.me/${BOT_USERNAME}/${SHORT_NAME}?startapp=${startParamStr}`;
       const shareText = `🎮 ${T().heroTitle} (${gameType.toUpperCase()})\n👤 ${myName}`;
       const shareUrl = `https://t.me/share/url?url=${encodeURIComponent(directTableUrl)}&text=${encodeURIComponent(shareText)}`;
-
       try {
         if (tg && typeof tg.openTelegramLink === 'function') {
           tg.openTelegramLink(shareUrl);
@@ -1156,9 +1802,7 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
         const needed = Math.max(1, lobbyState.maxPlayers - 1);
         let boxesHtml = '';
         for (let i = 0; i < needed; i++) {
-          boxesHtml += `
-            <input type="text" placeholder="@username / ID (${i + 1})" class="invite-user-input w-full p-3 rounded-xl glass-soft text-white text-sm font-bold text-center" />
-          `;
+          boxesHtml += `<input type="text" placeholder="@username / ID (${i + 1})" class="invite-user-input w-full p-3 rounded-xl glass-soft text-white text-sm font-bold text-center" />`;
         }
         root.innerHTML = `
           ${renderTopBar(T().optInvite)}
@@ -1180,21 +1824,15 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
         ${renderTopBar()}
         <div class="flex-1 flex flex-col justify-center p-4">
           <div class="glass-panel p-5 rounded-3xl text-center flex flex-col gap-3">
-            <button onclick="startLobbyWithBot()" class="btn-success w-full py-4 rounded-2xl font-black text-sm">
-              ${T().optBot}
-            </button>
-            <button onclick="openInviteBoxes()" class="btn-primary w-full py-4 rounded-2xl font-black text-sm">
-              ${T().optInvite}
-            </button>
-            <button onclick="shareTableInline('${lobbyState.game}', '${lobbyState.rpsTargetWins}');nav('${lobbyState.game}', true)" class="btn-primary w-full py-4 rounded-2xl font-black text-sm">
-              ${T().optShare}
-            </button>
+            <button onclick="startLobbyWithBot()" class="btn-success w-full py-4 rounded-2xl font-black text-sm">${T().optBot}</button>
+            <button onclick="openInviteBoxes()" class="btn-primary w-full py-4 rounded-2xl font-black text-sm">${T().optInvite}</button>
+            <button onclick="shareTableInline('${lobbyState.game}', '${lobbyState.rpsTargetWins}');nav('${lobbyState.game}', true)" class="btn-primary w-full py-4 rounded-2xl font-black text-sm">${T().optShare}</button>
           </div>
         </div>
       `;
     }
 
-    /* ═══════════ میز حکم واقعی روی فرش قرمز ایرانی (۷ زبانه) ═══════════ */
+    /* ═══════════ میز حکم واقعی روی فرش قرمز ایرانی ═══════════ */
     let hokmMode = '4p';
     let hokmError = '';
     let myMicActive = false;
@@ -1339,12 +1977,8 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
                 <h2 class="text-base font-black text-amber-300 mb-3">(${pList.length}/${st.max_players})</h2>
                 <div class="flex flex-col gap-2 mb-4">${rowsHtml}</div>
                 <div class="flex flex-col gap-2">
-                  <button onclick="hokmFillBots()" class="btn-success w-full py-3 rounded-xl font-black text-xs">
-                    ${T().fillBotsBtn}
-                  </button>
-                  <button onclick="shareTableInline('${st.mode === '2p' ? 'hokm2p' : 'hokm'}')" class="btn-primary w-full py-2.5 rounded-xl font-bold text-xs">
-                    ${T().optShare}
-                  </button>
+                  <button onclick="hokmFillBots()" class="btn-success w-full py-3 rounded-xl font-black text-xs">${T().fillBotsBtn}</button>
+                  <button onclick="shareTableInline('${st.mode === '2p' ? 'hokm2p' : 'hokm'}')" class="btn-primary w-full py-2.5 rounded-xl font-bold text-xs">${T().optShare}</button>
                 </div>
               </div>
             </div>
@@ -1690,9 +2324,7 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
         callGuessApi('guess', { guess_val: v });
       }
     };
-    window.restartGroupGuess = function() {
-      callGuessApi('restart');
-    };
+    window.restartGroupGuess = function() { callGuessApi('restart'); };
 
     function renderGuess(root) {
       if (!guessRoomData) {
@@ -1744,9 +2376,7 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
                 <button onclick="sendGroupGuessVal()" class="btn-success px-5 rounded-xl font-black">${T().submitBtn}</button>
               </div>
             `}
-            <button onclick="shareTableInline('guess', '${r.min}-${r.max}')" class="btn-primary w-full py-2.5 rounded-xl font-bold text-xs mt-2">
-              ${T().optShare}
-            </button>
+            <button onclick="shareTableInline('guess', '${r.min}-${r.max}')" class="btn-primary w-full py-2.5 rounded-xl font-bold text-xs mt-2">${T().optShare}</button>
           </div>
 
           <div class="flex-1 overflow-y-auto my-3 flex flex-col gap-1.5">${histHtml}</div>
@@ -1957,6 +2587,7 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
     function render() {
       const root = document.getElementById('app');
       if (!root) return;
+      if (currentGame === 'demontower') return startDemonTowerApp(root);
       if (currentGame === 'lobby_gate') return renderLobbyGate(root);
       if (currentGame === 'hokm' || currentGame === 'hokm4p') return startHokmEngine(root, '4p');
       if (currentGame === 'hokm2p') return startHokmEngine(root, '2p');
@@ -1974,7 +2605,7 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
       return renderHub(root);
     }
 
-    verifyJoinAndRender(false);
+    verifyJoinAndRender();
   </script>
 </body>
 </html>
@@ -2002,13 +2633,23 @@ async def serve_entry(request: Request, full_path: str):
     if not carpet_bg and CUSTOM_CARPET_BG.exists():
         carpet_bg = f"{base_url}/api/custom_bg/carpet"
 
+    tower_bg = os.environ.get("RHINO_TOWER_BG", "")
+    if not tower_bg and CUSTOM_TOWER_BG.exists():
+        tower_bg = f"{base_url}/api/custom_bg/tower_bg"
+
+    tower_hero = os.environ.get("RHINO_TOWER_HERO", "")
+    if not tower_hero and CUSTOM_TOWER_HERO.exists():
+        tower_hero = f"{base_url}/api/custom_bg/tower_hero"
+
     html_content = (
         MINIAPP_TEMPLATE
         .replace("__OG_TITLE__", meta["title"])
         .replace("__OG_IMAGE__", og_img)
         .replace("__HERO_IMAGE__", hero_img)
+        .replace("__TOWER_HERO__", tower_hero)
         .replace("__MENU_BG__", f"url('{menu_bg}')," if menu_bg else "")
         .replace("__CARPET_BG__", f"url('{carpet_bg}')," if carpet_bg else "")
+        .replace("__TOWER_BG__", f"url('{tower_bg}')," if tower_bg else "")
         .replace("__BOT_USERNAME__", get_bot_username())
         .replace("__SHORT_NAME__", short_name)
     )
