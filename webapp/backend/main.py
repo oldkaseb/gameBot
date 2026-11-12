@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""webapp/backend/main.py — رفع کامل بسته شدن کیبورد هنگام تایپ و رفع کرش اشتراک‌گذاری لینک میز بازی"""
+"""webapp/backend/main.py — مینی‌اپ ۷ زبانه کامل با نام‌های کوتاه بازی‌ها، گلس‌مورفیسم و میز حکم فرش ایرانی"""
 
 import io
 import json
@@ -36,21 +36,21 @@ hokm_rooms: dict[str, HokmGame] = {}
 guess_rooms: dict[str, dict] = {}
 
 GAME_META = {
-    "hub":          {"title": "RHINO GAME BOX",      "c1": (15, 23, 42),  "c2": (79, 70, 229)},
-    "hokm":         {"title": "HOKM 4 PLAYERS",      "c1": (127, 17, 22), "c2": (185, 28, 28)},
-    "hokm2p":       {"title": "HOKM 2 PLAYERS",      "c1": (127, 17, 22), "c2": (185, 28, 28)},
-    "2048":         {"title": "PUZZLE 2048",         "c1": (15, 23, 42),  "c2": (37, 99, 235)},
-    "spuzzle":      {"title": "SLIDING PUZZLE",      "c1": (15, 23, 42),  "c2": (14, 165, 233)},
-    "samegame":     {"title": "SAME GAME",           "c1": (15, 23, 42),  "c2": (168, 85, 247)},
-    "dooz":         {"title": "COLOR RINGS 2P",      "c1": (15, 23, 42),  "c2": (59, 130, 246)},
-    "doz4p":        {"title": "COLOR RINGS 4P",      "c1": (15, 23, 42),  "c2": (236, 72, 153)},
-    "connect4":     {"title": "CONNECT FOUR",        "c1": (6, 78, 59),   "c2": (16, 185, 129)},
-    "rps":          {"title": "ROCK PAPER SCISSORS", "c1": (15, 23, 42),  "c2": (99, 102, 241)},
-    "memory":       {"title": "MEMORY MATCH",        "c1": (15, 23, 42),  "c2": (139, 92, 246)},
-    "typing":       {"title": "TYPING SPEED",        "c1": (15, 23, 42),  "c2": (245, 158, 11)},
-    "hangman":      {"title": "WORD GUESS",          "c1": (15, 23, 42),  "c2": (225, 29, 72)},
-    "guess":        {"title": "GROUP NUMBER GUESS",  "c1": (15, 23, 42),  "c2": (16, 185, 129)},
-    "gardone_anim": {"title": "LUCKY WHEEL",         "c1": (76, 29, 149), "c2": (217, 70, 239)},
+    "hub":          {"title": "RHINO GAME BOX", "c1": (15, 23, 42),  "c2": (79, 70, 229)},
+    "hokm":         {"title": "HOKM 4P",        "c1": (127, 17, 22), "c2": (185, 28, 28)},
+    "hokm2p":       {"title": "HOKM 2P",        "c1": (127, 17, 22), "c2": (185, 28, 28)},
+    "2048":         {"title": "2048",           "c1": (15, 23, 42),  "c2": (37, 99, 235)},
+    "spuzzle":      {"title": "PUZZLE 15",      "c1": (15, 23, 42),  "c2": (14, 165, 233)},
+    "samegame":     {"title": "SAME GAME",      "c1": (15, 23, 42),  "c2": (168, 85, 247)},
+    "dooz":         {"title": "DOOZ 2P",        "c1": (15, 23, 42),  "c2": (59, 130, 246)},
+    "doz4p":        {"title": "DOOZ 4P",        "c1": (15, 23, 42),  "c2": (236, 72, 153)},
+    "connect4":     {"title": "CONNECT 4",      "c1": (6, 78, 59),   "c2": (16, 185, 129)},
+    "rps":          {"title": "RPS",            "c1": (15, 23, 42),  "c2": (99, 102, 241)},
+    "memory":       {"title": "MEMORY",         "c1": (15, 23, 42),  "c2": (139, 92, 246)},
+    "typing":       {"title": "TYPING",         "c1": (15, 23, 42),  "c2": (245, 158, 11)},
+    "hangman":      {"title": "WORDS",          "c1": (15, 23, 42),  "c2": (225, 29, 72)},
+    "guess":        {"title": "GUESS NUM",      "c1": (15, 23, 42),  "c2": (16, 185, 129)},
+    "gardone_anim": {"title": "LUCKY WHEEL",    "c1": (76, 29, 149), "c2": (217, 70, 239)},
 }
 
 
@@ -237,11 +237,11 @@ async def api_invite_friends(payload: InvitePlayersPayload):
                     await temp_bot.send_message(
                         chat_id=target_uid,
                         text=(
-                            f"🎮 <b>دعوت‌نامه میز بازی گیم باکس راینو</b>\n\n"
-                            f"👤 دوست شما <b>{payload.inviter_name}</b> شما را به میز بازی دعوت کرده است!\n"
-                            f"برای ورود مستقیم به بازی روی دکمه زیر بزنید:"
+                            f"🎮 <b>RHINO GAME BOX</b>\n\n"
+                            f"👤 <b>{payload.inviter_name}</b> invited you to play!\n"
+                            f"Tap below to join the table:"
                         ),
-                        reply_markup=kb([[success("▶️ ورود مستقیم به میز بازی", url=join_url)]]),
+                        reply_markup=kb([[success("▶️ Join Game", url=join_url)]]),
                         parse_mode=ParseMode.HTML,
                     )
                     invited.append(row["first_name"] or t_str)
@@ -329,7 +329,7 @@ async def guess_action_endpoint(payload: GuessActionPayload):
 
     if payload.action == "restart":
         if int(payload.uid) != int(room["host_id"]):
-            return {"ok": False, "error": "فقط سازنده بازی می‌تواند دور جدید را شروع کند!", "room": room}
+            return {"ok": False, "error": "Only host can restart!", "room": room}
         room["secret"] = random.randint(room["min"], room["max"])
         room["winner_id"] = None
         room["winner_name"] = ""
@@ -340,15 +340,15 @@ async def guess_action_endpoint(payload: GuessActionPayload):
         if gval == room["secret"]:
             room["winner_id"] = payload.uid
             room["winner_name"] = payload.name
-            room["history"].insert(0, {"name": payload.name, "val": gval, "hint": "🏆 درست حدس زد!"})
+            room["history"].insert(0, {"name": payload.name, "val": gval, "hint": "🏆"})
             try:
                 await db.add_win(payload.uid, "number_guess")
             except Exception:
                 pass
         elif gval < room["secret"]:
-            room["history"].insert(0, {"name": payload.name, "val": gval, "hint": "⬆️ برو بالاتر"})
+            room["history"].insert(0, {"name": payload.name, "val": gval, "hint": "⬆️"})
         else:
-            room["history"].insert(0, {"name": payload.name, "val": gval, "hint": "⬇️ بیا پایین‌تر"})
+            room["history"].insert(0, {"name": payload.name, "val": gval, "hint": "⬇️"})
         room["history"] = room["history"][:12]
 
     safe_room = {k: v for k, v in room.items() if k != "secret"}
@@ -497,7 +497,6 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
   <div id="app"></div>
 
   <script>
-    /* جلوگیری از کرش صفحه در صورت خطاهای جزئی مرورگر یا متدهای تلگرام */
     window.onerror = function(msg, url, line) {
       console.warn("MiniApp non-fatal error:", msg, line);
       return true;
@@ -509,7 +508,6 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
       tg.expand();
     }
 
-    /* بررسی اینکه آیا کاربر در حال تایپ در یک input است تا تایمرها کیبورد را نبندند */
     function isUserTyping() {
       const el = document.activeElement;
       return el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA');
@@ -537,90 +535,378 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
     }
     applyDir();
 
+    /* ═══════════ دیکشنری کامل ۷ زبانه با نام‌های کوتاه برای تمام بازی‌ها ═══════════ */
     const I18N = {
       fa: {
         heroTitle: "گیم باکس راینو",
         heroBody: "به گیم باکس راینو خوش اومدی رفیق\nاینجا کلی بازی خفن رو توی یک ربات برات جمع کردیم\nلذت ببر دوست من",
         wipBadge: "در حال ساخت",
-        backMenu: "بازگشت به منو",
-        optBot: "🤖 بازی با ربات (شروع فوری)",
-        optInvite: "📩 دعوت دوستان از طریق ربات",
-        optShare: "📤 اشتراک‌گذاری لینک میز بازی در چت‌ها",
-        sendInviteBtn: "ارسال دعوت‌نامه با ربات",
-        notStartedWarn: "⚠️ کاربران زیر هنوز ربات را استارت نکرده‌اند! لطفاً به آن‌ها بگو ابتدا ربات را استارت کنند:",
-        swipeHint: "برای حرکت، صفحه بازی را به چپ، راست، بالا یا پایین بکشید"
+        backMenu: "منو",
+        playBtn: "ورود",
+        optBot: "🤖 بازی با ربات",
+        optInvite: "📩 دعوت دوستان با ربات",
+        optShare: "📤 اشتراک‌گذاری لینک میز",
+        sendInviteBtn: "ارسال دعوت‌نامه",
+        enterTableBtn: "ورود به میز",
+        notStartedWarn: "⚠️ این کاربران هنوز ربات را استارت نکرده‌اند (به آن‌ها بگو ابتدا ربات را استارت کنند):",
+        swipeHint: "صفحه را به ۴ جهت بکشید (Swipe)",
+        restart: "شروع مجدد",
+        score: "امتیاز",
+        turn: "نوبت",
+        winner: "برنده",
+        trump: "حکم",
+        ourTricks: "دست ما",
+        oppTricks: "دست حریف",
+        sets: "ست",
+        chooseTrumpPrompt: "👑 شما حاکم هستید! خال حکم را انتخاب کنید:",
+        waitingHakem: "در حال تعیین حکم...",
+        pickPartner: "انتخاب یار",
+        fillBotsBtn: "🤖 پر کردن با هوش مصنوعی و شروع",
+        rpsAskWins: "تعداد بردهای لازم:",
+        winsUnit: "برد",
+        rock: "سنگ", paper: "کاغذ", scissors: "قیچی",
+        pickColor: "رنگ مهره شما:",
+        fromNum: "از عدد:", toNum: "تا عدد:",
+        createGame: "ساخت بازی",
+        submitBtn: "ثبت",
+        playAgainBtn: "🔄 یه دور دیگه",
+        chatPlaceholder: "پیام شفاف بالای اسم...",
+        sendBtn: "ارسال",
+        micOn: "🎙️ روشن", micOff: "🔇 مایک",
+        games: {
+          wip1: "شکارچی سیاه‌چال", wip2: "هک گاوصندوق", wip3: "برج شیاطین",
+          hokm: "حکم ۴", hokmSub: "۴ نفره • فرش ایرانی",
+          hokm2p: "حکم ۲", hokm2pSub: "۲ نفره • تک‌به‌تک",
+          dooz: "دوز ۲", doozSub: "۲ نفره • حلقه رنگی",
+          doz4p: "دوز ۴", doz4pSub: "۴ نفره • حلقه رنگی",
+          connect4: "۴ در ردیف", connect4Sub: "۲ نفره • استراتژیک",
+          rps: "سنگ کاغذ قیچی", rpsSub: "۲ نفره • سرعتی",
+          guess: "حدس عدد", guessSub: "گروهی • رقابتی",
+          g2048: "۲۰۴۸", g2048Sub: "تک‌نفره • لمسی",
+          spuzzle: "پازل ۱۵", spuzzleSub: "تک‌نفره • لمسی",
+          samegame: "جفت‌ها", samegameSub: "تک‌نفره • رنگی",
+          memory: "حافظه", memorySub: "۲ نفره • تمرکزی",
+          typing: "تایپ", typingSub: "سرعتی • رکوردی",
+          hangman: "حدس کلمه", hangmanSub: "فکری • حروف"
+        }
       },
       en: {
         heroTitle: "Rhino Game Box",
-        heroBody: "Welcome to Rhino Game Box my friend!\nWe gathered awesome games in one place for you.\nEnjoy!",
-        wipBadge: "Coming Soon",
-        backMenu: "Back to Menu",
+        heroBody: "Welcome to Rhino Game Box my friend\nAwesome games gathered in one bot for you\nEnjoy my friend",
+        wipBadge: "Soon",
+        backMenu: "Menu",
+        playBtn: "Play",
         optBot: "🤖 Play with AI Bot",
         optInvite: "📩 Invite Friends via Bot",
-        optShare: "📤 Share Table Link to Chats",
-        sendInviteBtn: "Send Bot Invites",
-        notStartedWarn: "⚠️ These users haven't started the bot yet! Tell them to start the bot first:",
-        swipeHint: "Swipe Up, Down, Left, or Right on the board to move"
+        optShare: "📤 Share Table Link",
+        sendInviteBtn: "Send Invites",
+        enterTableBtn: "Enter Table",
+        notStartedWarn: "⚠️ These users haven't started the bot yet (tell them to start it first):",
+        swipeHint: "Swipe in 4 directions to move",
+        restart: "Restart",
+        score: "Score",
+        turn: "Turn",
+        winner: "Winner",
+        trump: "Trump",
+        ourTricks: "Our Tricks",
+        oppTricks: "Opp Tricks",
+        sets: "Sets",
+        chooseTrumpPrompt: "👑 You are Hakem! Choose Trump suit:",
+        waitingHakem: "Choosing trump...",
+        pickPartner: "Set Partner",
+        fillBotsBtn: "🤖 Fill with AI & Start",
+        rpsAskWins: "Target wins:",
+        winsUnit: "Wins",
+        rock: "Rock", paper: "Paper", scissors: "Scissors",
+        pickColor: "Your Color:",
+        fromNum: "From:", toNum: "To:",
+        createGame: "Create Game",
+        submitBtn: "Submit",
+        playAgainBtn: "🔄 Play Again",
+        chatPlaceholder: "Quick popup message...",
+        sendBtn: "Send",
+        micOn: "🎙️ On", micOff: "🔇 Mic",
+        games: {
+          wip1: "Dungeon Heist", wip2: "Cyber Vault", wip3: "Demon Tower",
+          hokm: "Hokm 4P", hokmSub: "4 Players • Cards",
+          hokm2p: "Hokm 2P", hokm2pSub: "2 Players • Duel",
+          dooz: "Rings 2P", doozSub: "2 Players • Color",
+          doz4p: "Rings 4P", doz4pSub: "4 Players • Color",
+          connect4: "Connect 4", connect4Sub: "2 Players • Strategy",
+          rps: "Rock Paper", rpsSub: "2 Players • Duel",
+          guess: "Number Guess", guessSub: "Group • Live",
+          g2048: "2048", g2048Sub: "Solo • Swipe",
+          spuzzle: "Puzzle 15", spuzzleSub: "Solo • Swipe",
+          samegame: "SameGame", samegameSub: "Solo • Match",
+          memory: "Memory", memorySub: "2 Players • Match",
+          typing: "Typing", typingSub: "Speed • Record",
+          hangman: "Word Guess", hangmanSub: "Solo • Letters"
+        }
       },
       ar: {
         heroTitle: "صندوق ألعاب رينو",
-        heroBody: "مرحباً بك في صندوق ألعاب رينو يا صديقي\nجمعنا لك أروع الألعاب في مكان واحد\nاستمتع!",
-        wipBadge: "قيد الإنشاء",
-        backMenu: "العودة للقائمة",
+        heroBody: "مرحباً بك في صندوق ألعاب رينو يا صديقي\nجمعنا لك أروع الألعاب في مكان واحد\nاستمتع يا صديقي",
+        wipBadge: "قريباً",
+        backMenu: "القائمة",
+        playBtn: "دخول",
         optBot: "🤖 اللعب مع البوت",
-        optInvite: "📩 دعوة الأصدقاء عبر البوت",
+        optInvite: "📩 دعوة الأصدقاء بالبوت",
         optShare: "📤 مشاركة رابط الطاولة",
         sendInviteBtn: "إرسال الدعوة",
-        notStartedWarn: "⚠️ هؤلاء المستخدمون لم يشغلوا البوت بعد! أخبرهم بتشغيل البوت أولاً:",
-        swipeHint: "اسحب لليمين أو اليسار أو للأعلى أو للأسفل للتحرك"
+        enterTableBtn: "دخول الطاولة",
+        notStartedWarn: "⚠️ هؤلاء المستخدمون لم يشغلوا البوت بعد:",
+        swipeHint: "اسحب في 4 اتجاهات للتحرك",
+        restart: "إعادة",
+        score: "النقاط",
+        turn: "دور",
+        winner: "الفائز",
+        trump: "الحكم",
+        ourTricks: "أكلاتنا",
+        oppTricks: "أكلات الخصم",
+        sets: "جولات",
+        chooseTrumpPrompt: "👑 أنت الحاكم! اختر نوع الحكم:",
+        waitingHakem: "جاري اختيار الحكم...",
+        pickPartner: "كشريك",
+        fillBotsBtn: "🤖 إكمال بالذكاء الاصطناعي والبدء",
+        rpsAskWins: "عدد الفوز المطلوب:",
+        winsUnit: "فوز",
+        rock: "حجر", paper: "ورقة", scissors: "مقص",
+        pickColor: "لونك:",
+        fromNum: "من:", toNum: "إلى:",
+        createGame: "إنشاء اللعبة",
+        submitBtn: "إرسال",
+        playAgainBtn: "🔄 جولة أخرى",
+        chatPlaceholder: "رسالة سريعة...",
+        sendBtn: "إرسال",
+        micOn: "🎙️ متصل", micOff: "🔇 مايك",
+        games: {
+          wip1: "صائد القبو", wip2: "الخزنة الذكية", wip3: "برج الشياطين",
+          hokm: "حكم 4", hokmSub: "4 لاعبين • ورق",
+          hokm2p: "حكم 2", hokm2pSub: "لاعبين • مبارزة",
+          dooz: "دوز 2", doozSub: "لاعبين • حلقات",
+          doz4p: "دوز 4", doz4pSub: "4 لاعبين • حلقات",
+          connect4: "4 في صف", connect4Sub: "لاعبين • تكتيك",
+          rps: "حجر ورقة", rpsSub: "لاعبين • سريع",
+          guess: "تخمين رقم", guessSub: "جماعي • مباشر",
+          g2048: "2048", g2048Sub: "فردي • سحب",
+          spuzzle: "أحجية 15", spuzzleSub: "فردي • سحب",
+          samegame: "المتشابهات", samegameSub: "فردي • ألوان",
+          memory: "الذاكرة", memorySub: "تركيز • بطاقات",
+          typing: "سرعة كتابة", typingSub: "تحدي • وقت",
+          hangman: "تخمين كلمة", hangmanSub: "ذكاء • حروف"
+        }
       },
       tr: {
         heroTitle: "Rhino Oyun Kutusu",
-        heroBody: "Rhino Oyun Kutusuna hoş geldin dostum!\nHarika oyunları senin için bir araya getirdik.",
-        wipBadge: "Yapım Aşamasında",
-        backMenu: "Menüye Dön",
+        heroBody: "Rhino Oyun Kutusuna hoş geldin dostum\nEn iyi oyunları senin için topladık\nKeyfini çıkar!",
+        wipBadge: "Yakında",
+        backMenu: "Menü",
+        playBtn: "Oyna",
         optBot: "🤖 Bot ile Oyna",
-        optInvite: "📩 Bot ile Arkadaş Davet Et",
+        optInvite: "📩 Bot ile Arkadaş Çağır",
         optShare: "📤 Masa Linkini Paylaş",
         sendInviteBtn: "Davet Gönder",
-        notStartedWarn: "⚠️ Bu kullanıcılar henüz botu başlatmadı! Önce botu başlatmalarını söyleyin:",
-        swipeHint: "Hareket etmek için kaydırın"
+        enterTableBtn: "Masaya Gir",
+        notStartedWarn: "⚠️ Bu kullanıcılar henüz botu başlatmadı:",
+        swipeHint: "Hareket için 4 yöne kaydırın",
+        restart: "Yeniden",
+        score: "Puan",
+        turn: "Sıra",
+        winner: "Kazanan",
+        trump: "Koz",
+        ourTricks: "Bizim El",
+        oppTricks: "Rakip El",
+        sets: "Set",
+        chooseTrumpPrompt: "👑 Hakem sensin! Kozu seç:",
+        waitingHakem: "Koz seçiliyor...",
+        pickPartner: "Eş Yap",
+        fillBotsBtn: "🤖 Botlarla Doldur ve Başla",
+        rpsAskWins: "Kazanma sayısı:",
+        winsUnit: "Tur",
+        rock: "Taş", paper: "Kağıt", scissors: "Makas",
+        pickColor: "Rengin:",
+        fromNum: "Min:", toNum: "Maks:",
+        createGame: "Oyunu Kur",
+        submitBtn: "Gönder",
+        playAgainBtn: "🔄 Tekrar Oyna",
+        chatPlaceholder: "Hızlı mesaj...",
+        sendBtn: "Gönder",
+        micOn: "🎙️ Açık", micOff: "🔇 Mik",
+        games: {
+          wip1: "Zindan Avcısı", wip2: "Siber Kasa", wip3: "Şeytan Kulesi",
+          hokm: "Hokm 4K", hokmSub: "4 Kişilik • Kart",
+          hokm2p: "Hokm 2K", hokm2pSub: "2 Kişilik • Düello",
+          dooz: "XOX 2K", doozSub: "2 Kişilik • Renkli",
+          doz4p: "XOX 4K", doz4pSub: "4 Kişilik • Renkli",
+          connect4: "4'lü Sıra", connect4Sub: "2 Kişilik • Strateji",
+          rps: "Taş Kağıt", rpsSub: "2 Kişilik • Hızlı",
+          guess: "Sayı Tahmin", guessSub: "Grup • Canlı",
+          g2048: "2048", g2048Sub: "Tek • Kaydır",
+          spuzzle: "Yapboz 15", spuzzleSub: "Tek • Kaydır",
+          samegame: "Eşleştir", samegameSub: "Tek • Renkler",
+          memory: "Hafıza", memorySub: "2 Kişilik • Kart",
+          typing: "Hızlı Yazma", typingSub: "Rekor • Süre",
+          hangman: "Kelime Bul", hangmanSub: "Zeka • Harf"
+        }
       },
       ru: {
-        heroTitle: "Игровая Коробка Rhino",
-        heroBody: "Добро пожаловать в Rhino Game Box, друг!\nЗдесь собраны лучшие игры для тебя.",
-        wipBadge: "В разработке",
-        backMenu: "В меню",
+        heroTitle: "Rhino Гейм Бокс",
+        heroBody: "Добро пожаловать в Rhino Game Box, друг!\nЛучшие игры в одном месте.\nПриятной игры!",
+        wipBadge: "Скоро",
+        backMenu: "Меню",
+        playBtn: "Играть",
         optBot: "🤖 Играть с ботом",
-        optInvite: "📩 Пригласить друзей через бота",
-        optShare: "📤 Поделиться ссылкой на стол",
-        sendInviteBtn: "Отправить приглашения",
+        optInvite: "📩 Пригласить через бота",
+        optShare: "📤 Поделиться столом",
+        sendInviteBtn: "Отправить",
+        enterTableBtn: "Войти за стол",
         notStartedWarn: "⚠️ Эти пользователи ещё не запустили бота:",
-        swipeHint: "Свайпайте по полю для хода"
+        swipeHint: "Свайпайте в 4 стороны",
+        restart: "Заново",
+        score: "Счёт",
+        turn: "Ход",
+        winner: "Победитель",
+        trump: "Козырь",
+        ourTricks: "Наши взятки",
+        oppTricks: "Взятки врага",
+        sets: "Сеты",
+        chooseTrumpPrompt: "👑 Вы Хакем! Выберите козырь:",
+        waitingHakem: "Выбор козыря...",
+        pickPartner: "В напарники",
+        fillBotsBtn: "🤖 Заполнить ИИ и начать",
+        rpsAskWins: "Побед до выигрыша:",
+        winsUnit: "побед",
+        rock: "Камень", paper: "Бумага", scissors: "Ножницы",
+        pickColor: "Ваш цвет:",
+        fromNum: "От:", toNum: "До:",
+        createGame: "Создать",
+        submitBtn: "Ввод",
+        playAgainBtn: "🔄 Ещё раунд",
+        chatPlaceholder: "Сообщение...",
+        sendBtn: "Отпр",
+        micOn: "🎙️ Вкл", micOff: "🔇 Мик",
+        games: {
+          wip1: "Подземелье", wip2: "Кибер Сейф", wip3: "Башня Демонов",
+          hokm: "Хокм 4", hokmSub: "4 игрока • Карты",
+          hokm2p: "Хокм 2", hokm2pSub: "2 игрока • Дуэль",
+          dooz: "Кольца 2", doozSub: "2 игрока • Цвет",
+          doz4p: "Кольца 4", doz4pSub: "4 игрока • Цвет",
+          connect4: "4 в ряд", connect4Sub: "2 игрока • Тактика",
+          rps: "Камень Ножницы", rpsSub: "2 игрока • Быстро",
+          guess: "Угадай число", guessSub: "Группа • Лайв",
+          g2048: "2048", g2048Sub: "Соло • Свайп",
+          spuzzle: "Пятнашки", spuzzleSub: "Соло • Свайп",
+          samegame: "Цвета", samegameSub: "Соло • Пазл",
+          memory: "Память", memorySub: "2 игрока • Карты",
+          typing: "Печать", typingSub: "Скорость • Текст",
+          hangman: "Слова", hangmanSub: "Буквы • Угадай"
+        }
       },
       de: {
         heroTitle: "Rhino Spielbox",
-        heroBody: "Willkommen in der Rhino Spielbox, mein Freund!\nGenieße unsere Spiele.",
-        wipBadge: "In Arbeit",
-        backMenu: "Zurück zum Menü",
+        heroBody: "Willkommen in der Rhino Spielbox, Freund!\nTolle Spiele an einem Ort.\nViel Spaß!",
+        wipBadge: "Bald",
+        backMenu: "Menü",
+        playBtn: "Start",
         optBot: "🤖 Gegen Bot spielen",
-        optInvite: "📩 Freunde über Bot einladen",
+        optInvite: "📩 Freunde einladen",
         optShare: "📤 Tisch-Link teilen",
-        sendInviteBtn: "Einladung senden",
+        sendInviteBtn: "Senden",
+        enterTableBtn: "Zum Tisch",
         notStartedWarn: "⚠️ Diese Nutzer haben den Bot noch nicht gestartet:",
-        swipeHint: "Wische über das Feld zum Bewegen"
+        swipeHint: "In 4 Richtungen wischen",
+        restart: "Neustart",
+        score: "Punkte",
+        turn: "Zug",
+        winner: "Sieger",
+        trump: "Trumpf",
+        ourTricks: "Unsere Stiche",
+        oppTricks: "Gegner Stiche",
+        sets: "Sätze",
+        chooseTrumpPrompt: "👑 Wähle den Trumpf:",
+        waitingHakem: "Trumpf wird gewählt...",
+        pickPartner: "Als Partner",
+        fillBotsBtn: "🤖 Mit KI füllen & Start",
+        rpsAskWins: "Siege zum Gewinn:",
+        winsUnit: "Siege",
+        rock: "Stein", paper: "Papier", scissors: "Schere",
+        pickColor: "Farbe:",
+        fromNum: "Von:", toNum: "Bis:",
+        createGame: "Erstellen",
+        submitBtn: "OK",
+        playAgainBtn: "🔄 Noch mal",
+        chatPlaceholder: "Nachricht...",
+        sendBtn: "Senden",
+        micOn: "🎙️ An", micOff: "🔇 Mik",
+        games: {
+          wip1: "Dungeon Heist", wip2: "Cyber Tresor", wip3: "Dämonenturm",
+          hokm: "Hokm 4P", hokmSub: "4 Spieler • Karten",
+          hokm2p: "Hokm 2P", hokm2pSub: "2 Spieler • Duell",
+          dooz: "Ringe 2P", doozSub: "2 Spieler • Farbe",
+          doz4p: "Ringe 4P", doz4pSub: "4 Spieler • Farbe",
+          connect4: "4 Gewinnt", connect4Sub: "2 Spieler • Taktik",
+          rps: "Schere Stein", rpsSub: "2 Spieler • Schnell",
+          guess: "Zahl Raten", guessSub: "Gruppe • Live",
+          g2048: "2048", g2048Sub: "Solo • Wischen",
+          spuzzle: "Puzzle 15", spuzzleSub: "Solo • Wischen",
+          samegame: "Blöcke", samegameSub: "Solo • Farben",
+          memory: "Memory", memorySub: "2 Spieler • Paare",
+          typing: "Tippen", typingSub: "Tempo • Rekord",
+          hangman: "Wort Raten", hangmanSub: "Solo • Buchstaben"
+        }
       },
       zh: {
         heroTitle: "Rhino 游戏盒",
-        heroBody: "欢迎来到 Rhino 游戏盒，朋友！\n这里汇集了超棒的游戏，尽情享受吧！",
-        wipBadge: "开发中",
-        backMenu: "返回菜单",
+        heroBody: "欢迎来到 Rhino 游戏盒，朋友！\n超多好玩的游戏尽在一处，尽情享受吧！",
+        wipBadge: "敬请期待",
+        backMenu: "菜单",
+        playBtn: "进入",
         optBot: "🤖 与机器人对战",
         optInvite: "📩 通过机器人邀请好友",
         optShare: "📤 分享房间链接",
         sendInviteBtn: "发送邀请",
-        notStartedWarn: "⚠️ 以下用户尚未启动机器人，请先让他们启动：",
-        swipeHint: "上下左右滑动屏幕进行移动"
+        enterTableBtn: "进入牌桌",
+        notStartedWarn: "⚠️ 以下用户尚未启动机器人：",
+        swipeHint: "上下左右滑动屏幕移动",
+        restart: "重玩",
+        score: "分数",
+        turn: "回合",
+        winner: "赢家",
+        trump: "王牌",
+        ourTricks: "我方赢墩",
+        oppTricks: "对方赢墩",
+        sets: "局",
+        chooseTrumpPrompt: "👑 请选择王牌花色：",
+        waitingHakem: "正在选择王牌...",
+        pickPartner: "设为队友",
+        fillBotsBtn: "🤖 电脑补位并开始",
+        rpsAskWins: "目标胜场：",
+        winsUnit: "胜",
+        rock: "石头", paper: "布", scissors: "剪刀",
+        pickColor: "选择颜色：",
+        fromNum: "从：", toNum: "到：",
+        createGame: "创建房间",
+        submitBtn: "提交",
+        playAgainBtn: "🔄 再来一局",
+        chatPlaceholder: "快捷消息...",
+        sendBtn: "发送",
+        micOn: "🎙️ 开启", micOff: "🔇 麦克风",
+        games: {
+          wip1: "地牢夺宝", wip2: "赛博金库", wip3: "恶魔之塔",
+          hokm: "王牌 4人", hokmSub: "4人 • 扑克",
+          hokm2p: "王牌 2人", hokm2pSub: "2人 • 对决",
+          dooz: "彩环 2人", doozSub: "2人 • 连线",
+          doz4p: "彩环 4人", doz4pSub: "4人 • 连线",
+          connect4: "四子连珠", connect4Sub: "2人 • 策略",
+          rps: "猜拳对决", rpsSub: "2人 • 快速",
+          guess: "猜数字", guessSub: "群组 • 互动",
+          g2048: "2048", g2048Sub: "单人 • 滑动",
+          spuzzle: "华容道 15", spuzzleSub: "单人 • 滑动",
+          samegame: "消消乐", samegameSub: "单人 • 颜色",
+          memory: "记忆翻牌", memorySub: "双人 • 脑力",
+          typing: "极速打字", typingSub: "竞速 • 纪录",
+          hangman: "猜单词", hangmanSub: "益智 • 字母"
+        }
       }
     };
 
@@ -630,7 +916,7 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
     const tgUser = tg?.initDataUnsafe?.user || {};
     const realTgUid = tgUser.id || Number(params.get('uid')) || 0;
     const uid = realTgUid || Math.floor(Math.random()*900000 + 100000);
-    const myName = tgUser.first_name || 'بازیکن';
+    const myName = tgUser.first_name || 'Player';
     const myUsername = tgUser.username || '';
     const myPhoto = tgUser.photo_url || '';
 
@@ -650,10 +936,10 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
     function renderTopBar(titleText = '') {
       const langFlags = { fa: '🇮🇷 FA', en: '🇬🇧 EN', ar: '🇸🇦 AR', tr: '🇹🇷 TR', ru: '🇷🇺 RU', de: '🇩🇪 DE', zh: '🇨🇳 ZH' };
       return `
-        <div class="glass-panel mx-3 mb-2 px-3.5 py-2 rounded-2xl flex justify-between items-center shrink-0">
+        <div class="glass-panel mx-3 mb-2 px-3 py-2 rounded-2xl flex justify-between items-center shrink-0">
           <div class="flex items-center gap-2">
             ${currentGame !== 'hub' ? `<button onclick="nav('hub')" class="btn-danger px-2.5 py-1 rounded-xl text-xs font-extrabold">${T().backMenu}</button>` : `<span class="text-xs font-black text-indigo-300">RHINO™</span>`}
-            <span class="text-sm font-black text-white">${titleText || T().heroTitle}</span>
+            <span class="text-sm font-black text-white truncate max-w-[180px]">${titleText || T().heroTitle}</span>
           </div>
           <button onclick="cycleLang()" class="glass-soft px-2.5 py-1 rounded-xl text-xs font-extrabold text-amber-300">
             🌐 ${langFlags[lang] || 'FA'}
@@ -675,15 +961,14 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
         const data = await res.json();
         if (data && data.joined === false && data.channels?.length > 0) {
           isJoinVerified = false;
-          if (showAlertOnFail && tg?.showAlert) tg.showAlert("لطفاً ابتدا در کانال عضو شوید!");
-          const chBtns = data.channels.map(c => `<button onclick="openChannelLink('${c.url}')" class="btn-primary w-full py-3 rounded-xl font-bold">عضویت در ${c.title}</button>`).join('');
+          const chBtns = data.channels.map(c => `<button onclick="openChannelLink('${c.url}')" class="btn-primary w-full py-3 rounded-xl font-bold">${c.title}</button>`).join('');
           root.innerHTML = `
             ${renderTopBar()}
             <div class="flex-1 flex flex-col justify-center p-4">
               <div class="glass-panel p-6 rounded-3xl text-center">
-                <h2 class="text-xl font-black mb-3">🔒 عضویت اجباری</h2>
-                <div class="flex flex-col gap-2.5 mb-4">${chBtns}</div>
-                <button onclick="verifyJoinAndRender(true)" class="btn-success w-full py-3.5 rounded-xl font-black">✅ عضو شدم (ورود)</button>
+                <div class="text-3xl mb-2">🔒</div>
+                <div class="flex flex-col gap-2.5 my-4">${chBtns}</div>
+                <button onclick="verifyJoinAndRender(true)" class="btn-success w-full py-3.5 rounded-xl font-black">✅ OK</button>
               </div>
             </div>
           `;
@@ -714,49 +999,48 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
       render();
     };
 
-    /* ═══════════ صفحه اصلی گیم باکس راینو ═══════════ */
+    /* ═══════════ صفحه اصلی گیم باکس راینو (نام‌های کوتاه + کاملاً ۷ زبانه) ═══════════ */
     function renderHub(root) {
+      const G = T().games;
       const wipGames = [
-        { title: "شکارچی سیاه‌چال", icon: "🏰" },
-        { title: "هک گاوصندوق سایبری", icon: "🔐" },
-        { title: "برج شیاطین", icon: "👹" }
+        { title: G.wip1, icon: "🏰" },
+        { title: G.wip2, icon: "🔐" },
+        { title: G.wip3, icon: "👹" }
       ];
       const activeGames = [
-        { id: "hokm", title: "حکم ۴ نفره (فرش ایرانی)", badge: "۴ نفره • لابی/ربات", icon: "♠️", cls: "btn-success" },
-        { id: "hokm2p", title: "حکم ۲ نفره", badge: "۲ نفره • لابی/ربات", icon: "👑", cls: "btn-success" },
-        { id: "dooz", title: "دوز با حلقه‌های رنگی", badge: "۲ نفره • انتخاب رنگ", icon: "🟢", cls: "btn-primary" },
-        { id: "doz4p", title: "دوز ۴ نفره رنگی", badge: "۴ نفره • انتخاب رنگ", icon: "🟣", cls: "btn-primary" },
-        { id: "connect4", title: "چهار در یک ردیف", badge: "۲ نفره • استراتژیک", icon: "🔴", cls: "btn-success" },
-        { id: "rps", title: "سنگ کاغذ قیچی", badge: "تعیین سقف برد + لابی", icon: "✂️", cls: "btn-primary" },
-        { id: "guess", title: "حدس عدد همگانی گروه", badge: "تعیین بازه + اشتراک‌گذاری", icon: "🎯", cls: "btn-success" },
-        { id: "2048", title: "پازل ۲۰۴۸ رنگی (اسکرولی)", badge: "تک‌نفره • لمسی", icon: "🧩", cls: "btn-primary" },
-        { id: "spuzzle", title: "پازل کشویی ۱۵ تایی (اسکرولی)", badge: "تک‌نفره • لمسی", icon: "🔢", cls: "btn-primary" },
-        { id: "samegame", title: "بازی جفت‌های رنگی", badge: "پازل امتیازی", icon: "🟦", cls: "btn-primary" },
-        { id: "memory", title: "مسابقه کارت‌های حافظه", badge: "لابی / فکری", icon: "🧠", cls: "btn-primary" },
-        { id: "typing", title: "مسابقه تایپ سرعتی", badge: "ثبت رکورد ثانیه", icon: "⌨️", cls: "btn-primary" },
-        { id: "hangman", title: "حدس کلمه فارسی", badge: "هوشی", icon: "🕵️", cls: "btn-primary" }
+        { id: "hokm",     title: G.hokm,     badge: G.hokmSub,     icon: "♠️", cls: "btn-success" },
+        { id: "hokm2p",   title: G.hokm2p,   badge: G.hokm2pSub,   icon: "👑", cls: "btn-success" },
+        { id: "dooz",     title: G.dooz,     badge: G.doozSub,     icon: "🟢", cls: "btn-primary" },
+        { id: "doz4p",    title: G.doz4p,    badge: G.doz4pSub,    icon: "🟣", cls: "btn-primary" },
+        { id: "connect4", title: G.connect4, badge: G.connect4Sub, icon: "🔴", cls: "btn-success" },
+        { id: "rps",      title: G.rps,      badge: G.rpsSub,      icon: "✂️", cls: "btn-primary" },
+        { id: "guess",    title: G.guess,    badge: G.guessSub,    icon: "🎯", cls: "btn-success" },
+        { id: "2048",     title: G.g2048,    badge: G.g2048Sub,    icon: "🧩", cls: "btn-primary" },
+        { id: "spuzzle",  title: G.spuzzle,  badge: G.spuzzleSub,  icon: "🔢", cls: "btn-primary" },
+        { id: "samegame", title: G.samegame, badge: G.samegameSub, icon: "🟦", cls: "btn-primary" },
+        { id: "memory",   title: G.memory,   badge: G.memorySub,   icon: "🧠", cls: "btn-primary" },
+        { id: "typing",   title: G.typing,   badge: G.typingSub,   icon: "⌨️", cls: "btn-primary" },
+        { id: "hangman",  title: G.hangman,  badge: G.hangmanSub,  icon: "🕵️", cls: "btn-primary" }
       ];
 
       const wipHtml = wipGames.map(w => `
-        <div class="glass-soft rounded-2xl p-3 flex items-center justify-between opacity-80">
-          <div class="flex items-center gap-2.5">
-            <span class="text-2xl">${w.icon}</span>
-            <span class="font-extrabold text-sm text-slate-200">${w.title}</span>
-          </div>
-          <span class="px-2.5 py-1 rounded-xl bg-amber-500/20 border border-amber-400/40 text-amber-300 text-[11px] font-black">🛠️ ${T().wipBadge}</span>
+        <div class="glass-soft rounded-2xl p-2.5 flex flex-col items-center justify-center text-center opacity-80">
+          <span class="text-2xl mb-1">${w.icon}</span>
+          <span class="font-extrabold text-xs text-slate-200 truncate w-full">${w.title}</span>
+          <span class="mt-1 px-2 py-0.5 rounded-lg bg-amber-500/20 border border-amber-400/40 text-amber-300 text-[10px] font-black">🛠️ ${T().wipBadge}</span>
         </div>
       `).join('');
 
       const gamesHtml = activeGames.map(g => `
-        <button onclick="nav('${g.id}')" class="glass-panel rounded-2xl p-3.5 flex items-center justify-between text-right active:scale-[0.98] transition">
-          <div class="flex items-center gap-3">
-            <div class="w-11 h-11 rounded-xl ${g.cls} flex items-center justify-center text-2xl">${g.icon}</div>
-            <div>
-              <div class="font-black text-sm text-white">${g.title}</div>
-              <div class="text-[11px] text-slate-300 font-bold mt-0.5">${g.badge}</div>
+        <button onclick="nav('${g.id}')" class="glass-panel rounded-2xl p-3 flex items-center justify-between active:scale-[0.98] transition">
+          <div class="flex items-center gap-2.5 min-w-0">
+            <div class="w-10 h-10 rounded-xl ${g.cls} flex items-center justify-center text-xl shrink-0">${g.icon}</div>
+            <div class="text-start truncate">
+              <div class="font-black text-sm text-white truncate">${g.title}</div>
+              <div class="text-[10px] text-slate-300 font-bold truncate">${g.badge}</div>
             </div>
           </div>
-          <span class="px-3 py-1.5 rounded-xl ${g.cls} text-xs font-extrabold">ورود ◀</span>
+          <span class="px-2.5 py-1 rounded-xl ${g.cls} text-[11px] font-extrabold shrink-0">${T().playBtn}</span>
         </button>
       `).join('');
 
@@ -765,26 +1049,29 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
         <div class="flex-1 overflow-y-auto px-3 pb-6 flex flex-col gap-3">
           <div class="glass-panel rounded-3xl overflow-hidden shrink-0">
             ${HERO_CUSTOM_IMG ? `
-              <img src="${HERO_CUSTOM_IMG}" class="w-full h-44 object-cover border-b border-white/10" />
+              <img src="${HERO_CUSTOM_IMG}" class="w-full h-40 object-cover border-b border-white/10" />
             ` : `
-              <div class="w-full h-36 bg-gradient-to-br from-indigo-900 via-purple-900 to-slate-900 flex flex-col items-center justify-center border-b border-white/10">
+              <div class="w-full h-32 bg-gradient-to-br from-indigo-900 via-purple-900 to-slate-900 flex flex-col items-center justify-center border-b border-white/10">
                 <div class="text-4xl mb-1">🦏 🎮</div>
-                <div class="text-xs font-black tracking-widest text-indigo-300">RHINO™ TEAM OFFICIAL</div>
+                <div class="text-xs font-black tracking-widest text-indigo-300">RHINO™ TEAM</div>
               </div>
             `}
-            <div class="p-4 text-center">
-              <h1 class="text-xl font-black text-amber-300 mb-1.5">${T().heroTitle}</h1>
+            <div class="p-3.5 text-center">
+              <h1 class="text-lg font-black text-amber-300 mb-1">${T().heroTitle}</h1>
               <p class="text-xs text-slate-200 font-bold leading-relaxed whitespace-pre-line">${T().heroBody}</p>
             </div>
           </div>
 
-          <div class="flex flex-col gap-2">${wipHtml}</div>
-          <div class="flex flex-col gap-2.5 mt-1">${gamesHtml}</div>
+          <!-- ۳ بازی در حال ساخت در یک ردیف ۳ ستونی جمع‌وجور -->
+          <div class="grid grid-cols-3 gap-2">${wipHtml}</div>
+
+          <!-- گرید ۲ ستونی بازی‌ها با نام‌های کوتاه -->
+          <div class="grid grid-cols-2 gap-2">${gamesHtml}</div>
         </div>
       `;
     }
 
-    /* ═══════════ درگاه ۳ گزینه‌ای بازی‌های لابی‌دار و اشتراک‌گذاری ضدکرش ═══════════ */
+    /* ═══════════ درگاه ۳ گزینه‌ای بازی‌های لابی‌دار ═══════════ */
     window.setRpsTargetAndContinue = function(n) {
       lobbyState.rpsTargetWins = n;
       lobbyState.step = 'options';
@@ -821,33 +1108,21 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
         });
         const data = await res.json();
         if (data.not_started?.length > 0) {
-          lobbyState.inviteWarning = `${T().notStartedWarn}\n(${data.not_started.join(' ، ')})`;
+          lobbyState.inviteWarning = `${T().notStartedWarn}\n(${data.not_started.join(' , ')})`;
         } else {
           lobbyState.inviteWarning = '';
         }
         if (data.invited?.length > 0) {
-          lobbyState.inviteSuccess = `✅ دعوت‌نامه برای (${data.invited.join(' ، ')}) ارسال شد!`;
+          lobbyState.inviteSuccess = `✅ (${data.invited.join(' , ')})`;
         }
         renderLobbyGate(document.getElementById('app'));
       } catch (e) {}
     };
 
-    /* تابع اشتراک‌گذاری مستقیم میز بازی بدون کرش در تمام حالت‌های تلگرام */
     window.shareTableInline = function(gameType, extraStr = '') {
       const startParamStr = `${gameType}__${parsedChat}__${lang}`;
       const directTableUrl = `https://t.me/${BOT_USERNAME}/${SHORT_NAME}?startapp=${startParamStr}`;
-      const gameNames = {
-        hokm: "میز حکم ۴ نفره راینو",
-        hokm2p: "میز حکم ۲ نفره راینو",
-        dooz: "میز دوز ۲ نفره",
-        doz4p: "میز دوز ۴ نفره",
-        connect4: "میز چهار در یک ردیف",
-        rps: `میز سنگ کاغذ قیچی (تا ${extraStr || 3} برد)`,
-        memory: "میز مسابقه حافظه",
-        guess: `مسابقه حدس عدد همگانی (${extraStr || '1-100'})`
-      };
-      const gTitle = gameNames[gameType] || "میز بازی گیم باکس راینو";
-      const shareText = `🎮 دعوت به ${gTitle}\n👤 میزبان: ${myName}\n👇 برای ورود مستقیم به میز بازی روی لینک زیر بزنید:`;
+      const shareText = `🎮 ${T().heroTitle} (${gameType.toUpperCase()})\n👤 ${myName}`;
       const shareUrl = `https://t.me/share/url?url=${encodeURIComponent(directTableUrl)}&text=${encodeURIComponent(shareText)}`;
 
       try {
@@ -855,25 +1130,21 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
           tg.openTelegramLink(shareUrl);
           return;
         }
-      } catch (err) {
-        console.warn("openTelegramLink fallback:", err);
-      }
-
+      } catch (err) {}
       window.open(shareUrl, '_blank');
     };
 
     function renderLobbyGate(root) {
       if (lobbyState.step === 'rps_count') {
         root.innerHTML = `
-          ${renderTopBar('سنگ کاغذ قیچی')}
+          ${renderTopBar(T().games.rps)}
           <div class="flex-1 flex flex-col justify-center p-4">
             <div class="glass-panel p-6 rounded-3xl text-center">
-              <h2 class="text-lg font-black text-amber-300 mb-2">تعداد بردهای لازم را مشخص کنید</h2>
-              <p class="text-xs text-slate-300 mb-5">هر بازیکنی که زودتر به این تعداد برد برسد برنده نهایی است:</p>
-              <div class="grid grid-cols-3 gap-3 mb-4">
-                <button onclick="setRpsTargetAndContinue(3)" class="btn-primary py-4 rounded-2xl font-black text-lg">۳ برد</button>
-                <button onclick="setRpsTargetAndContinue(5)" class="btn-success py-4 rounded-2xl font-black text-lg">۵ برد</button>
-                <button onclick="setRpsTargetAndContinue(7)" class="btn-danger py-4 rounded-2xl font-black text-lg">۷ برد</button>
+              <h2 class="text-base font-black text-amber-300 mb-4">${T().rpsAskWins}</h2>
+              <div class="grid grid-cols-3 gap-3">
+                <button onclick="setRpsTargetAndContinue(3)" class="btn-primary py-4 rounded-2xl font-black text-base">3 ${T().winsUnit}</button>
+                <button onclick="setRpsTargetAndContinue(5)" class="btn-success py-4 rounded-2xl font-black text-base">5 ${T().winsUnit}</button>
+                <button onclick="setRpsTargetAndContinue(7)" class="btn-danger py-4 rounded-2xl font-black text-base">7 ${T().winsUnit}</button>
               </div>
             </div>
           </div>
@@ -886,20 +1157,19 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
         let boxesHtml = '';
         for (let i = 0; i < needed; i++) {
           boxesHtml += `
-            <input type="text" placeholder="یوزرنیم (@username) یا آیدی عددی بازیکن ${i + 1}" class="invite-user-input w-full p-3 rounded-xl glass-soft text-white text-sm font-bold text-center" />
+            <input type="text" placeholder="@username / ID (${i + 1})" class="invite-user-input w-full p-3 rounded-xl glass-soft text-white text-sm font-bold text-center" />
           `;
         }
         root.innerHTML = `
-          ${renderTopBar('دعوت دوستان از طریق ربات')}
+          ${renderTopBar(T().optInvite)}
           <div class="flex-1 overflow-y-auto p-4 flex flex-col justify-center">
             <div class="glass-panel p-5 rounded-3xl text-center">
-              <h3 class="text-base font-black text-amber-300 mb-3">مشخصات دوستان خود را وارد کنید (${needed} نفر)</h3>
               <div class="flex flex-col gap-2.5 mb-4">${boxesHtml}</div>
               ${lobbyState.inviteWarning ? `<div class="p-3 rounded-xl bg-rose-600/30 border border-rose-400 text-xs font-extrabold text-rose-200 mb-3 whitespace-pre-line">${lobbyState.inviteWarning}</div>` : ''}
               ${lobbyState.inviteSuccess ? `<div class="p-3 rounded-xl bg-emerald-600/30 border border-emerald-400 text-xs font-extrabold text-emerald-200 mb-3">${lobbyState.inviteSuccess}</div>` : ''}
               <button onclick="submitBotInvites()" class="btn-success w-full py-3.5 rounded-2xl font-black mb-2">${T().sendInviteBtn}</button>
-              <button onclick="nav('${lobbyState.game}', true)" class="btn-primary w-full py-3.5 rounded-2xl font-black mb-2">ورود به میز بازی</button>
-              <button onclick="lobbyState.step='options';renderLobbyGate(document.getElementById('app'))" class="btn-danger w-full py-2.5 rounded-xl font-bold text-xs">بازگشت به گزینه‌های لابی</button>
+              <button onclick="nav('${lobbyState.game}', true)" class="btn-primary w-full py-3.5 rounded-2xl font-black mb-2">${T().enterTableBtn}</button>
+              <button onclick="lobbyState.step='options';renderLobbyGate(document.getElementById('app'))" class="btn-danger w-full py-2.5 rounded-xl font-bold text-xs">${T().backMenu}</button>
             </div>
           </div>
         `;
@@ -907,10 +1177,9 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
       }
 
       root.innerHTML = `
-        ${renderTopBar('انتخاب نحوه شروع بازی')}
+        ${renderTopBar()}
         <div class="flex-1 flex flex-col justify-center p-4">
           <div class="glass-panel p-5 rounded-3xl text-center flex flex-col gap-3">
-            <h2 class="text-lg font-black text-amber-300 mb-1">چطور می‌خواهید بازی کنید؟</h2>
             <button onclick="startLobbyWithBot()" class="btn-success w-full py-4 rounded-2xl font-black text-sm">
               ${T().optBot}
             </button>
@@ -925,14 +1194,13 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
       `;
     }
 
-    /* ═══════════ میز حکم واقعی روی فرش قرمز ایرانی (با محافظت از کیبورد هنگام تایپ) ═══════════ */
+    /* ═══════════ میز حکم واقعی روی فرش قرمز ایرانی (۷ زبانه) ═══════════ */
     let hokmMode = '4p';
     let hokmError = '';
     let myMicActive = false;
     let localAudioStream = null;
 
     async function callHokmApi(action, extra = {}) {
-      /* اگر کاربر در حال تایپ پیام در باکس چت است، رفرش خودکار را رد کن تا کیبورد بسته نشود */
       if (action === 'state' && isUserTyping()) return;
       try {
         const res = await fetch('/api/hokm/action', {
@@ -965,7 +1233,6 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
     window.hokmChooseSuit = function(s) { callHokmApi('choose_trump', { suit: s }); };
     window.hokmPlayCard = function(code) { callHokmApi('play_card', { card: code }); };
     window.hokmFillBots = function() { callHokmApi('add_bots'); };
-    window.hokmStartMatch = function() { callHokmApi('start_match'); };
     window.hokmSwapSeats = function(i1, i2) { callHokmApi('swap_seats', { idx1: i1, idx2: i2 }); };
     window.hokmSendReaction = function(txt) { callHokmApi('chat', { text: txt }); };
     window.hokmSendCustomChat = function() {
@@ -994,7 +1261,7 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
 
     function startHokmEngine(root, mode) {
       hokmMode = mode;
-      root.innerHTML = `<div class="p-4 flex-1 flex items-center justify-center"><div class="glass-panel p-6 rounded-3xl font-bold">در حال چیدن فرش حکم...</div></div>`;
+      root.innerHTML = `<div class="p-4 flex-1 flex items-center justify-center"><div class="glass-panel p-6 rounded-3xl font-bold">...</div></div>`;
       callHokmApi('join');
       if (hokmPollTimer) clearInterval(hokmPollTimer);
       hokmPollTimer = setInterval(() => callHokmApi('state'), 1200);
@@ -1012,7 +1279,7 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
       return `<div class="ltr-grid flex items-center px-2">${items}</div>`;
     }
 
-    function renderPlayerRectCard(seat, compact = false) {
+    function renderPlayerRectCard(seat) {
       if (!seat) return '';
       const pct = seat.timer_pct ?? 100;
       const ringColor = seat.is_turn ? (pct > 35 ? '#10b981' : '#ef4444') : 'rgba(255,255,255,0.2)';
@@ -1032,13 +1299,13 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
             <div style="background: conic-gradient(${ringColor} ${pct * 3.6}deg, rgba(255,255,255,0.1) 0deg);" class="p-0.5 rounded-full">
               ${avatarHtml}
             </div>
-            <div class="text-right leading-tight">
+            <div class="text-start leading-tight">
               <div class="text-[11px] font-black text-white flex items-center gap-1">
-                ${seat.is_hakem ? '👑' : ''}<span>${seat.name}</span>
+                ${seat.is_hakem ? '👑' : ''}<span class="truncate max-w-[75px]">${seat.name}</span>
                 ${seat.mic_on ? '<span class="text-emerald-400">🎙️</span>' : ''}
               </div>
               <div class="text-[9px] text-amber-200/80 font-bold">
-                ${seat.team} • ${seat.cards_left} کارت ${seat.is_turn ? `(${seat.timer_sec}s)` : ''}
+                🃏 ${seat.cards_left} ${seat.is_turn ? `(${seat.timer_sec}s)` : ''}
               </div>
             </div>
           </div>
@@ -1056,28 +1323,27 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
       if (st.status === 'joining') {
         const rowsHtml = pList.map((p, idx) => `
           <div class="glass-soft p-2.5 rounded-xl flex justify-between items-center text-xs font-bold">
-            <span>صندلی ${idx + 1} (${p.team}): <b class="text-amber-300">${p.name}</b></span>
+            <span>#${idx + 1}: <b class="text-amber-300">${p.name}</b></span>
             ${isHost && st.mode === '4p' && idx > 0 ? `
-              <button onclick="hokmSwapSeats(2, ${idx})" class="btn-primary px-2 py-1 rounded-lg text-[10px]">انتخاب به عنوان یار من</button>
+              <button onclick="hokmSwapSeats(2, ${idx})" class="btn-primary px-2 py-1 rounded-lg text-[10px]">${T().pickPartner}</button>
             ` : ''}
           </div>
         `).join('');
 
         root.innerHTML = `
-          ${renderTopBar('چینش میز و تیم‌های حکم')}
+          ${renderTopBar(st.mode === '2p' ? T().games.hokm2p : T().games.hokm)}
           <div class="flex-1 p-3 flex flex-col justify-between">
             <div class="persian-carpet p-4 flex flex-col justify-between">
               <div class="carpet-medallion"></div>
-              <div class="z-10 glass-panel p-4 rounded-2xl text-center">
-                <h2 class="text-base font-black text-amber-300 mb-1">تعیین یارها و بازیکنان (${pList.length}/${st.max_players})</h2>
-                <p class="text-[11px] text-slate-200 mb-3">صندلی ۱ و ۳ هم‌تیمی هستند (رو‌به‌روی هم). اگر یار کم دارید با هوش مصنوعی پر کنید:</p>
-                <div class="flex flex-col gap-2 mb-3">${rowsHtml}</div>
+              <div class="z-10 glass-panel p-4 rounded-2xl text-center my-auto">
+                <h2 class="text-base font-black text-amber-300 mb-3">(${pList.length}/${st.max_players})</h2>
+                <div class="flex flex-col gap-2 mb-4">${rowsHtml}</div>
                 <div class="flex flex-col gap-2">
                   <button onclick="hokmFillBots()" class="btn-success w-full py-3 rounded-xl font-black text-xs">
-                    🤖 پر کردن جاهای خالی با هوش مصنوعی و شروع بازی
+                    ${T().fillBotsBtn}
                   </button>
                   <button onclick="shareTableInline('${st.mode === '2p' ? 'hokm2p' : 'hokm'}')" class="btn-primary w-full py-2.5 rounded-xl font-bold text-xs">
-                    📤 اشتراک‌گذاری لینک میز برای دعوت دوستان
+                    ${T().optShare}
                   </button>
                 </div>
               </div>
@@ -1087,10 +1353,10 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
         return;
       }
 
-      const topSeat = st.seats?.top || { name: 'یار خودی', cards_left: 0, team: 'تیم ۱' };
+      const topSeat = st.seats?.top || { name: 'P2', cards_left: 0 };
       const rightSeat = st.seats?.right || null;
       const leftSeat = st.seats?.left || null;
-      const bottomSeat = st.seats?.bottom || { name: myName, cards_left: (st.my_hand || []).length, team: 'تیم ۱' };
+      const bottomSeat = st.seats?.bottom || { name: myName, cards_left: (st.my_hand || []).length };
       const isMyTurn = Number(st.turn_id) === Number(uid) && st.status === 'playing';
 
       let centerStageHtml = '';
@@ -1098,23 +1364,23 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
         if (Number(st.hakem_id) === Number(uid)) {
           centerStageHtml = `
             <div class="z-20 glass-panel p-3.5 rounded-2xl border border-amber-400 text-center max-w-[260px]">
-              <div class="text-amber-300 font-black text-xs mb-2">👑 شما حاکم هستید! خال حکم را انتخاب کنید:</div>
+              <div class="text-amber-300 font-black text-xs mb-2">${T().chooseTrumpPrompt}</div>
               <div class="grid grid-cols-2 gap-2">
-                <button onclick="hokmChooseSuit('S')" class="bg-white text-slate-900 py-2 rounded-xl font-black text-sm">♠️ پیک</button>
-                <button onclick="hokmChooseSuit('H')" class="bg-white text-rose-600 py-2 rounded-xl font-black text-sm">♥️ دل</button>
-                <button onclick="hokmChooseSuit('D')" class="bg-white text-rose-600 py-2 rounded-xl font-black text-sm">♦️ خشت</button>
-                <button onclick="hokmChooseSuit('C')" class="bg-white text-slate-900 py-2 rounded-xl font-black text-sm">♣️ گشنیز</button>
+                <button onclick="hokmChooseSuit('S')" class="bg-white text-slate-900 py-2 rounded-xl font-black text-base">♠️</button>
+                <button onclick="hokmChooseSuit('H')" class="bg-white text-rose-600 py-2 rounded-xl font-black text-base">♥️</button>
+                <button onclick="hokmChooseSuit('D')" class="bg-white text-rose-600 py-2 rounded-xl font-black text-base">♦️</button>
+                <button onclick="hokmChooseSuit('C')" class="bg-white text-slate-900 py-2 rounded-xl font-black text-base">♣️</button>
               </div>
             </div>
           `;
         } else {
-          centerStageHtml = `<div class="z-20 glass-panel px-4 py-2.5 rounded-2xl text-xs font-extrabold text-amber-300">👑 حاکم (${st.hakem_name}) در حال تعیین حکم...</div>`;
+          centerStageHtml = `<div class="z-20 glass-panel px-4 py-2.5 rounded-2xl text-xs font-extrabold text-amber-300">👑 ${st.hakem_name}: ${T().waitingHakem}</div>`;
         }
       } else if (st.status === 'finished') {
         centerStageHtml = `
           <div class="z-20 glass-panel p-5 rounded-3xl text-center border-2 border-amber-400">
-            <div class="text-xl font-black text-amber-300 mb-2">🏆 برنده نهایی: ${st.winner_display}</div>
-            <button onclick="nav('hub')" class="btn-success px-5 py-2.5 rounded-xl font-bold text-xs">بازگشت به منو</button>
+            <div class="text-xl font-black text-amber-300 mb-3">🏆 ${T().winner}: ${st.winner_display}</div>
+            <button onclick="nav('hub')" class="btn-success px-5 py-2.5 rounded-xl font-bold text-xs">${T().backMenu}</button>
           </div>
         `;
       } else {
@@ -1157,36 +1423,36 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
 
             <div class="z-20 flex justify-between items-start gap-1">
               <div class="glass-panel px-2 py-1 rounded-xl text-[10px] font-extrabold">
-                <div>حکم: <span class="bg-white text-black px-1 rounded">${st.trump_icon}</span></div>
-                <div class="text-amber-300">ست ما ${st.our_sets} - ${st.their_sets} حریف</div>
+                <div>${T().trump}: <span class="bg-white text-black px-1 rounded">${st.trump_icon}</span></div>
+                <div class="text-amber-300">${T().sets}: ${st.our_sets} - ${st.their_sets}</div>
               </div>
 
               ${renderPlayerRectCard(topSeat)}
 
-              <button onclick="nav('hub')" class="btn-danger px-2.5 py-1 rounded-xl text-[10px] font-bold">خروج</button>
+              <button onclick="nav('hub')" class="btn-danger px-2.5 py-1 rounded-xl text-[10px] font-bold">${T().backMenu}</button>
             </div>
 
             <div class="z-20 flex-1 flex items-center justify-between px-0.5 min-h-[150px]">
               <div class="flex flex-col items-center gap-1">
-                ${rightSeat ? renderPlayerRectCard(rightSeat, true) : ''}
+                ${rightSeat ? renderPlayerRectCard(rightSeat) : ''}
               </div>
 
               <div class="flex-1 flex flex-col items-center justify-center">
                 <div class="mb-1 flex items-center gap-1">
-                  <span class="text-[10px] font-bold text-rose-200">دست حریف:</span>
+                  <span class="text-[10px] font-bold text-rose-200">${T().oppTricks}:</span>
                   ${renderRealFaceDownTricks(st.their_tricks)}
                 </div>
                 ${centerStageHtml}
               </div>
 
               <div class="flex flex-col items-center gap-1">
-                ${leftSeat ? renderPlayerRectCard(leftSeat, true) : ''}
+                ${leftSeat ? renderPlayerRectCard(leftSeat) : ''}
               </div>
             </div>
 
             <div class="z-20 flex flex-col items-center gap-1">
               <div class="flex items-center gap-1.5">
-                <span class="text-[10px] font-extrabold text-emerald-300">دست‌های ما (${st.our_tricks}/7):</span>
+                <span class="text-[10px] font-extrabold text-emerald-300">${T().ourTricks} (${st.our_tricks}/7):</span>
                 ${renderRealFaceDownTricks(st.our_tricks)}
               </div>
 
@@ -1201,17 +1467,17 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
 
                 <div class="flex items-center gap-1">
                   <button onclick="hokmToggleMic()" class="${myMicActive ? 'btn-success' : 'glass-panel'} px-2.5 py-1.5 rounded-xl text-xs font-bold">
-                    ${myMicActive ? '🎙️ روشن' : '🔇 مایک'}
+                    ${myMicActive ? T().micOn : T().micOff}
                   </button>
-                  <button onclick="hokmSendReaction('🔥 دست خوش!')" class="glass-panel px-2 py-1.5 rounded-xl text-xs">🔥</button>
+                  <button onclick="hokmSendReaction('🔥')" class="glass-panel px-2 py-1.5 rounded-xl text-xs">🔥</button>
                   <button onclick="hokmSendReaction('😂')" class="glass-panel px-2 py-1.5 rounded-xl text-xs">😂</button>
-                  <button onclick="hokmSendReaction('👏 عالی')" class="glass-panel px-2 py-1.5 rounded-xl text-xs">👏</button>
+                  <button onclick="hokmSendReaction('👏')" class="glass-panel px-2 py-1.5 rounded-xl text-xs">👏</button>
                 </div>
               </div>
 
               <div class="w-full flex gap-1 px-1">
-                <input id="hokmChatInp" type="text" maxlength="40" placeholder="پیام شفاف بالای اسم..." onkeydown="if(event.key==='Enter')hokmSendCustomChat()" class="flex-1 px-2.5 py-1 rounded-xl glass-soft text-white text-[11px]" />
-                <button onclick="hokmSendCustomChat()" class="btn-primary px-3 py-1 rounded-xl text-[11px] font-bold">ارسال</button>
+                <input id="hokmChatInp" type="text" maxlength="40" placeholder="${T().chatPlaceholder}" onkeydown="if(event.key==='Enter')hokmSendCustomChat()" class="flex-1 px-2.5 py-1 rounded-xl glass-soft text-white text-[11px]" />
+                <button onclick="hokmSendCustomChat()" class="btn-primary px-3 py-1 rounded-xl text-[11px] font-bold">${T().sendBtn}</button>
               </div>
             </div>
           </div>
@@ -1219,7 +1485,7 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
       `;
     }
 
-    /* ═══════════ بازی ۲۰۴۸ با اسکرول لمسی و رنگ مجزا برای هر عدد ═══════════ */
+    /* ═══════════ بازی ۲۰۴۸ با اسکرول لمسی ═══════════ */
     let b2048 = null, s2048 = 0, t2048X = 0, t2048Y = 0;
     const TILE_COLORS_2048 = {
       0:    "bg-white/5 text-transparent border-white/5",
@@ -1269,11 +1535,11 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
         return `<div class="aspect-square rounded-2xl border flex items-center justify-center font-black text-2xl ${cls}">${v || ''}</div>`;
       }).join('');
       root.innerHTML = `
-        ${renderTopBar('پازل 2048 رنگی')}
+        ${renderTopBar(T().games.g2048)}
         <div class="flex-1 flex flex-col justify-between p-4">
           <div class="glass-panel px-4 py-2.5 rounded-2xl flex justify-between items-center">
-            <span class="font-extrabold text-sm">امتیاز: <b class="text-amber-300">${s2048}</b></span>
-            <button onclick="init2048();render()" class="btn-success px-3 py-1 rounded-xl text-xs font-bold">شروع مجدد</button>
+            <span class="font-extrabold text-sm">${T().score}: <b class="text-amber-300">${s2048}</b></span>
+            <button onclick="init2048();render()" class="btn-success px-3 py-1 rounded-xl text-xs font-bold">${T().restart}</button>
           </div>
           <div id="board2048" class="ltr-grid grid grid-cols-4 gap-2.5 glass-panel p-3.5 rounded-3xl touch-none">${cells}</div>
           <p class="text-center text-xs text-slate-300 font-bold">${T().swipeHint}</p>
@@ -1292,7 +1558,7 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
       }
     }
 
-    /* ═══════════ پازل کشویی با اسکرول لمسی ═══════════ */
+    /* ═══════════ پازل ۱۵ با اسکرول لمسی ═══════════ */
     let spz = null, spzX = 0, spzY = 0;
     function initSpz() { spz = [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,0].sort(() => Math.random()-0.5); }
     window.clickSpz = function(i) {
@@ -1314,9 +1580,9 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
       if (!spz) initSpz();
       const cells = spz.map((v,i) => `<button onclick="clickSpz(${i})" class="aspect-square rounded-2xl font-black text-xl ${v ? 'btn-primary' : 'bg-white/5'}">${v || ''}</button>`).join('');
       root.innerHTML = `
-        ${renderTopBar('پازل کشویی')}
+        ${renderTopBar(T().games.spuzzle)}
         <div class="flex-1 flex flex-col justify-between p-4">
-          <div class="flex justify-end"><button onclick="initSpz();render()" class="btn-success px-3 py-1.5 rounded-xl font-bold text-xs">چینش مجدد</button></div>
+          <div class="flex justify-end"><button onclick="initSpz();render()" class="btn-success px-3 py-1.5 rounded-xl font-bold text-xs">${T().restart}</button></div>
           <div id="spzBoard" class="ltr-grid grid grid-cols-4 gap-2 glass-panel p-3.5 rounded-3xl touch-none">${cells}</div>
           <p class="text-center text-xs text-slate-300 font-bold">${T().swipeHint}</p>
         </div>
@@ -1334,13 +1600,13 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
       }
     }
 
-    /* ═══════════ بازی دوز با دایره‌های رنگی ═══════════ */
+    /* ═══════════ دوز با دایره‌های رنگی ═══════════ */
     const DOOZ_COLORS = [
-      { id: 'rose',   cls: 'bg-rose-500 shadow-[0_0_12px_#f43f5e]',   name: 'قرمز' },
-      { id: 'cyan',   cls: 'bg-cyan-400 shadow-[0_0_12px_#22d3ee]',   name: 'آبی نئون' },
-      { id: 'emerald',cls: 'bg-emerald-400 shadow-[0_0_12px_#34d399]',name: 'سبز' },
-      { id: 'amber',  cls: 'bg-amber-400 shadow-[0_0_12px_#fbbf24]',  name: 'طلایی' },
-      { id: 'purple', cls: 'bg-purple-500 shadow-[0_0_12px_#a855f7]', name: 'بنفش' }
+      { id: 'rose',   cls: 'bg-rose-500 shadow-[0_0_12px_#f43f5e]' },
+      { id: 'cyan',   cls: 'bg-cyan-400 shadow-[0_0_12px_#22d3ee]' },
+      { id: 'emerald',cls: 'bg-emerald-400 shadow-[0_0_12px_#34d399]' },
+      { id: 'amber',  cls: 'bg-amber-400 shadow-[0_0_12px_#fbbf24]' },
+      { id: 'purple', cls: 'bg-purple-500 shadow-[0_0_12px_#a855f7]' }
     ];
     let doozB = null, doozTurn = 0, doozWin = null, doozMode = 'dooz', myDoozColorIdx = 0;
     function initDooz(m) { doozMode = m; const sz = m === 'doz4p' ? 5 : 3; doozB = Array(sz*sz).fill(null); doozTurn = 0; doozWin = null; }
@@ -1371,19 +1637,19 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
         </button>
       `).join('');
       root.innerHTML = `
-        ${renderTopBar(mode==='doz4p' ? 'دوز ۴ نفره رنگی' : 'دوز ۲ نفره رنگی')}
+        ${renderTopBar(mode==='doz4p' ? T().games.doz4p : T().games.dooz)}
         <div class="flex-1 flex flex-col justify-between p-4">
           <div class="glass-panel p-3 rounded-2xl flex justify-between items-center">
-            <span class="text-xs font-extrabold">انتخاب رنگ مهره شما:</span>
+            <span class="text-xs font-extrabold">${T().pickColor}</span>
             <div class="flex gap-2">${colorPickerHtml}</div>
           </div>
           <div class="ltr-grid grid ${sz===5?'grid-cols-5':'grid-cols-3'} gap-3 glass-panel p-4 rounded-3xl">${cells}</div>
-          <button onclick="initDooz('${mode}');render()" class="btn-success w-full py-3.5 rounded-2xl font-black">شروع دور جدید</button>
+          <button onclick="initDooz('${mode}');render()" class="btn-success w-full py-3.5 rounded-2xl font-black">${T().restart}</button>
         </div>
       `;
     }
 
-    /* ═══════════ حدس عدد همگانی گروه (با محافظت از کیبورد هنگام تایپ) ═══════════ */
+    /* ═══════════ حدس عدد همگانی گروه ═══════════ */
     let guessRoomData = null;
     async function callGuessApi(action, extra = {}) {
       if (action === 'state' && isUserTyping()) return;
@@ -1431,21 +1697,20 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
     function renderGuess(root) {
       if (!guessRoomData) {
         root.innerHTML = `
-          ${renderTopBar('حدس عدد همگانی')}
+          ${renderTopBar(T().games.guess)}
           <div class="flex-1 flex flex-col justify-center p-4">
             <div class="glass-panel p-5 rounded-3xl text-center">
-              <h2 class="text-lg font-black text-amber-300 mb-2">بازه مسابقه حدس عدد را مشخص کنید</h2>
               <div class="grid grid-cols-2 gap-3 my-4">
                 <div>
-                  <label class="text-xs text-slate-300 font-bold block mb-1">از عدد:</label>
+                  <label class="text-xs text-slate-300 font-bold block mb-1">${T().fromNum}</label>
                   <input id="gMinInp" type="number" value="1" class="w-full p-3 rounded-xl glass-soft text-center font-black text-lg text-white" />
                 </div>
                 <div>
-                  <label class="text-xs text-slate-300 font-bold block mb-1">تا عدد:</label>
+                  <label class="text-xs text-slate-300 font-bold block mb-1">${T().toNum}</label>
                   <input id="gMaxInp" type="number" value="1000" class="w-full p-3 rounded-xl glass-soft text-center font-black text-lg text-white" />
                 </div>
               </div>
-              <button onclick="createGroupGuessRange()" class="btn-success w-full py-3.5 rounded-2xl font-black">ساخت مسابقه حدس عدد</button>
+              <button onclick="createGroupGuessRange()" class="btn-success w-full py-3.5 rounded-2xl font-black">${T().createGame}</button>
             </div>
           </div>
         `;
@@ -1466,67 +1731,61 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
       `).join('');
 
       root.innerHTML = `
-        ${renderTopBar(`حدس عدد (${r.min} تا ${r.max})`)}
+        ${renderTopBar(`${T().games.guess} (${r.min}-${r.max})`)}
         <div class="flex-1 flex flex-col justify-between p-4 overflow-hidden">
           <div class="glass-panel p-4 rounded-3xl text-center">
-            <div class="flex justify-between items-center text-xs font-bold text-slate-300 mb-2">
-              <span>میزبان: ${r.host_name}</span>
-              <span>بازه: ${r.min} تا ${r.max}</span>
-            </div>
             ${r.winner_id ? `
               <div class="p-4 rounded-2xl bg-emerald-600/30 border border-emerald-400 my-2">
-                <div class="text-lg font-black text-emerald-300">🎉 برنده: ${r.winner_name} 🎉</div>
-                <div class="text-xs font-bold mt-1">عدد مخفی ${r.secret_revealed} بود!</div>
+                <div class="text-lg font-black text-emerald-300">🎉 ${T().winner}: ${r.winner_name} (${r.secret_revealed})</div>
               </div>
             ` : `
               <div class="flex gap-2 my-2">
-                <input id="gValInp" type="number" placeholder="حدس شما..." onkeydown="if(event.key==='Enter')sendGroupGuessVal()" class="flex-1 p-3 rounded-xl glass-soft text-center font-black text-lg text-white" />
-                <button onclick="sendGroupGuessVal()" class="btn-success px-5 rounded-xl font-black">ثبت</button>
+                <input id="gValInp" type="number" placeholder="${r.min} - ${r.max}" onkeydown="if(event.key==='Enter')sendGroupGuessVal()" class="flex-1 p-3 rounded-xl glass-soft text-center font-black text-lg text-white" />
+                <button onclick="sendGroupGuessVal()" class="btn-success px-5 rounded-xl font-black">${T().submitBtn}</button>
               </div>
             `}
             <button onclick="shareTableInline('guess', '${r.min}-${r.max}')" class="btn-primary w-full py-2.5 rounded-xl font-bold text-xs mt-2">
-              📤 اشتراک‌گذاری بازی در گروه و چت‌ها
+              ${T().optShare}
             </button>
           </div>
 
           <div class="flex-1 overflow-y-auto my-3 flex flex-col gap-1.5">${histHtml}</div>
 
           <div class="flex gap-2">
-            ${r.winner_id && isHost ? `<button onclick="restartGroupGuess()" class="btn-success flex-1 py-3.5 rounded-2xl font-black">🔄 یه دور دیگه</button>` : ''}
+            ${r.winner_id && isHost ? `<button onclick="restartGroupGuess()" class="btn-success flex-1 py-3.5 rounded-2xl font-black">${T().playAgainBtn}</button>` : ''}
             <button onclick="guessRoomData=null;nav('hub')" class="btn-danger flex-1 py-3.5 rounded-2xl font-black">${T().backMenu}</button>
           </div>
         </div>
       `;
     }
 
-    /* ═══════════ سنگ کاغذ قیچی با سقف برد تعیین‌شده ═══════════ */
-    let rpsU = 0, rpsB = 0, rpsMsg = 'انتخاب کنید:';
+    /* ═══════════ سنگ کاغذ قیچی ═══════════ */
+    let rpsU = 0, rpsB = 0, rpsMsg = '...';
     window.playRPS = function(c) {
       const target = lobbyState.rpsTargetWins || 3;
       if (rpsU >= target || rpsB >= target) { rpsU = 0; rpsB = 0; }
       const b = ['rock','paper','scissors'][Math.floor(Math.random()*3)];
-      if (c===b) rpsMsg = 'مساوی شد!';
+      if (c===b) rpsMsg = '=';
       else if ((c==='rock'&&b==='scissors')||(c==='paper'&&b==='rock')||(c==='scissors'&&b==='paper')) {
-        rpsU++; rpsMsg = rpsU >= target ? '🏆 شما به سقف برد رسیدید و برنده شدید!' : 'این دست را بردید!';
+        rpsU++; rpsMsg = rpsU >= target ? `🏆 ${T().winner}!` : '+1';
       } else {
-        rpsB++; rpsMsg = rpsB >= target ? 'حریف به سقف برد رسید!' : 'حریف این دست را برد!';
+        rpsB++; rpsMsg = rpsB >= target ? '❌' : '-1';
       }
       renderRPS(document.getElementById('app'));
     };
     function renderRPS(root) {
       const target = lobbyState.rpsTargetWins || 3;
       root.innerHTML = `
-        ${renderTopBar(`سنگ کاغذ قیچی (تا ${target} برد)`)}
+        ${renderTopBar(`${T().games.rps} (${target})`)}
         <div class="flex-1 flex flex-col justify-between p-4 text-center">
           <div class="glass-panel p-6 rounded-3xl">
-            <div class="text-xs text-amber-300 font-bold mb-2">سقف برد: ${target} امتیاز</div>
             <p class="text-3xl font-black mb-3">${rpsU} — ${rpsB}</p>
             <div class="p-3 rounded-xl glass-soft font-bold text-sm">${rpsMsg}</div>
           </div>
           <div class="grid grid-cols-3 gap-3">
-            <button onclick="playRPS('rock')" class="btn-primary py-5 rounded-2xl font-black">🪨 سنگ</button>
-            <button onclick="playRPS('paper')" class="btn-success py-5 rounded-2xl font-black">📄 کاغذ</button>
-            <button onclick="playRPS('scissors')" class="btn-danger py-5 rounded-2xl font-black">✂️ قیچی</button>
+            <button onclick="playRPS('rock')" class="btn-primary py-5 rounded-2xl font-black">🪨 ${T().rock}</button>
+            <button onclick="playRPS('paper')" class="btn-success py-5 rounded-2xl font-black">📄 ${T().paper}</button>
+            <button onclick="playRPS('scissors')" class="btn-danger py-5 rounded-2xl font-black">✂️ ${T().scissors}</button>
           </div>
           <div></div>
         </div>
@@ -1552,11 +1811,11 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
       if (!c4B) initC4();
       const cells = c4B.map(row=>row.map((v,c)=>`<button onclick="dropC4(${c})" class="aspect-square rounded-full ${v===1?'btn-danger':v===2?'btn-success':'glass-soft'}"></button>`).join('')).join('');
       root.innerHTML = `
-        ${renderTopBar('چهار در یک ردیف')}
+        ${renderTopBar(T().games.connect4)}
         <div class="flex-1 flex flex-col justify-between p-4">
-          <div class="glass-panel px-4 py-2 rounded-xl text-center font-bold text-sm">${c4Win ? '🏆 برنده: بازیکن '+c4Win : 'نوبت بازیکن '+c4Turn}</div>
+          <div class="glass-panel px-4 py-2 rounded-xl text-center font-bold text-sm">${c4Win ? `🏆 P${c4Win}` : `${T().turn}: P${c4Turn}`}</div>
           <div class="ltr-grid grid grid-cols-7 gap-1.5 glass-panel p-3 rounded-3xl">${cells}</div>
-          <button onclick="initC4();render()" class="btn-success w-full py-3.5 rounded-2xl font-black">شروع مجدد</button>
+          <button onclick="initC4();render()" class="btn-success w-full py-3.5 rounded-2xl font-black">${T().restart}</button>
         </div>
       `;
     }
@@ -1580,9 +1839,9 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
       if (!sgGrid) initSg();
       const cells = sgGrid.map((row,r)=>row.map((v,c)=>`<button onclick="clickSg(${r},${c})" class="aspect-square rounded-lg ${sgCls[v]}"></button>`).join('')).join('');
       root.innerHTML = `
-        ${renderTopBar('بازی جفت‌ها')}
+        ${renderTopBar(T().games.samegame)}
         <div class="flex-1 flex flex-col justify-between p-4">
-          <div class="glass-panel px-4 py-2 rounded-xl text-center font-bold">امتیاز: ${sgScore}</div>
+          <div class="glass-panel px-4 py-2 rounded-xl text-center font-bold">${T().score}: ${sgScore}</div>
           <div class="ltr-grid grid grid-cols-8 gap-1.5 glass-panel p-3 rounded-3xl">${cells}</div>
           <div></div>
         </div>
@@ -1602,9 +1861,9 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
     };
     function renderMemory(root) {
       if (!memCards) initMem();
-      const cells = memCards.map((v,i)=>{ const open = memFlip.includes(i) || memMatch.includes(i); return `<button onclick="clickMem(${i})" class="aspect-square rounded-2xl font-black text-2xl ${open?'btn-success':'glass-panel'}">${open?v:'؟'}</button>`; }).join('');
+      const cells = memCards.map((v,i)=>{ const open = memFlip.includes(i) || memMatch.includes(i); return `<button onclick="clickMem(${i})" class="aspect-square rounded-2xl font-black text-2xl ${open?'btn-success':'glass-panel'}">${open?v:'?'}</button>`; }).join('');
       root.innerHTML = `
-        ${renderTopBar('بازی حافظه')}
+        ${renderTopBar(T().games.memory)}
         <div class="flex-1 flex flex-col justify-between p-4">
           <div class="ltr-grid grid grid-cols-4 gap-2.5 glass-panel p-3.5 rounded-3xl my-auto">${cells}</div>
         </div>
@@ -1616,19 +1875,19 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
     function initTyping() { targetSentence = sentences[Math.floor(Math.random()*sentences.length)]; typeStart = Date.now(); typeMsg = ''; }
     window.checkTyping = function() {
       const val = document.getElementById('typeInput').value.trim();
-      if (val === targetSentence) typeMsg = `🏆 زمان شما: ${((Date.now() - typeStart)/1000).toFixed(1)} ثانیه`; else typeMsg = '❌ متن دقیق نیست!';
+      if (val === targetSentence) typeMsg = `🏆 ${((Date.now() - typeStart)/1000).toFixed(1)}s`; else typeMsg = '❌';
       renderTyping(document.getElementById('app'));
     };
     function renderTyping(root) {
       if (!typeStart) initTyping();
       root.innerHTML = `
-        ${renderTopBar('تایپ سرعتی')}
+        ${renderTopBar(T().games.typing)}
         <div class="flex-1 flex flex-col justify-center p-4">
           <div class="glass-panel p-5 rounded-3xl">
             <p class="p-3.5 rounded-2xl glass-soft font-bold text-emerald-300 mb-4 text-center">${targetSentence}</p>
             <input id="typeInput" type="text" class="w-full p-3.5 rounded-2xl glass-soft text-white mb-3 text-center" />
             ${typeMsg ? `<p class="font-bold text-amber-300 mb-3 text-center">${typeMsg}</p>` : ''}
-            <button onclick="checkTyping()" class="btn-success w-full py-3.5 rounded-2xl font-black">ثبت رکورد</button>
+            <button onclick="checkTyping()" class="btn-success w-full py-3.5 rounded-2xl font-black">${T().submitBtn}</button>
           </div>
         </div>
       `;
@@ -1646,10 +1905,10 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
       const display = hmWord.split('').map(c => hmGuessed.includes(c) ? c : '_').join(' ');
       const kbHtml = "آابپتثجچحخدذرزژسشصضطظعغفقکگلمنوهی".split('').map(ch => `<button onclick="guessLetter('${ch}')" class="py-2 rounded-xl font-bold ${hmGuessed.includes(ch) ? 'opacity-30 glass-soft' : 'btn-primary'}">${ch}</button>`).join('');
       root.innerHTML = `
-        ${renderTopBar('حدس کلمه')}
+        ${renderTopBar(T().games.hangman)}
         <div class="flex-1 flex flex-col justify-between p-4">
           <div class="glass-panel p-5 rounded-3xl text-center">
-            <div class="text-xs text-rose-300 font-bold">جان باقی‌مانده: ${hmLives}</div>
+            <div class="text-xs text-rose-300 font-bold">❤️ ${hmLives}</div>
             <div class="text-3xl font-black tracking-widest my-3">${display}</div>
           </div>
           <div class="grid grid-cols-7 gap-1.5 glass-panel p-3 rounded-3xl">${kbHtml}</div>
@@ -1659,7 +1918,7 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
 
     async function renderGardoneAnim(root) {
       root.innerHTML = `
-        ${renderTopBar('گردونه شانس راینو')}
+        ${renderTopBar()}
         <div class="flex-1 flex flex-col justify-between p-4 text-center">
           <div class="glass-panel rounded-3xl p-8 border-2 border-indigo-400 my-auto"><div id="wheelSlot" class="text-3xl font-black text-amber-300">...</div></div>
           <div id="wheelWinners" class="glass-panel p-4 rounded-2xl flex flex-col gap-2 text-sm max-h-52 overflow-y-auto"></div>
@@ -1677,7 +1936,7 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
       const slot = document.getElementById('wheelSlot'), wBox = document.getElementById('wheelWinners');
       let idx = 0;
       function nextWinner() {
-        if (idx >= winNames.length) { slot.innerText = "🏆 پایان قرعه‌کشی!"; return; }
+        if (idx >= winNames.length) { slot.innerText = "🏆"; return; }
         let elapsed = 0; const target = winNames[idx];
         const timer = setInterval(() => {
           slot.innerText = allNames[Math.floor(Math.random() * allNames.length)];
