@@ -1272,7 +1272,7 @@ async def handle_tower_admin_api(payload: dict) -> dict:
 
 
 async def _collect_admin_state() -> dict:
-    """جمع‌آوری ایمن تمام اطلاعات پنل مدیریت مستقیماً از روی db.pool بدون خطای متدهای ناموجود"""
+    """جمع‌آوری ایمن تمام اطلاعات پنل مدیریت + لیست کامل کاربران با تمام مشخصات"""
     await ensure_tower_tables()
     floors = [dict(r) for r in await db.pool.fetch("SELECT * FROM dt_floors ORDER BY floor_num ASC")]
     items = [dict(r) for r in await db.pool.fetch("SELECT * FROM dt_items ORDER BY item_type, price ASC, id ASC")]
@@ -1290,7 +1290,6 @@ async def _collect_admin_state() -> dict:
         except Exception:
             pass
 
-    # خواندن مستقیم آمار کلی ربات با کوئری‌های ایمن
     users_cnt = 0
     groups_cnt = 0
     stars_cnt = 0
@@ -1316,8 +1315,35 @@ async def _collect_admin_state() -> dict:
 
     groups_list = []
     try:
-        g_rows = await db.pool.fetch("SELECT chat_id, title FROM groups LIMIT 40")
+        g_rows = await db.pool.fetch("SELECT chat_id, title FROM groups LIMIT 50")
         groups_list = [dict(r) for r in g_rows]
+    except Exception:
+        pass
+
+    # دریافت لیست کامل کاربران با مشخصات ربات و مشخصات برج شیاطین
+    users_list = []
+    try:
+        u_rows = await db.pool.fetch("""
+            SELECT
+                u.user_id,
+                u.first_name,
+                u.username,
+                u.language,
+                u.is_banned AS global_banned,
+                u.is_admin AS is_bot_admin,
+                COALESCE(dp.level, 1) AS dt_level,
+                COALESCE(dp.xp, 0) AS dt_xp,
+                COALESCE(dp.coins, 0) AS dt_coins,
+                COALESCE(dp.bank_coins, 0) AS dt_bank,
+                COALESCE(dp.current_floor, 1) AS dt_floor,
+                COALESCE(dp.gender, '') AS dt_gender,
+                COALESCE(dp.is_banned, FALSE) AS dt_banned
+            FROM users u
+            LEFT JOIN dt_players dp ON u.user_id = dp.user_id
+            ORDER BY u.user_id DESC
+            LIMIT 200
+        """)
+        users_list = [dict(r) for r in u_rows]
     except Exception:
         pass
 
@@ -1330,6 +1356,7 @@ async def _collect_admin_state() -> dict:
         },
         "forced_channels": forced_channels,
         "groups_list": groups_list,
+        "users_list": users_list,
         "dev_mode": dev_mode,
         "male_img": male_img,
         "female_img": female_img,
