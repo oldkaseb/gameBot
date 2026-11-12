@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""games/demon_tower.py — موتور کامل ۷ زبانه برج شیاطین (Demon Tower) + دیتابیس + دستور «پنل برج» در پیوی"""
+"""games/demon_tower.py — موتور برج شیاطین + API پنل مدیریت مینی‌اپی ویژه مالک با آپلود مستقیم تصویر"""
 
 import json
 import math
@@ -10,9 +10,7 @@ import time
 from aiogram import Router, F, Bot
 from aiogram.types import Message, CallbackQuery, LabeledPrice
 from aiogram.enums import ParseMode
-from aiogram.filters import Command, StateFilter
-from aiogram.fsm.context import FSMContext
-from aiogram.fsm.state import State, StatesGroup
+from aiogram.filters import Command
 
 from database import db
 from emojis import E
@@ -21,6 +19,7 @@ from utils.premium import primary, success, danger, kb
 router = Router(name="demon_tower")
 OWNER_IDS = {7662192190, 6041119040}
 OWNER_USERNAME = "oldkaseb"
+MINI_APP_URL = os.environ.get("MINI_APP_URL", "https://games.rhinokaseb.abrdns.com").rstrip("/")
 
 STAR_PACKAGES = {
     "pack_1": {"stars": 50,  "coins": 2500,  "xp": 300,  "title": "Starter Hunter (2,500 Coins + 300 XP)"},
@@ -100,205 +99,13 @@ DT_MESSAGES = {
         "min_voucher": "Minimum offer for a voucher is 100 coins!",
         "voucher_sent": "⏳ Request sent to Owner. Waiting for owner response...",
     },
-    "ar": {
-        "banned": "⛔ حسابك محظور في برج الشياطين.",
-        "dev_mode": "🛠️ اللعبة قيد التطوير حالياً (للمالك فقط).",
-        "gender_locked": "تم اختيار الشخصية مسبقاً ولا يمكن تغييرها!",
-        "gender_saved": "✅ تم تسجيل شخصيتك بنجاح!",
-        "item_not_found": "العنصر غير موجود!",
-        "equipped": "✅ تم تجهيز «{name}»!",
-        "not_enough_coins": "عملاتك غير كافية! (مطلوب {price})",
-        "bought_equipped": "✅ تم شراء وتجهيز «{name}»!",
-        "pick_gender_first": "اختر جنس شخصيتك من قسم «الشخصية» أولاً!",
-        "sleeping": "😴 وصلت الإنسانية إلى 0! الشخصية نائمة لمدة يومين ({hrs} ساعة متبقية).",
-        "in_hospital": "🏥 أنت في المستشفى للعلاج ({sec} ثانية متبقية).",
-        "low_hp": "🩸 صحتك منخفضة جداً! اذهب إلى المستشفى أولاً.",
-        "all_cleared": "🎉 لقد فتحت جميع طوابق البرج!",
-        "floor_won": "🏆 تم فتح الطابق {floor} ({boss})!\n🪙 +{coins} عملة | ⭐ +{xp} XP\n🎁 الغنيمة: {drop}\n🩸 الضرر: {dmg} (الإنسانية: {hum}%)",
-        "sleep_triggered": "\n⚠️ وصلت الإنسانية إلى الصفر ونامت الشخصية ليومين!",
-        "floor_lost": "💀 هُزمت أمام «{boss}»! اذهب للمستشفى للعلاج.",
-        "already_hospital": "أنت قيد العلاج بالفعل!",
-        "full_hp_hum": "صحتك وإنسانيتك كاملة!",
-        "hospital_entered": "🏥 دخلت المستشفى. وقت العلاج: {sec} ثانية.",
-        "empty_loot": "حقيبة الغنائم فارغة!",
-        "loot_sold": "💰 تم بيع الغنائم مقابل {val} عملة!",
-        "invalid_amount": "كمية غير صالحة!",
-        "bank_deposited": "🏦 تم إيداع {amt} عملة في البنك (ربح 2% كل ساعة).",
-        "bank_withdrawn": "🪙 تم سحب {amt} عملة إلى المحفظة.",
-        "min_transfer": "الحد الأدنى للتحويل 10 عملات!",
-        "user_not_found": "المستخدم غير موجود في البوت!",
-        "transfer_ok": "✅ تم إرسال {amt} عملة.\n📉 ضريبة 3% ({tax}) — الصافي: {net} عملة.",
-        "invalid_gift": "❌ كود الهدية غير صالح!",
-        "gift_used": "⚠️ لقد استخدمت هذا الكود مسبقاً!",
-        "gift_full": "⚠️ انتهت صلاحية استخدام هذا الكود!",
-        "gift_ok": "🎉 تم تفعيل الكود! +{coins} عملة و +{xp} XP.",
-        "min_voucher": "الحد الأدنى لطلب القسيمة 100 عملة!",
-        "voucher_sent": "⏳ تم إرسال طلبك للمالك. بانتظار رد المالك...",
-    },
-    "tr": {
-        "banned": "⛔ Şeytan Kulesi hesabınız yasaklandı.",
-        "dev_mode": "🛠️ Oyun geliştirme aşamasında (Sadece kurucu girebilir).",
-        "gender_locked": "Karakter zaten seçildi ve değiştirilemez!",
-        "gender_saved": "✅ Karakteriniz kalıcı olarak kaydedildi!",
-        "item_not_found": "Eşya bulunamadı!",
-        "equipped": "✅ '{name}' kuşanıldı!",
-        "not_enough_coins": "Yetersiz altın! ({price} gerekli)",
-        "bought_equipped": "✅ '{name}' satın alındı ve kuşanıldı!",
-        "pick_gender_first": "Önce 'Karakter' bölümünden cinsiyet seçin!",
-        "sleeping": "😴 İnsanlık 0 oldu! Karakter 2 روز uykuda ({hrs} saat kaldı).",
-        "in_hospital": "🏥 Hastanede tedavi görüyorsunuz ({sec} sn kaldı).",
-        "low_hp": "🩸 Canınız çok az! Önce hastaneye gidin.",
-        "all_cleared": "🎉 Tüm katları temizlediniz!",
-        "floor_won": "🏆 Kat {floor} ({boss}) Geçildi!\n🪙 +{coins} Altın | ⭐ +{xp} XP\n🎁 Ganimet: {drop}\n🩸 Hasar: {dmg} (İnsanlık: {hum}%)",
-        "sleep_triggered": "\n⚠️ İnsanlık 0 oldu, karakter 2 gün uykuya daldı!",
-        "floor_lost": "💀 '{boss}' karşısında yenildin! Hastaneye git.",
-        "already_hospital": "Zaten tedavi oluyorsunuz!",
-        "full_hp_hum": "Can ve İnsanlık zaten dolu!",
-        "hospital_entered": "🏥 Hastaneye yatıldı. Süre: {sec} sn.",
-        "empty_loot": "Ganimet çantanız boş!",
-        "loot_sold": "💰 Ganimetler {val} altına satıldı!",
-        "invalid_amount": "Geçersiz miktar!",
-        "bank_deposited": "🏦 {amt} altın bankaya yatırıldı (Saatlik %2 faiz).",
-        "bank_withdrawn": "🪙 {amt} altın cüzdana çekildi.",
-        "min_transfer": "Minimum transfer 10 altındır!",
-        "user_not_found": "Kullanıcı bulunamadı!",
-        "transfer_ok": "✅ {amt} altın gönderildi.\n📉 %3 Vergi ({tax}) — Net: {net} altın.",
-        "invalid_gift": "❌ Geçersiz hediye kodu!",
-        "gift_used": "⚠️ Bu kodu zaten kullandınız!",
-        "gift_full": "⚠️ Kod kullanım limiti doldu!",
-        "gift_ok": "🎉 Hediye alındı! +{coins} Altın & +{xp} XP.",
-        "min_voucher": "Minimum teklif 100 altındır!",
-        "voucher_sent": "⏳ Talep kurucuya iletildi. Yanıt bekleniyor...",
-    },
-    "ru": {
-        "banned": "⛔ Ваш аккаунт в Башне Демонов заблокирован.",
-        "dev_mode": "🛠️ Игра в разработке (доступ только для владельца).",
-        "gender_locked": "Персонаж уже выбран и не может быть изменён!",
-        "gender_saved": "✅ Персонаж сохранён навсегда!",
-        "item_not_found": "Предмет не найден!",
-        "equipped": "✅ «{name}» экипировано!",
-        "not_enough_coins": "Недостаточно монет! (нужно {price})",
-        "bought_equipped": "✅ «{name}» куплено и экипировано!",
-        "pick_gender_first": "Сначала выберите пол в меню «Персонаж»!",
-        "sleeping": "😴 Человечность на 0! Сон на 2 дня (осталось {hrs} ч.).",
-        "in_hospital": "🏥 Вы на лечении в больнице (осталось {sec} сек).",
-        "low_hp": "🩸 Мало здоровья! Сначала посетите больницу.",
-        "all_cleared": "🎉 Вы прошли все этажи башни!",
-        "floor_won": "🏆 Этаж {floor} ({boss}) пройден!\n🪙 +{coins} монет | ⭐ +{xp} XP\n🎁 Добыча: {drop}\n🩸 Урон: {dmg} (Человечность: {hum}%)",
-        "sleep_triggered": "\n⚠️ Человечность 0! Персонаж уснул на 2 дня!",
-        "floor_lost": "💀 Поражение от «{boss}»! Идите в больницу.",
-        "already_hospital": "Вы уже лечитесь!",
-        "full_hp_hum": "Здоровье и человечность полные!",
-        "hospital_entered": "🏥 Госпитализация. Время лечения: {sec} сек.",
-        "empty_loot": "Сумка добычи пуста!",
-        "loot_sold": "💰 Добыча продана за {val} монет!",
-        "invalid_amount": "Неверная сумма!",
-        "bank_deposited": "🏦 {amt} монет положено в банк (+2% в час).",
-        "bank_withdrawn": "🪙 {amt} монет снято со счёта.",
-        "min_transfer": "Минимум для перевода — 10 монет!",
-        "user_not_found": "Пользователь не найден!",
-        "transfer_ok": "✅ Отправлено {amt} монет.\n📉 Налог 3% ({tax}) — Получено: {net}.",
-        "invalid_gift": "❌ Неверный промокод!",
-        "gift_used": "⚠️ Вы уже использовали этот код!",
-        "gift_full": "⚠️ Лимит кода исчерпан!",
-        "gift_ok": "🎉 Код активирован! +{coins} монет и +{xp} XP.",
-        "min_voucher": "Минимум для ваучера — 100 монет!",
-        "voucher_sent": "⏳ Запрос отправлен владельцу. Ожидайте ответа...",
-    },
-    "de": {
-        "banned": "⛔ Dein Dämonenturm-Konto ist gesperrt.",
-        "dev_mode": "🛠️ Dämonenturm ist im Wartungsmodus (Nur Owner).",
-        "gender_locked": "Charakter wurde bereits gewählt!",
-        "gender_saved": "✅ Charakter dauerhaft gespeichert!",
-        "item_not_found": "Item nicht gefunden!",
-        "equipped": "✅ '{name}' ausgerüstet!",
-        "not_enough_coins": "Nicht genug Münzen! ({price} nötig)",
-        "bought_equipped": "✅ '{name}' gekauft und ausgerüstet!",
-        "pick_gender_first": "Wähle zuerst dein Geschlecht im 'Charakter' Menü!",
-        "sleeping": "😴 Menschlichkeit 0! 2 Tage Schlaf ({hrs} Std übrig).",
-        "in_hospital": "🏥 Du bist im Krankenhaus ({sec}s übrig).",
-        "low_hp": "🩸 Zu wenig HP! Geh ins Krankenhaus.",
-        "all_cleared": "🎉 Alle Etagen geschafft!",
-        "floor_won": "🏆 Etage {floor} ({boss}) besiegt!\n🪙 +{coins} | ⭐ +{xp} XP\n🎁 Beute: {drop}\n🩸 Schaden: {dmg} (Menschlichkeit: {hum}%)",
-        "sleep_triggered": "\n⚠️ Menschlichkeit 0! 2 Tage Schlaf!",
-        "floor_lost": "💀 Gegen '{boss}' verloren! Geh ins Krankenhaus.",
-        "already_hospital": "Du wirst bereits behandelt!",
-        "full_hp_hum": "HP und Menschlichkeit sind voll!",
-        "hospital_entered": "🏥 Behandlung gestartet: {sec}s.",
-        "empty_loot": "Beutetasche ist leer!",
-        "loot_sold": "💰 Beute für {val} Münzen verkauft!",
-        "invalid_amount": "Ungültiger Betrag!",
-        "bank_deposited": "🏦 {amt} Münzen eingezahlt (2% Zinsen/Std).",
-        "bank_withdrawn": "🪙 {amt} Münzen abgehoben.",
-        "min_transfer": "Mindestens 10 Münzen!",
-        "user_not_found": "Nutzer nicht gefunden!",
-        "transfer_ok": "✅ {amt} gesendet.\n📉 3% Steuer ({tax}) — Netto: {net}.",
-        "invalid_gift": "❌ Ungültiger Gutscheincode!",
-        "gift_used": "⚠️ Bereits eingelöst!",
-        "gift_full": "⚠️ Limit erreicht!",
-        "gift_ok": "🎉 Eingelöst! +{coins} Münzen & +{xp} XP.",
-        "min_voucher": "Mindestens 100 Münzen erforderlich!",
-        "voucher_sent": "⏳ Anfrage an Owner gesendet. Warte auf Antwort...",
-    },
-    "zh": {
-        "banned": "⛔ 您的恶魔之塔账号已被封禁。",
-        "dev_mode": "🛠️ 恶魔之塔正在维护开发中（仅限管理员进入）。",
-        "gender_locked": "角色性别已选定，无法更改！",
-        "gender_saved": "✅ 角色已永久保存！",
-        "item_not_found": "未找到该物品！",
-        "equipped": "✅ 已装备「{name}」！",
-        "not_enough_coins": "金币不足！（需要 {price} 金币）",
-        "bought_equipped": "✅ 已购买并装备「{name}」！",
-        "pick_gender_first": "请先在「角色」菜单中选择性别！",
-        "sleeping": "😴 人性值归零！角色沉睡2天（剩余 {hrs} 小时）。",
-        "in_hospital": "🏥 正在医院治疗中（剩余 {sec} 秒）。",
-        "low_hp": "🩸 生命值过低！请先前往医院治疗。",
-        "all_cleared": "🎉 恭喜通关所有楼层！",
-        "floor_won": "🏆 第 {floor} 层（{boss}）通关！\n🪙 +{coins} 金币 | ⭐ +{xp} XP\n🎁 战利品: {drop}\n🩸 受伤: {dmg} (人性: {hum}%)",
-        "sleep_triggered": "\n⚠️ 人性值归零，角色进入2天沉睡！",
-        "floor_lost": "💀 被「{boss}」击败！请前往医院治疗。",
-        "already_hospital": "您已经在治疗中了！",
-        "full_hp_hum": "生命值和人性值已满！",
-        "hospital_entered": "🏥 已住院治疗，需耗时 {sec} 秒。",
-        "empty_loot": "战利品背包为空！",
-        "loot_sold": "💰 所有战利品已售出，获得 {val} 金币！",
-        "invalid_amount": "金币数量无效！",
-        "bank_deposited": "🏦 已存入 {amt} 金币（每小时 2% 利息）。",
-        "bank_withdrawn": "🪙 已从银行取出 {amt} 金币。",
-        "min_transfer": "最低转账金额为 10 金币！",
-        "user_not_found": "未找到目标用户！",
-        "transfer_ok": "✅ 已发送 {amt} 金币。\n📉 扣除 3% 税费 ({tax}) — 实际到账: {net} 金币。",
-        "invalid_gift": "❌ 兑换码无效或已过期！",
-        "gift_used": "⚠️ 您已使用过该兑换码！",
-        "gift_full": "⚠️ 兑换码使用次数已达上限！",
-        "gift_ok": "🎉 兑换成功！+{coins} 金币 & +{xp} XP。",
-        "min_voucher": "申请代金券最低需提供 100 金币！",
-        "voucher_sent": "⏳ 申请已发送给管理员，等待回复...",
-    },
 }
 
 
 def _dt_msg(lang: str, key: str, **kwargs) -> str:
-    d = DT_MESSAGES.get(lang, DT_MESSAGES["fa"])
+    d = DT_MESSAGES.get(lang, DT_MESSAGES.get("en" if lang != "fa" else "fa", DT_MESSAGES["fa"]))
     txt = d.get(key, DT_MESSAGES["fa"].get(key, key))
     return txt.format(**kwargs) if kwargs else txt
-
-
-class TowerAdminStates(StatesGroup):
-    set_male_img = State()
-    set_female_img = State()
-    add_floor = State()
-    del_floor = State()
-    add_weapon = State()
-    del_weapon = State()
-    add_armor = State()
-    del_armor = State()
-    add_gift = State()
-    add_popup = State()
-    check_user = State()
-    charge_user = State()
-    ban_user = State()
-    voucher_note = State()
 
 
 async def ensure_tower_tables():
@@ -429,7 +236,6 @@ async def get_or_create_player(uid: int) -> dict:
 
     p = dict(row)
 
-    # سود ساعتی بانک (۲٪ در هر ساعت)
     if p["bank_coins"] > 0 and p["bank_last_ts"] > 0:
         hours_passed = int((now - p["bank_last_ts"]) // 3600)
         if hours_passed >= 1:
@@ -826,13 +632,10 @@ async def handle_tower_api_action(payload: dict) -> dict:
                                 f"👤 کاربر: <b>{name}</b> (<code>{uid}</code>)\n"
                                 f"🎁 نوع ووچر: <b>{v_type}</b>\n"
                                 f"🪙 سکه پیشنهادی: <b>{coins_offered:,} سکه</b>\n\n"
-                                f"وضعیت را انتخاب کنید:"
+                                f"از دکمه زیر وارد مینی‌اپ پنل برج شوید و در تب «ووچرها» با یادداشت تایید یا رد کنید:"
                             ),
                             reply_markup=kb([
-                                [
-                                    success("✅ تایید و صدور کد ووچر", f"dtv_app_{vid}"),
-                                    danger("❌ رد درخواست (عودت سکه)", f"dtv_rej_{vid}"),
-                                ]
+                                [success("👑 باز کردن مینی‌اپ پنل برج", web_app_url=f"{MINI_APP_URL}/?game=tower_admin&uid={oid}")]
                             ]),
                             parse_mode=ParseMode.HTML,
                         )
@@ -850,402 +653,269 @@ async def handle_tower_api_action(payload: dict) -> dict:
     return {"ok": True, "state": full_state}
 
 
-@router.callback_query(F.data.startswith("dtv_app_") | F.data.startswith("dtv_rej_"))
-async def cb_owner_voucher_decision(cb: CallbackQuery, state: FSMContext):
-    if cb.from_user.id not in OWNER_IDS:
-        await cb.answer("فقط مالک!", show_alert=True)
-        return
+# ═══════════════════════════════════════════════════════════════════════════
+# API مخفی مینی‌اپ پنل برج (فقط و فقط برای OWNER_IDS)
+# ═══════════════════════════════════════════════════════════════════════════
 
-    parts = cb.data.split("_")
-    decision = "approved" if parts[1] == "app" else "rejected"
-    vid = int(parts[2])
-
-    await state.set_state(TowerAdminStates.voucher_note)
-    await state.update_data(vid=vid, decision=decision)
-    await cb.answer()
-    await cb.message.reply(
-        f"📝 لطفاً یادداشت خود را برای درخواست ووچر #{vid} ({'تایید' if decision=='approved' else 'رد'}) بنویسید:\n"
-        f"(اگر یادداشتی ندارید کلمه <code>بدون یادداشت</code> را بفرستید)",
-        parse_mode=ParseMode.HTML,
-    )
-
-
-@router.message(StateFilter(TowerAdminStates.voucher_note), F.text)
-async def msg_owner_voucher_note(msg: Message, state: FSMContext):
-    data = await state.get_data()
-    vid = data.get("vid")
-    decision = data.get("decision")
-    note = msg.text.strip()
-    if note == "بدون یادداشت":
-        note = ""
-    await state.clear()
+async def handle_tower_admin_api(payload: dict) -> dict:
+    uid = int(payload.get("uid") or 0)
+    if uid not in OWNER_IDS:
+        return {"ok": False, "error": "⛔ دسترسی غیرمجاز! این پنل فقط مخصوص مالک ربات است."}
 
     await ensure_tower_tables()
-    vrow = await db.pool.fetchrow("SELECT * FROM dt_vouchers WHERE id=$1", vid)
-    if not vrow:
-        await msg.reply("❌ درخواست یافت نشد.")
-        return
+    action = payload.get("action") or "state"
+    msg_out = ""
 
-    target_uid = vrow["user_id"]
-    if decision == "approved":
-        rand_part = "".join(random.choices(string.ascii_uppercase + string.digits, k=8))
-        v_code = f"RHINO-VCH-{vid}-{rand_part}"
+    if action == "toggle_dev":
+        cur = await get_dt_config("dev_mode", "0")
+        new_val = "0" if cur == "1" else "1"
+        await set_dt_config("dev_mode", new_val)
+        msg_out = "🛠️ وضعیت بازی به «در حال توسعه» تغییر کرد." if new_val == "1" else "🟢 بازی برای همه کاربران باز شد."
+
+    elif action == "save_gender_imgs":
+        male_img = payload.get("male_img")
+        female_img = payload.get("female_img")
+        if male_img is not None and male_img != "":
+            await set_dt_config("male_img", male_img)
+        if female_img is not None and female_img != "":
+            await set_dt_config("female_img", female_img)
+        msg_out = "✅ تصاویر کاراکتر مرد و زن با موفقیت آپلود و ذخیره شدند!"
+
+    elif action == "save_floor":
+        fnum = int(payload.get("floor_num") or 1)
+        bname = str(payload.get("boss_name") or f"Boss {fnum}").strip()
+        photo = str(payload.get("photo") or "").strip()
+        desc = str(payload.get("description") or "").strip()
+        pdesc = str(payload.get("power_desc") or "").strip()
+        weak = str(payload.get("weakness") or "").strip()
+        hp = int(payload.get("hp") or 100)
+        atk = int(payload.get("atk") or 20)
+        df = int(payload.get("def_val") or 10)
+        rcoins = int(payload.get("reward_coins") or 100)
+        rxp = int(payload.get("reward_xp") or 50)
+        drop_item = str(payload.get("drop_item") or "").strip()
+        drop_price = int(payload.get("drop_price") or 50)
+
+        # اگر عکس جدیدی آپلود نشده بود، عکس قبلی طبقه حفظ شود
+        if not photo:
+            old_p = await db.pool.fetchval("SELECT photo FROM dt_floors WHERE floor_num=$1", fnum)
+            photo = old_p or ""
+
         await db.pool.execute(
-            "UPDATE dt_vouchers SET status='approved', owner_note=$1, voucher_code=$2 WHERE id=$3",
-            note, v_code, vid
+            """INSERT INTO dt_floors (floor_num, boss_name, photo, description, power_desc, weakness, hp, atk, def, reward_coins, reward_xp, drop_item, drop_price)
+               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+               ON CONFLICT (floor_num) DO UPDATE SET
+               boss_name=$2, photo=$3, description=$4, power_desc=$5, weakness=$6, hp=$7, atk=$8, def=$9, reward_coins=$10, reward_xp=$11, drop_item=$12, drop_price=$13""",
+            fnum, bname, photo, desc, pdesc, weak, hp, atk, df, rcoins, rxp, drop_item, drop_price
         )
+        msg_out = f"✅ طبقه {fnum} ({bname}) با موفقیت ذخیره شد!"
+
+    elif action == "delete_floor":
+        fnum = int(payload.get("floor_num") or 0)
+        await db.pool.execute("DELETE FROM dt_floors WHERE floor_num=$1", fnum)
+        msg_out = f"🗑️ طبقه {fnum} حذف شد."
+
+    elif action == "save_item":
+        itype = str(payload.get("item_type") or "weapon")
+        name = str(payload.get("name") or "Item").strip()
+        photo = str(payload.get("photo") or "").strip()
+        price = int(payload.get("price") or 0)
+        hp_b = int(payload.get("hp_bonus") or 0)
+        atk_b = int(payload.get("atk_bonus") or 0)
+        def_b = int(payload.get("def_bonus") or 0)
+        spd_b = int(payload.get("spd_bonus") or 0)
+
+        await db.pool.execute(
+            """INSERT INTO dt_items (item_type, name, photo, price, hp_bonus, atk_bonus, def_bonus, spd_bonus)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8)""",
+            itype, name, photo, price, hp_b, atk_b, def_b, spd_b
+        )
+        msg_out = f"✅ {'سلاح' if itype=='weapon' else 'زره'} «{name}» با موفقیت اضافه شد!"
+
+    elif action == "delete_item":
+        item_id = int(payload.get("item_id") or 0)
+        await db.pool.execute("DELETE FROM dt_items WHERE id=$1", item_id)
+        msg_out = "🗑️ آیتم حذف شد."
+
+    elif action == "save_gift":
+        code = str(payload.get("code") or "").strip()
+        coins = int(payload.get("coins") or 0)
+        xp = int(payload.get("xp") or 0)
+        max_uses = int(payload.get("max_uses") or 1)
+        if code:
+            await db.pool.execute(
+                """INSERT INTO dt_gifts (code, coins, xp, max_uses, used_by)
+                   VALUES ($1, $2, $3, $4, '[]')
+                   ON CONFLICT (code) DO UPDATE SET coins=$2, xp=$3, max_uses=$4""",
+                code, coins, xp, max_uses
+            )
+            msg_out = f"🎁 کد هدیه «{code}» ساخته شد!"
+
+    elif action == "delete_gift":
+        code = str(payload.get("code") or "").strip()
+        await db.pool.execute("DELETE FROM dt_gifts WHERE code=$1", code)
+        msg_out = "🗑️ کد هدیه حذف شد."
+
+    elif action == "save_popup":
+        if payload.get("clear"):
+            await set_dt_config("active_popup", "")
+            msg_out = "🗑️ پاپ‌آپ تبلیغاتی غیرفعال شد."
+        else:
+            hours = float(payload.get("hours") or 24)
+            pop_obj = {
+                "text": str(payload.get("text") or "").strip(),
+                "photo": str(payload.get("photo") or "").strip(),
+                "btn_text": str(payload.get("btn_text") or "").strip(),
+                "btn_url": str(payload.get("btn_url") or "").strip(),
+                "expires_at": time.time() + (hours * 3600),
+            }
+            await set_dt_config("active_popup", json.dumps(pop_obj))
+            msg_out = f"📢 پاپ‌آپ تبلیغاتی برای مدت {hours} ساعت فعال شد!"
+
+    elif action == "Lookup_user":
+        t_uid = int(payload.get("target_uid") or 0)
+        st = await get_or_create_player(t_uid)
+        return {"ok": True, "looked_up": st["player"], "admin_data": await _collect_admin_state()}
+
+    elif action == "charge_user":
+        t_uid = int(payload.get("target_uid") or 0)
+        add_c = int(payload.get("add_coins") or 0)
+        add_x = int(payload.get("add_xp") or 0)
+        await get_or_create_player(t_uid)
+        await db.pool.execute(
+            "UPDATE dt_players SET coins=coins+$1, xp=xp+$2 WHERE user_id=$3",
+            add_c, add_x, t_uid
+        )
+        st = await get_or_create_player(t_uid)
+        return {
+            "ok": True,
+            "msg": f"⚡ کاربر {t_uid} شارژ شد (+{add_c} سکه | +{add_x} XP)",
+            "looked_up": st["player"],
+            "admin_data": await _collect_admin_state(),
+        }
+
+    elif action == "toggle_ban_user":
+        t_uid = int(payload.get("target_uid") or 0)
+        await get_or_create_player(t_uid)
+        cur = await db.pool.fetchval("SELECT is_banned FROM dt_players WHERE user_id=$1", t_uid)
+        new_b = not bool(cur)
+        await db.pool.execute("UPDATE dt_players SET is_banned=$1 WHERE user_id=$2", new_b, t_uid)
+        st = await get_or_create_player(t_uid)
+        return {
+            "ok": True,
+            "msg": f"وضعیت کاربر {t_uid} به «{'مسدود' if new_b else 'آزاد'}» تغییر یافت.",
+            "looked_up": st["player"],
+            "admin_data": await _collect_admin_state(),
+        }
+
+    elif action == "decide_voucher":
+        vid = int(payload.get("voucher_id") or 0)
+        decision = str(payload.get("decision") or "approved")
+        note = str(payload.get("note") or "").strip()
+        vrow = await db.pool.fetchrow("SELECT * FROM dt_vouchers WHERE id=$1", vid)
+        if vrow and vrow["status"] == "pending":
+            target_uid = vrow["user_id"]
+            bot_token = os.environ.get("BOT_TOKEN", "")
+            temp_bot = Bot(token=bot_token) if bot_token else None
+            try:
+                if decision == "approved":
+                    rand_part = "".join(random.choices(string.ascii_uppercase + string.digits, k=8))
+                    v_code = f"RHINO-VCH-{vid}-{rand_part}"
+                    await db.pool.execute(
+                        "UPDATE dt_vouchers SET status='approved', owner_note=$1, voucher_code=$2 WHERE id=$3",
+                        note, v_code, vid
+                    )
+                    if temp_bot:
+                        voucher_card = (
+                            f"🎟️ <b>برگه رسمی ووچر برج شیاطین راینو</b>\n\n"
+                            f"🔹 کد یکتای ووچر: <code>{v_code}</code>\n"
+                            f"🎁 نوع ووچر: <b>{vrow['voucher_type']}</b>\n"
+                            f"🪙 سکه پرداخت‌شده: <b>{vrow['coins_offered']:,}</b>\n"
+                            f"👤 شناسه کاربری: <code>{target_uid}</code>\n"
+                            + (f"📌 یادداشت مالک: <b>{note}</b>\n" if note else "")
+                        )
+                        await temp_bot.send_message(target_uid, voucher_card, parse_mode=ParseMode.HTML)
+                        await temp_bot.send_message(
+                            target_uid,
+                            f"✅ درخواست ووچر شما تایید شد!\n"
+                            f"👈 <b>برای دریافت هدیه، پیام بالا (حاوی کد ووچر) را برای مالک فوروارد کنید:</b>\n"
+                            f"🆔 @{OWNER_USERNAME}",
+                            parse_mode=ParseMode.HTML,
+                        )
+                    msg_out = f"✅ ووچر #{vid} تایید شد و کد {v_code} به پیوی کاربر ارسال گردید."
+                else:
+                    await db.pool.execute(
+                        "UPDATE dt_vouchers SET status='rejected', owner_note=$1 WHERE id=$2",
+                        note, vid
+                    )
+                    await db.pool.execute(
+                        "UPDATE dt_players SET coins=coins+$1 WHERE user_id=$2",
+                        vrow["coins_offered"], target_uid
+                    )
+                    if temp_bot:
+                        await temp_bot.send_message(
+                            target_uid,
+                            f"❌ <b>درخواست ووچر #{vid} شما رد شد</b> و مقدار {vrow['coins_offered']:,} سکه به حساب شما بازگشت.\n"
+                            + (f"📌 یادداشت مالک: <b>{note}</b>" if note else ""),
+                            parse_mode=ParseMode.HTML,
+                        )
+                    msg_out = f"❌ ووچر #{vid} رد شد و سکه کاربر برگردانده شد."
+            except Exception:
+                pass
+            finally:
+                if temp_bot:
+                    await temp_bot.session.close()
+
+    return {"ok": True, "msg": msg_out, "admin_data": await _collect_admin_state()}
+
+
+async def _collect_admin_state() -> dict:
+    floors = [dict(r) for r in await db.pool.fetch("SELECT * FROM dt_floors ORDER BY floor_num ASC")]
+    items = [dict(r) for r in await db.pool.fetch("SELECT * FROM dt_items ORDER BY item_type, price ASC, id ASC")]
+    gifts = [dict(r) for r in await db.pool.fetch("SELECT * FROM dt_gifts ORDER BY code ASC")]
+    vouchers = [dict(r) for r in await db.pool.fetch("SELECT * FROM dt_vouchers ORDER BY id DESC LIMIT 25")]
+    players_cnt = await db.pool.fetchval("SELECT COUNT(*) FROM dt_players") or 0
+    dev_mode = (await get_dt_config("dev_mode", "0")) == "1"
+    male_img = await get_dt_config("male_img", "")
+    female_img = await get_dt_config("female_img", "")
+    popup_raw = await get_dt_config("active_popup", "")
+    popup_data = None
+    if popup_raw:
         try:
-            voucher_card = (
-                f"🎟️ <b>برگه رسمی ووچر برج شیاطین راینو</b>\n\n"
-                f"🔹 کد یکتای ووچر: <code>{v_code}</code>\n"
-                f"🎁 نوع ووچر: <b>{vrow['voucher_type']}</b>\n"
-                f"🪙 سکه پرداخت‌شده: <b>{vrow['coins_offered']:,}</b>\n"
-                f"👤 شناسه کاربری: <code>{target_uid}</code>\n"
-                + (f"📌 یادداشت مالک: <b>{note}</b>\n" if note else "")
-            )
-            await msg.bot.send_message(target_uid, voucher_card, parse_mode=ParseMode.HTML)
-            await msg.bot.send_message(
-                target_uid,
-                f"✅ درخواست ووچر شما تایید شد!\n"
-                f"👈 <b>برای دریافت هدیه، پیام بالا (حاوی کد ووچر) را برای مالک فوروارد کنید:</b>\n"
-                f"🆔 @{OWNER_USERNAME}",
-                parse_mode=ParseMode.HTML,
-            )
+            popup_data = json.loads(popup_raw)
         except Exception:
             pass
-        await msg.reply(f"✅ درخواست #{vid} تایید شد و کد ووچر ({v_code}) برای کاربر ارسال گردید.")
-    else:
-        await db.pool.execute(
-            "UPDATE dt_vouchers SET status='rejected', owner_note=$1 WHERE id=$2",
-            note, vid
-        )
-        await db.pool.execute(
-            "UPDATE dt_players SET coins=coins+$1 WHERE user_id=$2",
-            vrow["coins_offered"], target_uid
-        )
-        try:
-            await msg.bot.send_message(
-                target_uid,
-                f"❌ <b>درخواست ووچر #{vid} شما رد شد</b> و مقدار {vrow['coins_offered']:,} سکه به حساب شما بازگشت.\n"
-                + (f"📌 یادداشت مالک: <b>{note}</b>" if note else ""),
-                parse_mode=ParseMode.HTML,
-            )
-        except Exception:
-            pass
-        await msg.reply(f"❌ درخواست #{vid} رد شد و سکه کاربر عودت داده شد.")
+
+    return {
+        "players_count": players_cnt,
+        "dev_mode": dev_mode,
+        "male_img": male_img,
+        "female_img": female_img,
+        "popup": popup_data,
+        "floors": floors,
+        "items": items,
+        "gifts": gifts,
+        "vouchers": vouchers,
+    }
 
 
-async def _tower_admin_kb():
-    dev_on = (await get_dt_config("dev_mode", "0")) == "1"
-    dev_lbl = "🛠️ وضعیت: در حال توسعه (فقط مالک)" if dev_on else "🟢 وضعیت: باز برای همه کاربران"
-    return kb([
-        [primary("👹 افزودن/ویرایش غول و طبقه", "dtadm:add_floor"),
-         danger("🗑️ حذف طبقه", "dtadm:del_floor")],
-        [primary("⚔️ افزودن سلاح جدید", "dtadm:add_weapon"),
-         danger("🗑️ حذف سلاح", "dtadm:del_weapon")],
-        [primary("🛡️ افزودن زره جدید", "dtadm:add_armor"),
-         danger("🗑️ حذف زره", "dtadm:del_armor")],
-        [primary("🚹 تنظیم عکس کاراکتر مرد", "dtadm:male_img"),
-         primary("🚺 تنظیم عکس کاراکتر زن", "dtadm:female_img")],
-        [success("🎁 ساخت کد هدیه (سکه/XP)", "dtadm:add_gift"),
-         primary("📢 ساخت پاپ‌آپ تبلیغاتی شناور", "dtadm:add_popup")],
-        [primary("🔍 بررسی کاربر", "dtadm:check_user"),
-         success("⚡ شارژ سکه و XP کاربر", "dtadm:charge_user")],
-        [danger("🚫 محروم / آزاد کردن کاربر از برج", "dtadm:ban_user")],
-        [success(dev_lbl, "dtadm:toggle_dev")],
-    ])
-
+# ═══════════════════════════════════════════════════════════════════════════
+# دستور «پنل برج» در پیوی ربات (باز کردن مستقیم مینی‌اپ مخفی مالک)
+# ═══════════════════════════════════════════════════════════════════════════
 
 @router.message(Command("tower_panel"))
 @router.message(F.text.in_({"پنل برج", "پنل برج شیاطین", "/tower"}))
-async def cmd_tower_panel(msg: Message, state: FSMContext):
+async def cmd_tower_panel(msg: Message):
     if msg.from_user.id not in OWNER_IDS:
         return
-    await state.clear()
-    await ensure_tower_tables()
-    floors_cnt = await db.pool.fetchval("SELECT COUNT(*) FROM dt_floors") or 0
-    items_cnt = await db.pool.fetchval("SELECT COUNT(*) FROM dt_items") or 0
-    players_cnt = await db.pool.fetchval("SELECT COUNT(*) FROM dt_players") or 0
-
+    uid = msg.from_user.id
+    admin_url = f"{MINI_APP_URL}/?game=tower_admin&uid={uid}"
     await msg.answer(
-        f"👹 <b>پنل فرماندهی برج شیاطین (Demon Tower)</b>\n\n"
-        f"📊 بازیکنان برج: <b>{players_cnt} نفر</b>\n"
-        f"🏰 طبقات ثبت‌شده: <b>{floors_cnt} طبقه</b>\n"
-        f"⚔️ سلاح‌ها و زره‌ها: <b>{items_cnt} مورد</b>\n\n"
-        f"بخش مورد نظر را انتخاب کنید:",
-        reply_markup=await _tower_admin_kb(),
+        f"👑 <b>مینی‌اپ اختصاصی مدیریت برج شیاطین</b>\n\n"
+        f"این پنل کاملاً از کاربران عادی مخفی است و فقط برای مالک باز می‌شود.\n"
+        f"در داخل مینی‌اپ می‌توانید خانه‌به‌خانه غول‌ها، سلاح‌ها، زره‌ها، کدهای هدیه، پاپ‌آپ و ووچرها را مدیریت کنید و عکس‌ها را مستقیم از گالری آپلود نمایید:",
+        reply_markup=kb([
+            [success("👑 ورود به مینی‌اپ پنل برج (ویژه مالک)", web_app_url=admin_url)]
+        ]),
         parse_mode=ParseMode.HTML,
     )
-
-
-@router.callback_query(F.data == "dtadm:toggle_dev")
-async def cb_toggle_dev(cb: CallbackQuery):
-    if cb.from_user.id not in OWNER_IDS:
-        return
-    cur = await get_dt_config("dev_mode", "0")
-    new_val = "0" if cur == "1" else "1"
-    await set_dt_config("dev_mode", new_val)
-    await cb.answer("وضعیت بازی تغییر کرد!")
-    await cb.message.edit_reply_markup(reply_markup=await _tower_admin_kb())
-
-
-@router.callback_query(F.data.startswith("dtadm:"))
-async def cb_tower_admin_actions(cb: CallbackQuery, state: FSMContext):
-    if cb.from_user.id not in OWNER_IDS:
-        return
-    act = cb.data.split(":")[1]
-    await state.clear()
-    await cb.answer()
-
-    if act == "male_img":
-        await state.set_state(TowerAdminStates.set_male_img)
-        await cb.message.reply("🚹 لینک مستقیم تصویر کاراکتر **مرد** را ارسال کنید:")
-    elif act == "female_img":
-        await state.set_state(TowerAdminStates.set_female_img)
-        await cb.message.reply("🚺 لینک مستقیم تصویر کاراکتر **زن** را ارسال کنید:")
-    elif act == "add_floor":
-        await state.set_state(TowerAdminStates.add_floor)
-        await cb.message.reply(
-            "👹 اطلاعات طبقه و غول را با جداکننده <code>|</code> بفرستید:\n\n"
-            "<code>شماره_طبقه | نام_غول | لینک_عکس | توضیح | قدرت_غول | نقطه_ضعف | جان_HP | حمله_ATK | دفاع_DEF | پاداش_سکه | پاداش_XP | نام_غنیمت | قیمت_فروش_غنیمت</code>\n\n"
-            "مثال:\n"
-            "<code>5 | غول آتشین | - | نگهبان طبقه پنجم | شمشیر گدازه | سپر یخی | 650 | 85 | 40 | 1500 | 500 | یاقوت مذاب | 450</code>",
-            parse_mode=ParseMode.HTML,
-        )
-    elif act == "del_floor":
-        await state.set_state(TowerAdminStates.del_floor)
-        await cb.message.reply("🗑️ شماره طبقه‌ای که می‌خواهید حذف شود را بفرستید:")
-    elif act == "add_weapon":
-        await state.set_state(TowerAdminStates.add_weapon)
-        await cb.message.reply(
-            "⚔️ مشخصات سلاح جدید را با جداکننده <code>|</code> بفرستید:\n"
-            "<code>نام_سلاح | لینک_عکس | قیمت_سکه | افزایش_جان | افزایش_حمله | افزایش_دفاع | افزایش_سرعت</code>\n\n"
-            "مثال:\n"
-            "<code>شمشیر اژدها | - | 3000 | 120 | 140 | 30 | 10</code>",
-            parse_mode=ParseMode.HTML,
-        )
-    elif act == "del_weapon":
-        rows = await db.pool.fetch("SELECT id, name, price FROM dt_items WHERE item_type='weapon' ORDER BY id")
-        txt = "\n".join(f"کد <code>{r['id']}</code>: {r['name']} ({r['price']} سکه)" for r in rows)
-        await state.set_state(TowerAdminStates.del_weapon)
-        await cb.message.reply(f"🗑️ کد سلاح را برای حذف بفرستید:\n\n{txt}", parse_mode=ParseMode.HTML)
-    elif act == "add_armor":
-        await state.set_state(TowerAdminStates.add_armor)
-        await cb.message.reply(
-            "🛡️ مشخصات زره جدید را با جداکننده <code>|</code> بفرستید:\n"
-            "<code>نام_زره | لینک_عکس | قیمت_سکه | افزایش_جان | افزایش_دفاع | تغییر_سرعت</code>\n\n"
-            "مثال:\n"
-            "<code>زره الماس | - | 2500 | 200 | 90 | 15</code>",
-            parse_mode=ParseMode.HTML,
-        )
-    elif act == "del_armor":
-        rows = await db.pool.fetch("SELECT id, name, price FROM dt_items WHERE item_type='armor' ORDER BY id")
-        txt = "\n".join(f"کد <code>{r['id']}</code>: {r['name']} ({r['price']} سکه)" for r in rows)
-        await state.set_state(TowerAdminStates.del_armor)
-        await cb.message.reply(f"🗑️ کد زره را برای حذف بفرستید:\n\n{txt}", parse_mode=ParseMode.HTML)
-    elif act == "add_gift":
-        await state.set_state(TowerAdminStates.add_gift)
-        await cb.message.reply(
-            "🎁 اطلاعات کد هدیه را با <code>|</code> بفرستید:\n"
-            "<code>کد_هدیه | مقدار_سکه | مقدار_XP | تعداد_دفعات_مجاز</code>\n\n"
-            "مثال:\n<code>RHINO2026 | 5000 | 500 | 50</code>",
-            parse_mode=ParseMode.HTML,
-        )
-    elif act == "add_popup":
-        await state.set_state(TowerAdminStates.add_popup)
-        await cb.message.reply(
-            "📢 مشخصات پاپ‌آپ تبلیغاتی شناور را با <code>|</code> بفرستید:\n"
-            "<code>متن_پاپ‌آپ | لینک_عکس_(یا -) | متن_دکمه_(یا -) | لینک_دکمه_(یا -) | مدت_ساعت_نمایش</code>\n\n"
-            "(برای حذف پاپ‌آپ فعلی کلمه <code>حذف</code> را بفرستید)",
-            parse_mode=ParseMode.HTML,
-        )
-    elif act == "check_user":
-        await state.set_state(TowerAdminStates.check_user)
-        await cb.message.reply("🔍 آیدی عددی کاربر را بفرستید:")
-    elif act == "charge_user":
-        await state.set_state(TowerAdminStates.charge_user)
-        await cb.message.reply(
-            "⚡ آیدی عددی، سکه و XP را با <code>|</code> بفرستید:\n"
-            "<code>آیدی_کاربر | مقدار_سکه_اضافی | مقدار_XP_اضافی</code>",
-            parse_mode=ParseMode.HTML,
-        )
-    elif act == "ban_user":
-        await state.set_state(TowerAdminStates.ban_user)
-        await cb.message.reply("🚫 آیدی عددی کاربر را بفرستید تا وضعیت مسدودیتش در برج تغییر کند:")
-
-
-@router.message(StateFilter(TowerAdminStates.set_male_img), F.text)
-async def st_male_img(msg: Message, state: FSMContext):
-    await set_dt_config("male_img", msg.text.strip())
-    await state.clear()
-    await msg.reply("✅ تصویر کاراکتر مرد ذخیره شد.")
-
-
-@router.message(StateFilter(TowerAdminStates.set_female_img), F.text)
-async def st_female_img(msg: Message, state: FSMContext):
-    await set_dt_config("female_img", msg.text.strip())
-    await state.clear()
-    await msg.reply("✅ تصویر کاراکتر زن ذخیره شد.")
-
-
-@router.message(StateFilter(TowerAdminStates.add_floor), F.text)
-async def st_add_floor(msg: Message, state: FSMContext):
-    parts = [x.strip() for x in msg.text.split("|")]
-    if len(parts) < 12:
-        await msg.reply("❌ تعداد بخش‌ها کامل نیست!")
-        return
-    fnum = int(parts[0])
-    bname, photo, desc, pdesc, weak = parts[1], parts[2], parts[3], parts[4], parts[5]
-    hp, atk, df, rcoins, rxp = int(parts[6]), int(parts[7]), int(parts[8]), int(parts[9]), int(parts[10])
-    drop_item = parts[11]
-    drop_price = int(parts[12]) if len(parts) > 12 and parts[12].isdigit() else 50
-    if photo == "-":
-        photo = ""
-
-    await db.pool.execute(
-        """INSERT INTO dt_floors (floor_num, boss_name, photo, description, power_desc, weakness, hp, atk, def, reward_coins, reward_xp, drop_item, drop_price)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
-           ON CONFLICT (floor_num) DO UPDATE SET
-           boss_name=$2, photo=$3, description=$4, power_desc=$5, weakness=$6, hp=$7, atk=$8, def=$9, reward_coins=$10, reward_xp=$11, drop_item=$12, drop_price=$13""",
-        fnum, bname, photo, desc, pdesc, weak, hp, atk, df, rcoins, rxp, drop_item, drop_price
-    )
-    await state.clear()
-    await msg.reply(f"✅ طبقه {fnum} ({bname}) ثبت/بروزرسانی شد!")
-
-
-@router.message(StateFilter(TowerAdminStates.del_floor), F.text)
-async def st_del_floor(msg: Message, state: FSMContext):
-    if msg.text.strip().isdigit():
-        await db.pool.execute("DELETE FROM dt_floors WHERE floor_num=$1", int(msg.text.strip()))
-        await state.clear()
-        await msg.reply("🗑️ طبقه حذف شد.")
-
-
-@router.message(StateFilter(TowerAdminStates.add_weapon), F.text)
-async def st_add_weapon(msg: Message, state: FSMContext):
-    p = [x.strip() for x in msg.text.split("|")]
-    if len(p) < 7:
-        await msg.reply("❌ فرمت نادرست است.")
-        return
-    photo = "" if p[1] == "-" else p[1]
-    await db.pool.execute(
-        """INSERT INTO dt_items (item_type, name, photo, price, hp_bonus, atk_bonus, def_bonus, spd_bonus)
-           VALUES ('weapon', $1, $2, $3, $4, $5, $6, $7)""",
-        p[0], photo, int(p[2]), int(p[3]), int(p[4]), int(p[5]), int(p[6])
-    )
-    await state.clear()
-    await msg.reply(f"⚔️ سلاح «{p[0]}» اضافه شد!")
-
-
-@router.message(StateFilter(TowerAdminStates.del_weapon), F.text)
-@router.message(StateFilter(TowerAdminStates.del_armor), F.text)
-async def st_del_item(msg: Message, state: FSMContext):
-    if msg.text.strip().isdigit():
-        await db.pool.execute("DELETE FROM dt_items WHERE id=$1", int(msg.text.strip()))
-        await state.clear()
-        await msg.reply("🗑️ آیتم حذف شد.")
-
-
-@router.message(StateFilter(TowerAdminStates.add_armor), F.text)
-async def st_add_armor(msg: Message, state: FSMContext):
-    p = [x.strip() for x in msg.text.split("|")]
-    if len(p) < 6:
-        await msg.reply("❌ فرمت نادرست است.")
-        return
-    photo = "" if p[1] == "-" else p[1]
-    await db.pool.execute(
-        """INSERT INTO dt_items (item_type, name, photo, price, hp_bonus, atk_bonus, def_bonus, spd_bonus)
-           VALUES ('armor', $1, $2, $3, $4, 0, $5, $6)""",
-        p[0], photo, int(p[2]), int(p[3]), int(p[4]), int(p[5])
-    )
-    await state.clear()
-    await msg.reply(f"🛡️ زره «{p[0]}» اضافه شد!")
-
-
-@router.message(StateFilter(TowerAdminStates.add_gift), F.text)
-async def st_add_gift(msg: Message, state: FSMContext):
-    p = [x.strip() for x in msg.text.split("|")]
-    if len(p) < 4:
-        await msg.reply("❌ فرمت نادرست است.")
-        return
-    await db.pool.execute(
-        """INSERT INTO dt_gifts (code, coins, xp, max_uses, used_by)
-           VALUES ($1, $2, $3, $4, '[]')
-           ON CONFLICT (code) DO UPDATE SET coins=$2, xp=$3, max_uses=$4""",
-        p[0], int(p[1]), int(p[2]), int(p[3])
-    )
-    await state.clear()
-    await msg.reply(f"🎁 کد هدیه <code>{p[0]}</code> ساخته شد!", parse_mode=ParseMode.HTML)
-
-
-@router.message(StateFilter(TowerAdminStates.add_popup), F.text)
-async def st_add_popup(msg: Message, state: FSMContext):
-    if msg.text.strip() == "حذف":
-        await set_dt_config("active_popup", "")
-        await state.clear()
-        await msg.reply("🗑️ پاپ‌آپ تبلیغاتی حذف شد.")
-        return
-    p = [x.strip() for x in msg.text.split("|")]
-    if len(p) < 5:
-        await msg.reply("❌ فرمت نادرست است.")
-        return
-    hours = float(p[4])
-    popup_obj = {
-        "text": p[0],
-        "photo": "" if p[1] == "-" else p[1],
-        "btn_text": "" if p[2] == "-" else p[2],
-        "btn_url": "" if p[3] == "-" else p[3],
-        "expires_at": time.time() + (hours * 3600),
-    }
-    await set_dt_config("active_popup", json.dumps(popup_obj))
-    await state.clear()
-    await msg.reply(f"📢 پاپ‌آپ تبلیغاتی برای مدت {hours} ساعت فعال شد!")
-
-
-@router.message(StateFilter(TowerAdminStates.check_user), F.text)
-async def st_check_user(msg: Message, state: FSMContext):
-    if not msg.text.strip().isdigit():
-        return
-    uid = int(msg.text.strip())
-    st = await get_or_create_player(uid)
-    p = st["player"]
-    await state.clear()
-    await msg.reply(
-        f"👤 <b>پرونده بازیکن برج شیاطین</b> (<code>{uid}</code>)\n\n"
-        f"🔹 جنسیت: {p['gender'] or 'انتخاب نشده'}\n"
-        f"⭐ لول: {p['level']} (XP: {p['xp']})\n"
-        f"🪙 سکه کیف پول: {p['coins']:,} | 🏦 بانک: {p['bank_coins']:,}\n"
-        f"🏰 طبقه فعلی: {p['current_floor']}\n"
-        f"❤️ جان: {p['hp']}/{p['max_hp']} | 🧠 انسانیت: {p['humanity']}%\n"
-        f"⚔️ سلاح: {p['weapon_name']} | 🛡️ زره: {p['armor_name']}\n"
-        f"🚫 مسدود: {'بله' if p['is_banned'] else 'خیر'}",
-        parse_mode=ParseMode.HTML,
-    )
-
-
-@router.message(StateFilter(TowerAdminStates.charge_user), F.text)
-async def st_charge_user(msg: Message, state: FSMContext):
-    p = [x.strip() for x in msg.text.split("|")]
-    if len(p) < 3:
-        return
-    uid, add_c, add_xp = int(p[0]), int(p[1]), int(p[2])
-    await get_or_create_player(uid)
-    await db.pool.execute(
-        "UPDATE dt_players SET coins=coins+$1, xp=xp+$2 WHERE user_id=$3",
-        add_c, add_xp, uid
-    )
-    await state.clear()
-    await msg.reply(f"⚡ کاربر <code>{uid}</code> به میزان +{add_c} سکه و +{add_xp} XP شارژ شد!", parse_mode=ParseMode.HTML)
-
-
-@router.message(StateFilter(TowerAdminStates.ban_user), F.text)
-async def st_ban_user(msg: Message, state: FSMContext):
-    if not msg.text.strip().isdigit():
-        return
-    uid = int(msg.text.strip())
-    await get_or_create_player(uid)
-    cur = await db.pool.fetchval("SELECT is_banned FROM dt_players WHERE user_id=$1", uid)
-    new_b = not bool(cur)
-    await db.pool.execute("UPDATE dt_players SET is_banned=$1 WHERE user_id=$2", new_b, uid)
-    await state.clear()
-    await msg.reply(f"وضعیت مسدودیت کاربر {uid} در برج شیاطین به «{'مسدود' if new_b else 'آزاد'}» تغییر یافت.")
