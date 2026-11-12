@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""webapp/backend/main.py — سرور کامل مینی‌اپ گیم باکس راینو + برج شیاطین ۷ زبانه + حکم فرش ایرانی"""
+"""webapp/backend/main.py — مینی‌اپ گیم باکس راینو + برج شیاطین + پنل مینی‌اپی مخفی مالک با آپلود مستقیم عکس"""
 
 import io
 import json
@@ -40,6 +40,7 @@ guess_rooms: dict[str, dict] = {}
 GAME_META = {
     "hub":          {"title": "RHINO GAME BOX", "c1": (15, 23, 42),  "c2": (79, 70, 229)},
     "demontower":   {"title": "DEMON TOWER",    "c1": (69, 10, 10),  "c2": (220, 38, 38)},
+    "tower_admin":  {"title": "TOWER ADMIN",    "c1": (30, 27, 75),  "c2": (124, 58, 237)},
     "hokm":         {"title": "HOKM 4P",        "c1": (127, 17, 22), "c2": (185, 28, 28)},
     "hokm2p":       {"title": "HOKM 2P",        "c1": (127, 17, 22), "c2": (185, 28, 28)},
     "2048":         {"title": "2048",           "c1": (15, 23, 42),  "c2": (37, 99, 235)},
@@ -187,6 +188,13 @@ async def health_check():
 async def tower_action_endpoint(payload: TowerActionPayload):
     from games.demon_tower import handle_tower_api_action
     return await handle_tower_api_action(payload.model_dump())
+
+
+@app.post("/api/tower/admin")
+async def tower_admin_endpoint(request: Request):
+    from games.demon_tower import handle_tower_admin_api
+    body = await request.json()
+    return await handle_tower_admin_api(body)
 
 
 @app.get("/api/check_join/{user_id}")
@@ -550,10 +558,42 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
       return el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT');
     }
 
+    /* ─── ابزار فشرده‌سازی و آپلود مستقیم عکس از گالری گوشی (Base64 Data URL) ─── */
+    window.uploadedImages = {};
+    window.handleImageUpload = function(inputEl, targetKey, previewImgId) {
+      const file = inputEl.files && inputEl.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = function(ev) {
+        const img = new Image();
+        img.onload = function() {
+          const canvas = document.createElement('canvas');
+          const maxDim = 520;
+          let w = img.width, h = img.height;
+          if (w > h && w > maxDim) { h = Math.round(h * maxDim / w); w = maxDim; }
+          else if (h >= w && h > maxDim) { w = Math.round(w * maxDim / h); h = maxDim; }
+          canvas.width = w; canvas.height = h;
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(img, 0, 0, w, h);
+          const dataUrl = canvas.toDataURL('image/jpeg', 0.82);
+          window.uploadedImages[targetKey] = dataUrl;
+          const prev = document.getElementById(previewImgId);
+          if (prev) {
+            prev.src = dataUrl;
+            prev.classList.remove('hidden');
+          }
+        };
+        img.src = ev.target.result;
+      };
+      reader.readAsDataURL(file);
+    };
+
     const HERO_CUSTOM_IMG = "__HERO_IMAGE__";
     const TOWER_HERO_IMG = "__TOWER_HERO__";
     const BOT_USERNAME = "__BOT_USERNAME__";
     const SHORT_NAME = "__SHORT_NAME__";
+    const OWNER_IDS = [7662192190, 6041119040];
+
     const params = new URLSearchParams(window.location.search);
     const startParam = tg?.initDataUnsafe?.start_param || params.get('startapp') || params.get('tgWebAppStartParam') || '';
     let parsedGame = params.get('game') || '';
@@ -573,7 +613,6 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
     }
     applyDir();
 
-    /* ═══════════ دیکشنری کامل ۷ زبانه برای کل مینی‌اپ و برج شیاطین ═══════════ */
     const I18N = {
       fa: {
         heroTitle: "گیم باکس راینو",
@@ -612,40 +651,24 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
         sendBtn: "ارسال",
         micOn: "🎙️ روشن", micOff: "🔇 مایک",
         dt: {
-          floorBtn: "طبقه",
-          enterBattle: "ورود به نبرد",
-          charBtn: "🦸 کاراکتر",
-          hospBtn: "🏥 بیمارستان",
-          vaultBtn: "🏦 خزانه",
-          shopBtn: "🛒 فروشگاه",
-          giftBtn: "🎁 کد هدیه",
-          voucherBtn: "🎟️ درخواست ووچر",
-          accBtn: "👤 حسابم",
-          backTower: "بازگشت به منوی برج",
-          humanity: "انسانیت",
-          bossPower: "قدرت غول",
-          bossWeak: "نقطه ضعف",
-          bossReward: "پاداش مرحله",
-          pickWeaponHint: "سلاح خود را برای ورود به مرحله انتخاب کنید:",
-          startBattleBtn: "⚔️ شروع نبرد طبقه",
-          pickGenderTitle: "انتخاب کاراکتر (یک‌بار و غیرقابل تغییر)",
-          male: "مرد 🚹", female: "زن 🚺",
+          floorBtn: "طبقه", enterBattle: "ورود به نبرد", charBtn: "🦸 کاراکتر", hospBtn: "🏥 بیمارستان",
+          vaultBtn: "🏦 خزانه", shopBtn: "🛒 فروشگاه", giftBtn: "🎁 کد هدیه", voucherBtn: "🎟️ درخواست ووچر",
+          accBtn: "👤 حسابم", backTower: "بازگشت به منوی برج", humanity: "انسانیت",
+          bossPower: "قدرت غول", bossWeak: "نقطه ضعف", bossReward: "پاداش مرحله",
+          pickWeaponHint: "سلاح خود را برای ورود به مرحله انتخاب کنید:", startBattleBtn: "⚔️ شروع نبرد طبقه",
+          pickGenderTitle: "انتخاب کاراکتر (یک‌بار و غیرقابل تغییر)", male: "مرد 🚹", female: "زن 🚺",
           equipped: "تجهیز شده", select: "انتخاب", buy: "خرید",
           hospDesc: "پس از هر جنگ برای بازیابی جان و انسانیت به بیمارستان بیایید. اگر انسانیت صفر شود ۲ روز به خواب می‌روید!",
-          healBtn: "💉 بستری شدن و درمان کامل",
-          deposit: "سپرده‌گذاری", withdraw: "برداشت",
-          sellLootBtn: "💰 فروش غنیمت‌ها",
-          transferTitle: "💸 انتقال سکه به کاربر دیگر (۳٪ مالیات)",
-          transferBtn: "ارسال سکه (کسر ۳٪ مالیات)",
-          redeemBtn: "دریافت هدیه",
+          healBtn: "💉 بستری شدن و درمان کامل", deposit: "سپرده‌گذاری", withdraw: "برداشت",
+          sellLootBtn: "💰 فروش غنیمت‌ها", transferTitle: "💸 انتقال سکه به کاربر دیگر (۳٪ مالیات)",
+          transferBtn: "ارسال سکه (کسر ۳٪ مالیات)", redeemBtn: "دریافت هدیه",
           vchOfferHint: "مقدار سکه پیشنهادی...",
           vchTypes: ["ووچر استارز", "ووچر گیفت", "ووچر سندر", "ووچر شارژ ربات"],
           vchSendBtn: "ارسال درخواست برای مالک",
           vchChatTitle: "💬 وضعیت درخواست‌های ووچر (در انتظار پاسخ مالک)",
           vchPending: "⏳ در انتظار پاسخ مالک...",
           vchApproved: "✅ تایید شد — پیام کد ووچر را از پیوی برای @oldkaseb فوروارد کنید",
-          vchRejected: "❌ رد شد (سکه عودت داده شد)",
-          ownerNote: "یادداشت مالک"
+          vchRejected: "❌ رد شد (سکه عودت داده شد)", ownerNote: "یادداشت مالک"
         },
         games: {
           wip1: "شکارچی سیاه‌چال", wip2: "هک گاوصندوق", wip3: "برج شیاطین", wip3Sub: "RPG • طبقات و غول‌ها",
@@ -667,535 +690,46 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
       en: {
         heroTitle: "Rhino Game Box",
         heroBody: "Welcome to Rhino Game Box my friend\nAwesome games gathered in one bot for you\nEnjoy my friend",
-        wipBadge: "Soon",
-        backMenu: "Menu",
-        playBtn: "Play",
-        optBot: "🤖 Play with AI Bot",
-        optInvite: "📩 Invite Friends via Bot",
-        optShare: "📤 Share Table Link",
-        sendInviteBtn: "Send Invites",
-        enterTableBtn: "Enter Table",
-        notStartedWarn: "⚠️ These users haven't started the bot yet (tell them to start it first):",
-        swipeHint: "Swipe in 4 directions to move",
-        restart: "Restart",
-        score: "Score",
-        turn: "Turn",
-        winner: "Winner",
-        trump: "Trump",
-        ourTricks: "Our Tricks",
-        oppTricks: "Opp Tricks",
-        sets: "Sets",
-        chooseTrumpPrompt: "👑 You are Hakem! Choose Trump suit:",
-        waitingHakem: "Choosing trump...",
-        pickPartner: "Set Partner",
-        fillBotsBtn: "🤖 Fill with AI & Start",
-        rpsAskWins: "Target wins:",
-        winsUnit: "Wins",
-        rock: "Rock", paper: "Paper", scissors: "Scissors",
-        pickColor: "Your Color:",
-        fromNum: "From:", toNum: "To:",
-        createGame: "Create Game",
-        submitBtn: "Submit",
-        playAgainBtn: "🔄 Play Again",
-        chatPlaceholder: "Quick popup message...",
-        sendBtn: "Send",
-        micOn: "🎙️ On", micOff: "🔇 Mic",
+        wipBadge: "Soon", backMenu: "Menu", playBtn: "Play",
+        optBot: "🤖 Play with AI Bot", optInvite: "📩 Invite Friends via Bot", optShare: "📤 Share Table Link",
+        sendInviteBtn: "Send Invites", enterTableBtn: "Enter Table",
+        notStartedWarn: "⚠️ These users haven't started the bot yet:",
+        swipeHint: "Swipe in 4 directions to move", restart: "Restart", score: "Score", turn: "Turn", winner: "Winner",
+        trump: "Trump", ourTricks: "Our Tricks", oppTricks: "Opp Tricks", sets: "Sets",
+        chooseTrumpPrompt: "👑 Choose Trump suit:", waitingHakem: "Choosing trump...", pickPartner: "Set Partner",
+        fillBotsBtn: "🤖 Fill with AI & Start", rpsAskWins: "Target wins:", winsUnit: "Wins",
+        rock: "Rock", paper: "Paper", scissors: "Scissors", pickColor: "Your Color:",
+        fromNum: "From:", toNum: "To:", createGame: "Create Game", submitBtn: "Submit", playAgainBtn: "🔄 Play Again",
+        chatPlaceholder: "Quick message...", sendBtn: "Send", micOn: "🎙️ On", micOff: "🔇 Mic",
         dt: {
-          floorBtn: "Floor",
-          enterBattle: "Battle",
-          charBtn: "🦸 Character",
-          hospBtn: "🏥 Hospital",
-          vaultBtn: "🏦 Vault",
-          shopBtn: "🛒 Shop",
-          giftBtn: "🎁 Gift Code",
-          voucherBtn: "🎟️ Voucher",
-          accBtn: "👤 My Account",
-          backTower: "Back to Tower Menu",
-          humanity: "Humanity",
-          bossPower: "Boss Power",
-          bossWeak: "Weakness",
-          bossReward: "Stage Reward",
-          pickWeaponHint: "Select your weapon for this floor:",
-          startBattleBtn: "⚔️ Start Floor Battle",
-          pickGenderTitle: "Choose Character (Permanent & One-time)",
-          male: "Male 🚹", female: "Female 🚺",
+          floorBtn: "Floor", enterBattle: "Battle", charBtn: "🦸 Character", hospBtn: "🏥 Hospital",
+          vaultBtn: "🏦 Vault", shopBtn: "🛒 Shop", giftBtn: "🎁 Gift Code", voucherBtn: "🎟️ Voucher",
+          accBtn: "👤 My Account", backTower: "Back to Tower Menu", humanity: "Humanity",
+          bossPower: "Boss Power", bossWeak: "Weakness", bossReward: "Stage Reward",
+          pickWeaponHint: "Select your weapon:", startBattleBtn: "⚔️ Start Floor Battle",
+          pickGenderTitle: "Choose Character (One-time)", male: "Male 🚹", female: "Female 🚺",
           equipped: "Equipped", select: "Equip", buy: "Buy",
-          hospDesc: "Heal after battles to restore HP and Humanity. If Humanity hits 0, you sleep for 2 days!",
-          healBtn: "💉 Enter Hospital & Heal",
-          deposit: "Deposit", withdraw: "Withdraw",
-          sellLootBtn: "💰 Sell All Loot",
-          transferTitle: "💸 Transfer Coins (3% Tax)",
-          transferBtn: "Send Coins (3% Tax)",
-          redeemBtn: "Redeem Code",
+          hospDesc: "Heal after battles. If Humanity hits 0, you sleep for 2 days!",
+          healBtn: "💉 Enter Hospital & Heal", deposit: "Deposit", withdraw: "Withdraw",
+          sellLootBtn: "💰 Sell All Loot", transferTitle: "💸 Transfer Coins (3% Tax)",
+          transferBtn: "Send Coins (3% Tax)", redeemBtn: "Redeem Code",
           vchOfferHint: "Offered Coins...",
           vchTypes: ["Stars Voucher", "Gift Voucher", "Sender Voucher", "Bot Charge Voucher"],
           vchSendBtn: "Send Request to Owner",
-          vchChatTitle: "💬 Voucher Requests (Waiting for Owner)",
-          vchPending: "⏳ Waiting for Owner response...",
-          vchApproved: "✅ Approved — Forward voucher code from Bot PM to @oldkaseb",
-          vchRejected: "❌ Rejected (Coins refunded)",
-          ownerNote: "Owner Note"
+          vchChatTitle: "💬 Voucher Requests",
+          vchPending: "⏳ Waiting for Owner...",
+          vchApproved: "✅ Approved — Forward code from Bot PM to @oldkaseb",
+          vchRejected: "❌ Rejected (Refunded)", ownerNote: "Owner Note"
         },
         games: {
           wip1: "Dungeon Heist", wip2: "Cyber Vault", wip3: "Demon Tower", wip3Sub: "RPG • Bosses & Loot",
-          hokm: "Hokm 4P", hokmSub: "4 Players • Cards",
-          hokm2p: "Hokm 2P", hokm2pSub: "2 Players • Duel",
-          dooz: "Rings 2P", doozSub: "2 Players • Color",
-          doz4p: "Rings 4P", doz4pSub: "4 Players • Color",
-          connect4: "Connect 4", connect4Sub: "2 Players • Strategy",
-          rps: "Rock Paper", rpsSub: "2 Players • Duel",
-          guess: "Number Guess", guessSub: "Group • Live",
-          g2048: "2048", g2048Sub: "Solo • Swipe",
-          spuzzle: "Puzzle 15", spuzzleSub: "Solo • Swipe",
-          samegame: "SameGame", samegameSub: "Solo • Match",
-          memory: "Memory", memorySub: "2 Players • Match",
-          typing: "Typing", typingSub: "Speed • Record",
+          hokm: "Hokm 4P", hokmSub: "4 Players • Cards", hokm2p: "Hokm 2P", hokm2pSub: "2 Players • Duel",
+          dooz: "Rings 2P", doozSub: "2 Players • Color", doz4p: "Rings 4P", doz4pSub: "4 Players • Color",
+          connect4: "Connect 4", connect4Sub: "2 Players • Strategy", rps: "Rock Paper", rpsSub: "2 Players • Duel",
+          guess: "Number Guess", guessSub: "Group • Live", g2048: "2048", g2048Sub: "Solo • Swipe",
+          spuzzle: "Puzzle 15", spuzzleSub: "Solo • Swipe", samegame: "SameGame", samegameSub: "Solo • Match",
+          memory: "Memory", memorySub: "2 Players • Match", typing: "Typing", typingSub: "Speed • Record",
           hangman: "Word Guess", hangmanSub: "Solo • Letters"
-        }
-      },
-      ar: {
-        heroTitle: "صندوق ألعاب رينو",
-        heroBody: "مرحباً بك في صندوق ألعاب رينو يا صديقي\nجمعنا لك أروع الألعاب في مكان واحد\nاستمتع يا صديقي",
-        wipBadge: "قريباً",
-        backMenu: "القائمة",
-        playBtn: "دخول",
-        optBot: "🤖 اللعب مع البوت",
-        optInvite: "📩 دعوة الأصدقاء بالبوت",
-        optShare: "📤 مشاركة رابط الطاولة",
-        sendInviteBtn: "إرسال الدعوة",
-        enterTableBtn: "دخول الطاولة",
-        notStartedWarn: "⚠️ هؤلاء المستخدمون لم يشغلوا البوت بعد:",
-        swipeHint: "اسحب في 4 اتجاهات للتحرك",
-        restart: "إعادة",
-        score: "النقاط",
-        turn: "دور",
-        winner: "الفائز",
-        trump: "الحكم",
-        ourTricks: "أكلاتنا",
-        oppTricks: "أكلات الخصم",
-        sets: "جولات",
-        chooseTrumpPrompt: "👑 أنت الحاكم! اختر نوع الحكم:",
-        waitingHakem: "جاري اختيار الحكم...",
-        pickPartner: "كشريك",
-        fillBotsBtn: "🤖 إكمال بالذكاء الاصطناعي والبدء",
-        rpsAskWins: "عدد الفوز المطلوب:",
-        winsUnit: "فوز",
-        rock: "حجر", paper: "ورقة", scissors: "مقص",
-        pickColor: "لونك:",
-        fromNum: "من:", toNum: "إلى:",
-        createGame: "إنشاء اللعبة",
-        submitBtn: "إرسال",
-        playAgainBtn: "🔄 جولة أخرى",
-        chatPlaceholder: "رسالة سريعة...",
-        sendBtn: "إرسال",
-        micOn: "🎙️ متصل", micOff: "🔇 مايك",
-        dt: {
-          floorBtn: "الطابق",
-          enterBattle: "دخول المعركة",
-          charBtn: "🦸 الشخصية",
-          hospBtn: "🏥 المستشفى",
-          vaultBtn: "🏦 الخزنة",
-          shopBtn: "🛒 المتجر",
-          giftBtn: "🎁 كود هدية",
-          voucherBtn: "🎟️ طلب قسيمة",
-          accBtn: "👤 حسابي",
-          backTower: "العودة لقائمة البرج",
-          humanity: "الإنسانية",
-          bossPower: "قوة الوحش",
-          bossWeak: "نقطة الضعف",
-          bossReward: "مكافأة المرحلة",
-          pickWeaponHint: "اختر سلاحك لدخول هذا الطابق:",
-          startBattleBtn: "⚔️ بدء معركة الطابق",
-          pickGenderTitle: "اختر الشخصية (لمرة واحدة فقط)",
-          male: "رجل 🚹", female: "امرأة 🚺",
-          equipped: "مجهز", select: "اختيار", buy: "شراء",
-          hospDesc: "عالج نفسك بعد كل معركة. إذا وصلت الإنسانية إلى الصفر ستنام لمدة يومين!",
-          healBtn: "💉 دخول المستشفى والعلاج",
-          deposit: "إيداع", withdraw: "سحب",
-          sellLootBtn: "💰 بيع الغنائم",
-          transferTitle: "💸 تحويل عملات (ضريبة 3%)",
-          transferBtn: "إرسال العملات (خصم 3%)",
-          redeemBtn: "تفعيل الكود",
-          vchOfferHint: "كمية العملات المقترحة...",
-          vchTypes: ["قسيمة ستارز", "قسيمة هدية", "قسيمة مرسل", "قسيمة شحن البوت"],
-          vchSendBtn: "إرسال الطلب للمالك",
-          vchChatTitle: "💬 حالة طلبات القسائم (بانتظار المالك)",
-          vchPending: "⏳ بانتظار رد المالك...",
-          vchApproved: "✅ تمت الموافقة — حول رسالة الكود من خاص البوت إلى @oldkaseb",
-          vchRejected: "❌ مرفوض (أعيدت العملات)",
-          ownerNote: "ملاحظة المالك"
-        },
-        games: {
-          wip1: "صائد القبو", wip2: "الخزنة الذكية", wip3: "برج الشياطين", wip3Sub: "RPG • وحوش وغنائم",
-          hokm: "حكم 4", hokmSub: "4 لاعبين • ورق",
-          hokm2p: "حكم 2", hokm2pSub: "لاعبين • مبارزة",
-          dooz: "دوز 2", doozSub: "لاعبين • حلقات",
-          doz4p: "دوز 4", doz4pSub: "4 لاعبين • حلقات",
-          connect4: "4 في صف", connect4Sub: "لاعبين • تكتيك",
-          rps: "حجر ورقة", rpsSub: "لاعبين • سريع",
-          guess: "تخمين رقم", guessSub: "جماعي • مباشر",
-          g2048: "2048", g2048Sub: "فردي • سحب",
-          spuzzle: "أحجية 15", spuzzleSub: "فردي • سحب",
-          samegame: "المتشابهات", samegameSub: "فردي • ألوان",
-          memory: "الذاكرة", memorySub: "تركيز • بطاقات",
-          typing: "سرعة كتابة", typingSub: "تحدي • وقت",
-          hangman: "تخمين كلمة", hangmanSub: "ذكاء • حروف"
-        }
-      },
-      tr: {
-        heroTitle: "Rhino Oyun Kutusu",
-        heroBody: "Rhino Oyun Kutusuna hoş geldin dostum\nEn iyi oyunları senin için topladık\nKeyfini çıkar!",
-        wipBadge: "Yakında",
-        backMenu: "Menü",
-        playBtn: "Oyna",
-        optBot: "🤖 Bot ile Oyna",
-        optInvite: "📩 Bot ile Arkadaş Çağır",
-        optShare: "📤 Masa Linkini Paylaş",
-        sendInviteBtn: "Davet Gönder",
-        enterTableBtn: "Masaya Gir",
-        notStartedWarn: "⚠️ Bu kullanıcılar henüz botu başlatmadı:",
-        swipeHint: "Hareket için 4 yöne kaydırın",
-        restart: "Yeniden",
-        score: "Puan",
-        turn: "Sıra",
-        winner: "Kazanan",
-        trump: "Koz",
-        ourTricks: "Bizim El",
-        oppTricks: "Rakip El",
-        sets: "Set",
-        chooseTrumpPrompt: "👑 Hakem sensin! Kozu seç:",
-        waitingHakem: "Koz seçiliyor...",
-        pickPartner: "Eş Yap",
-        fillBotsBtn: "🤖 Botlarla Doldur ve Başla",
-        rpsAskWins: "Kazanma sayısı:",
-        winsUnit: "Tur",
-        rock: "Taş", paper: "Kağıt", scissors: "Makas",
-        pickColor: "Rengin:",
-        fromNum: "Min:", toNum: "Maks:",
-        createGame: "Oyunu Kur",
-        submitBtn: "Gönder",
-        playAgainBtn: "🔄 Tekrar Oyna",
-        chatPlaceholder: "Hızlı mesaj...",
-        sendBtn: "Gönder",
-        micOn: "🎙️ Açık", micOff: "🔇 Mik",
-        dt: {
-          floorBtn: "Kat",
-          enterBattle: "Savaşa Gir",
-          charBtn: "🦸 Karakter",
-          hospBtn: "🏥 Hastane",
-          vaultBtn: "🏦 Hazine",
-          shopBtn: "🛒 Mağaza",
-          giftBtn: "🎁 Hediye Kodu",
-          voucherBtn: "🎟️ Kupon İste",
-          accBtn: "👤 Hesabım",
-          backTower: "Kule Menüsüne Dön",
-          humanity: "İnsanlık",
-          bossPower: "Canavar Gücü",
-          bossWeak: "Zayıف Nokta",
-          bossReward: "Kat Ödülü",
-          pickWeaponHint: "Bu kata girmek için silahını seç:",
-          startBattleBtn: "⚔️ Kat Savaşına Başla",
-          pickGenderTitle: "Karakter Seç (Kalıcı ve Tek Seferlik)",
-          male: "Erkek 🚹", female: "Kadın 🚺",
-          equipped: "Kuşanıldı", select: "Seç", buy: "Satın Al",
-          hospDesc: "Savaşlardan sonra iyileşin. İnsanlık 0 olursa 2 gün uyursunuz!",
-          healBtn: "💉 Hastaneye Yat ve İyileş",
-          deposit: "Yatır", withdraw: "Çek",
-          sellLootBtn: "💰 Ganimetleri Sat",
-          transferTitle: "💸 Altın Gönder (%3 Vergi)",
-          transferBtn: "Gönder (%3 Vergi)",
-          redeemBtn: "Kodu Kullan",
-          vchOfferHint: "Teklif edilen altın...",
-          vchTypes: ["Stars Kuponu", "Hediye Kuponu", "Gönderici Kuponu", "Bot Şarj Kuponu"],
-          vchSendBtn: "Kurucuya Gönder",
-          vchChatTitle: "💬 Kupon Talepleri (Kurucu Yanıtı Bekleniyor)",
-          vchPending: "⏳ Kurucu yanıtı bekleniyor...",
-          vchApproved: "✅ Onaylandı — Bot özelden gelen kodu @oldkaseb hesabına iletin",
-          vchRejected: "❌ Reddedildi (Altın iade edildi)",
-          ownerNote: "Kurucu Notu"
-        },
-        games: {
-          wip1: "Zindan Avcısı", wip2: "Siber Kasa", wip3: "Şeytan Kulesi", wip3Sub: "RPG • Katlar & Boss",
-          hokm: "Hokm 4K", hokmSub: "4 Kişilik • Kart",
-          hokm2p: "Hokm 2K", hokm2pSub: "2 Kişilik • Düello",
-          dooz: "XOX 2K", doozSub: "2 Kişilik • Renkli",
-          doz4p: "XOX 4K", doz4pSub: "4 Kişilik • Renkli",
-          connect4: "4'lü Sıra", connect4Sub: "2 Kişilik • Strateji",
-          rps: "Taş Kağıt", rpsSub: "2 Kişilik • Hızlı",
-          guess: "Sayı Tahmin", guessSub: "Grup • Canlı",
-          g2048: "2048", g2048Sub: "Tek • Kaydır",
-          spuzzle: "Yapboz 15", spuzzleSub: "Tek • Kaydır",
-          samegame: "Eşleştir", samegameSub: "Tek • Renkler",
-          memory: "Hafıza", memorySub: "2 Kişilik • Kart",
-          typing: "Hızlı Yazma", typingSub: "Rekor • Süre",
-          hangman: "Kelime Bul", hangmanSub: "Zeka • Harf"
-        }
-      },
-      ru: {
-        heroTitle: "Rhino Гейм Бокс",
-        heroBody: "Добро пожаловать в Rhino Game Box, друг!\nЛучшие игры в одном месте.\nПриятной игры!",
-        wipBadge: "Скоро",
-        backMenu: "Меню",
-        playBtn: "Играть",
-        optBot: "🤖 Играть с ботом",
-        optInvite: "📩 Пригласить через бота",
-        optShare: "📤 Поделиться столом",
-        sendInviteBtn: "Отправить",
-        enterTableBtn: "Войти за стол",
-        notStartedWarn: "⚠️ Эти пользователи ещё не запустили бота:",
-        swipeHint: "Свайпайте в 4 стороны",
-        restart: "Заново",
-        score: "Счёт",
-        turn: "Ход",
-        winner: "Победитель",
-        trump: "Козырь",
-        ourTricks: "Наши взятки",
-        oppTricks: "Взятки врага",
-        sets: "Сеты",
-        chooseTrumpPrompt: "👑 Вы Хакем! Выберите козырь:",
-        waitingHakem: "Выбор козыря...",
-        pickPartner: "В напарники",
-        fillBotsBtn: "🤖 Заполнить ИИ и начать",
-        rpsAskWins: "Побед до выигрыша:",
-        winsUnit: "побед",
-        rock: "Камень", paper: "Бумага", scissors: "Ножницы",
-        pickColor: "Ваш цвет:",
-        fromNum: "От:", toNum: "До:",
-        createGame: "Создать",
-        submitBtn: "Ввод",
-        playAgainBtn: "🔄 Ещё раунд",
-        chatPlaceholder: "Сообщение...",
-        sendBtn: "Отпр",
-        micOn: "🎙️ Вкл", micOff: "🔇 Мик",
-        dt: {
-          floorBtn: "Этаж",
-          enterBattle: "В бой",
-          charBtn: "🦸 Герой",
-          hospBtn: "🏥 Больница",
-          vaultBtn: "🏦 Казна",
-          shopBtn: "🛒 Магазин",
-          giftBtn: "🎁 Промокод",
-          voucherBtn: "🎟️ Ваучер",
-          accBtn: "👤 Профиль",
-          backTower: "Назад в меню башни",
-          humanity: "Человечность",
-          bossPower: "Сила босса",
-          bossWeak: "Слабость",
-          bossReward: "Награда",
-          pickWeaponHint: "Выберите оружие для входа на этаж:",
-          startBattleBtn: "⚔️ Начать бой на этаже",
-          pickGenderTitle: "Выбор героя (Один раз навсегда)",
-          male: "Мужчина 🚹", female: "Женщина 🚺",
-          equipped: "Надето", select: "Выбрать", buy: "Купить",
-          hospDesc: "Лечитесь после боёв. Если человечность упадёт до 0, герой уснёт на 2 дня!",
-          healBtn: "💉 Лечь в больницу",
-          deposit: "Вклад", withdraw: "Снять",
-          sellLootBtn: "💰 Продать добычу",
-          transferTitle: "💸 Перевод монет (налог 3%)",
-          transferBtn: "Отправить (налог 3%)",
-          redeemBtn: "Активировать",
-          vchOfferHint: "Предложите монеты...",
-          vchTypes: ["Ваучер Stars", "Гифт Ваучер", "Ваучер Отправителя", "Пополнение бота"],
-          vchSendBtn: "Отправить владельцу",
-          vchChatTitle: "💬 Запросы ваучеров (Ожидание владельца)",
-          vchPending: "⏳ Ожидание ответа владельца...",
-          vchApproved: "✅ Одобрено — Перешлите код из ЛС бота владельцу @oldkaseb",
-          vchRejected: "❌ Отклонено (монеты возвращены)",
-          ownerNote: "Заметка владельца"
-        },
-        games: {
-          wip1: "Подземелье", wip2: "Кибер Сейф", wip3: "Башня Демонов", wip3Sub: "RPG • Боссы и Лут",
-          hokm: "Хокм 4", hokmSub: "4 игрока • Карты",
-          hokm2p: "Хокм 2", hokm2pSub: "2 игрока • Дуэль",
-          dooz: "Кольца 2", doozSub: "2 игрока • Цвет",
-          doz4p: "Кольца 4", doz4pSub: "4 игрока • Цвет",
-          connect4: "4 в ряд", connect4Sub: "2 игрока • Тактика",
-          rps: "Камень Ножницы", rpsSub: "2 игрока • Быстро",
-          guess: "Угадай число", guessSub: "Группа • Лайв",
-          g2048: "2048", g2048Sub: "Соло • Свайп",
-          spuzzle: "Пятнашки", spuzzleSub: "Соло • Свайп",
-          samegame: "Цвета", samegameSub: "Соло • Пазл",
-          memory: "Память", memorySub: "2 игрока • Карты",
-          typing: "Печать", typingSub: "Скорость • Текст",
-          hangman: "Слова", hangmanSub: "Буквы • Угадай"
-        }
-      },
-      de: {
-        heroTitle: "Rhino Spielbox",
-        heroBody: "Willkommen in der Rhino Spielbox, Freund!\nTolle Spiele an einem Ort.\nViel Spaß!",
-        wipBadge: "Bald",
-        backMenu: "Menü",
-        playBtn: "Start",
-        optBot: "🤖 Gegen Bot spielen",
-        optInvite: "📩 Freunde einladen",
-        optShare: "📤 Tisch-Link teilen",
-        sendInviteBtn: "Senden",
-        enterTableBtn: "Zum Tisch",
-        notStartedWarn: "⚠️ Diese Nutzer haben den Bot noch nicht gestartet:",
-        swipeHint: "In 4 Richtungen wischen",
-        restart: "Neustart",
-        score: "Punkte",
-        turn: "Zug",
-        winner: "Sieger",
-        trump: "Trumpf",
-        ourTricks: "Unsere Stiche",
-        oppTricks: "Gegner Stiche",
-        sets: "Sätze",
-        chooseTrumpPrompt: "👑 Wähle den Trumpf:",
-        waitingHakem: "Trumpf wird gewählt...",
-        pickPartner: "Als Partner",
-        fillBotsBtn: "🤖 Mit KI füllen & Start",
-        rpsAskWins: "Siege zum Gewinn:",
-        winsUnit: "Siege",
-        rock: "Stein", paper: "Papier", scissors: "Schere",
-        pickColor: "Farbe:",
-        fromNum: "Von:", toNum: "Bis:",
-        createGame: "Erstellen",
-        submitBtn: "OK",
-        playAgainBtn: "🔄 Noch mal",
-        chatPlaceholder: "Nachricht...",
-        sendBtn: "Senden",
-        micOn: "🎙️ An", micOff: "🔇 Mik",
-        dt: {
-          floorBtn: "Etage",
-          enterBattle: "Kampf",
-          charBtn: "🦸 Charakter",
-          hospBtn: "🏥 Klinik",
-          vaultBtn: "🏦 Tresor",
-          shopBtn: "🛒 Shop",
-          giftBtn: "🎁 Gutschein",
-          voucherBtn: "🎟️ Voucher",
-          accBtn: "👤 Konto",
-          backTower: "Zurück zum Turm",
-          humanity: "Menschlichkeit",
-          bossPower: "Bosskraft",
-          bossWeak: "Schwäche",
-          bossReward: "Belohnung",
-          pickWeaponHint: "Wähle deine Waffe für diese Etage:",
-          startBattleBtn: "⚔️ Etagenkampf starten",
-          pickGenderTitle: "Charakter wählen (Einmalig)",
-          male: "Mann 🚹", female: "Frau 🚺",
-          equipped: "Aktiv", select: "Wählen", buy: "Kaufen",
-          hospDesc: "Heile dich nach Kämpfen. Bei 0 Menschlichkeit schläfst du 2 Tage!",
-          healBtn: "💉 Heilen",
-          deposit: "Einzahlen", withdraw: "Abheben",
-          sellLootBtn: "💰 Beute verkaufen",
-          transferTitle: "💸 Münzen senden (3% Steuer)",
-          transferBtn: "Senden (3% Steuer)",
-          redeemBtn: "Einlösen",
-          vchOfferHint: "Angebotene Münzen...",
-          vchTypes: ["Stars Voucher", "Gift Voucher", "Sender Voucher", "Bot Guthaben"],
-          vchSendBtn: "An Owner senden",
-          vchChatTitle: "💬 Voucher-Status (Warte auf Owner)",
-          vchPending: "⏳ Warte auf Owner...",
-          vchApproved: "✅ Genehmigt — Leite den Code aus dem Bot-Chat an @oldkaseb weiter",
-          vchRejected: "❌ Abgelehnt (Münzen erstattet)",
-          ownerNote: "Owner Notiz"
-        },
-        games: {
-          wip1: "Dungeon Heist", wip2: "Cyber Tresor", wip3: "Dämonenturm", wip3Sub: "RPG • Bosse & Beute",
-          hokm: "Hokm 4P", hokmSub: "4 Spieler • Karten",
-          hokm2p: "Hokm 2P", hokm2pSub: "2 Spieler • Duell",
-          dooz: "Ringe 2P", doozSub: "2 Spieler • Farbe",
-          doz4p: "Ringe 4P", doz4pSub: "4 Spieler • Farbe",
-          connect4: "4 Gewinnt", connect4Sub: "2 Spieler • Taktik",
-          rps: "Schere Stein", rpsSub: "2 Spieler • Schnell",
-          guess: "Zahl Raten", guessSub: "Gruppe • Live",
-          g2048: "2048", g2048Sub: "Solo • Wischen",
-          spuzzle: "Puzzle 15", spuzzleSub: "Solo • Wischen",
-          samegame: "Blöcke", samegameSub: "Solo • Farben",
-          memory: "Memory", memorySub: "2 Spieler • Paare",
-          typing: "Tippen", typingSub: "Tempo • Rekord",
-          hangman: "Wort Raten", hangmanSub: "Solo • Buchstaben"
-        }
-      },
-      zh: {
-        heroTitle: "Rhino 游戏盒",
-        heroBody: "欢迎来到 Rhino 游戏盒，朋友！\n超多好玩的游戏尽在一处，尽情享受吧！",
-        wipBadge: "敬请期待",
-        backMenu: "菜单",
-        playBtn: "进入",
-        optBot: "🤖 与机器人对战",
-        optInvite: "📩 通过机器人邀请好友",
-        optShare: "📤 分享房间链接",
-        sendInviteBtn: "发送邀请",
-        enterTableBtn: "进入牌桌",
-        notStartedWarn: "⚠️ 以下用户尚未启动机器人：",
-        swipeHint: "上下左右滑动屏幕移动",
-        restart: "重玩",
-        score: "分数",
-        turn: "回合",
-        winner: "赢家",
-        trump: "王牌",
-        ourTricks: "我方赢墩",
-        oppTricks: "对方赢墩",
-        sets: "局",
-        chooseTrumpPrompt: "👑 请选择王牌花色：",
-        waitingHakem: "正在选择王牌...",
-        pickPartner: "设为队友",
-        fillBotsBtn: "🤖 电脑补位并开始",
-        rpsAskWins: "目标胜场：",
-        winsUnit: "胜",
-        rock: "石头", paper: "布", scissors: "剪刀",
-        pickColor: "选择颜色：",
-        fromNum: "从：", toNum: "到：",
-        createGame: "创建房间",
-        submitBtn: "提交",
-        playAgainBtn: "🔄 再来一局",
-        chatPlaceholder: "快捷消息...",
-        sendBtn: "发送",
-        micOn: "🎙️ 开启", micOff: "🔇 麦克风",
-        dt: {
-          floorBtn: "第",
-          enterBattle: "进入战斗",
-          charBtn: "🦸 角色与武器",
-          hospBtn: "🏥 医院",
-          vaultBtn: "🏦 金库与银行",
-          shopBtn: "🛒 星币商店",
-          giftBtn: "🎁 兑换码",
-          voucherBtn: "🎟️ 申请代金券",
-          accBtn: "👤 我的账户",
-          backTower: "返回恶魔塔菜单",
-          humanity: "人性值",
-          bossPower: "首领技能",
-          bossWeak: "弱点",
-          bossReward: "通关奖励",
-          pickWeaponHint: "选择进入本层的武器：",
-          startBattleBtn: "⚔️ 开始本层战斗",
-          pickGenderTitle: "选择角色（仅一次，不可更改）",
-          male: "男性猎人 🚹", female: "女性猎人 🚺",
-          equipped: "已装备", select: "装备", buy: "购买",
-          hospDesc: "战斗后在此恢复生命与人性值。若人性值归零，将沉睡2天！",
-          healBtn: "💉 住院治疗并恢复",
-          deposit: "存入", withdraw: "取出",
-          sellLootBtn: "💰 出售所有战利品",
-          transferTitle: "💸 转账给其他玩家（3% 税费）",
-          transferBtn: "发送金币（扣除 3% 税费）",
-          redeemBtn: "领取奖励",
-          vchOfferHint: "输入提供的金币数量...",
-          vchTypes: ["Stars 代金券", "Gift 代金券", "Sender 代金券", "机器人充值券"],
-          vchSendBtn: "发送申请给管理员",
-          vchChatTitle: "💬 代金券申请状态（等待管理员回复）",
-          vchPending: "⏳ 等待管理员回复...",
-          vchApproved: "✅ 已批准 — 请将机器人私聊中的代金券代码转发给 @oldkaseb",
-          vchRejected: "❌ 已拒绝（金币已退还）",
-          ownerNote: "管理员备注"
-        },
-        games: {
-          wip1: "地牢夺宝", wip2: "赛博金库", wip3: "恶魔之塔", wip3Sub: "RPG • 闯关与首领",
-          hokm: "王牌 4人", hokmSub: "4人 • 扑克",
-          hokm2p: "王牌 2人", hokm2pSub: "2人 • 对决",
-          dooz: "彩环 2人", doozSub: "2人 • 连线",
-          doz4p: "彩环 4人", doz4pSub: "4人 • 连线",
-          connect4: "四子连珠", connect4Sub: "2人 • 策略",
-          rps: "猜拳对决", rpsSub: "2人 • 快速",
-          guess: "猜数字", guessSub: "群组 • 互动",
-          g2048: "2048", g2048Sub: "单人 • 滑动",
-          spuzzle: "华容道 15", spuzzleSub: "单人 • 滑动",
-          samegame: "消消乐", samegameSub: "单人 • 颜色",
-          memory: "记忆翻牌", memorySub: "双人 • 脑力",
-          typing: "极速打字", typingSub: "竞速 • 纪录",
-          hangman: "猜单词", hangmanSub: "益智 • 字母"
         }
       }
     };
@@ -1206,6 +740,7 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
     const tgUser = tg?.initDataUnsafe?.user || {};
     const realTgUid = tgUser.id || Number(params.get('uid')) || 0;
     const uid = realTgUid || Math.floor(Math.random()*900000 + 100000);
+    const isOwner = OWNER_IDS.includes(Number(uid));
     const myName = tgUser.first_name || 'Player';
     const myUsername = tgUser.username || '';
     const myPhoto = tgUser.photo_url || '';
@@ -1216,7 +751,7 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
     let lobbyState = { game: '', maxPlayers: 2, rpsTargetWins: 3, step: 'options', inviteWarning: '', inviteSuccess: '' };
 
     window.cycleLang = function() {
-      const codes = ['fa', 'en', 'ar', 'tr', 'ru', 'de', 'zh'];
+      const codes = ['fa', 'en'];
       lang = codes[(codes.indexOf(lang) + 1) % codes.length];
       localStorage.setItem('rhino_lang', lang);
       applyDir();
@@ -1224,16 +759,21 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
     };
 
     function renderTopBar(titleText = '') {
-      const langFlags = { fa: '🇮🇷 FA', en: '🇬🇧 EN', ar: '🇸🇦 AR', tr: '🇹🇷 TR', ru: '🇷🇺 RU', de: '🇩🇪 DE', zh: '🇨🇳 ZH' };
+      const langFlags = { fa: '🇮🇷 FA', en: '🇬🇧 EN' };
       return `
         <div class="glass-panel mx-3 mb-2 px-3 py-2 rounded-2xl flex justify-between items-center shrink-0">
-          <div class="flex items-center gap-2">
+          <div class="flex items-center gap-1.5">
             ${currentGame !== 'hub' ? `<button onclick="nav('hub')" class="btn-danger px-2.5 py-1 rounded-xl text-xs font-extrabold">${T().backMenu}</button>` : `<span class="text-xs font-black text-indigo-300">RHINO™</span>`}
-            <span class="text-sm font-black text-white truncate max-w-[180px]">${titleText || T().heroTitle}</span>
+            <span class="text-sm font-black text-white truncate max-w-[140px]">${titleText || T().heroTitle}</span>
           </div>
-          <button onclick="cycleLang()" class="glass-soft px-2.5 py-1 rounded-xl text-xs font-extrabold text-amber-300">
-            🌐 ${langFlags[lang] || 'FA'}
-          </button>
+          <div class="flex items-center gap-1.5">
+            ${isOwner && currentGame !== 'tower_admin' ? `
+              <button onclick="nav('tower_admin')" class="btn-primary px-2.5 py-1 rounded-xl text-[11px] font-black text-amber-200">👑 پنل برج</button>
+            ` : ''}
+            <button onclick="cycleLang()" class="glass-soft px-2.5 py-1 rounded-xl text-xs font-extrabold text-amber-300">
+              🌐 ${langFlags[lang] || 'FA'}
+            </button>
+          </div>
         </div>
       `;
     }
@@ -1245,7 +785,7 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
 
     window.verifyJoinAndRender = async function() {
       const root = document.getElementById('app');
-      if (!realTgUid) { isJoinVerified = true; return render(); }
+      if (!realTgUid || isOwner) { isJoinVerified = true; return render(); }
       try {
         const res = await fetch('/api/check_join/' + realTgUid);
         const data = await res.json();
@@ -1361,7 +901,534 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
     }
 
     /* ═══════════════════════════════════════════════════════════════════════════
-       بازی کامل برج شیاطین (Demon Tower RPG) — ۷ زبانه کامل + ۸ بخش
+       مینی‌اپ مخفی «پنل فرماندهی برج شیاطین» (ویژه مالک — فرم‌های خانه‌به‌خانه + آپلود مستقیم عکس)
+       ═══════════════════════════════════════════════════════════════════════════ */
+    let admState = null;
+    let admTab = 'floors'; // floors | items | chars | gifts | popup | users | vouchers
+    let admMsg = '';
+    let admErr = '';
+    let admLookedUpUser = null;
+
+    async function callTowerAdminApi(action = 'state', extra = {}) {
+      try {
+        const res = await fetch('/api/tower/admin', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({ uid: Number(uid), action: action, ...extra })
+        });
+        const data = await res.json();
+        admMsg = data.msg || '';
+        admErr = data.ok === false ? (data.error || '') : '';
+        if (data.looked_up) admLookedUpUser = data.looked_up;
+        if (data.admin_data) admState = data.admin_data;
+        drawTowerAdminApp(document.getElementById('app'));
+      } catch (e) {}
+    }
+
+    window.admSwitchTab = function(t) {
+      admTab = t; admMsg = ''; admErr = '';
+      drawTowerAdminApp(document.getElementById('app'));
+    };
+
+    window.admFillFloorForm = function(fnum) {
+      const f = (admState?.floors || []).find(x => x.floor_num === fnum);
+      if (!f) return;
+      document.getElementById('af_num').value = f.floor_num;
+      document.getElementById('af_name').value = f.boss_name || '';
+      document.getElementById('af_desc').value = f.description || '';
+      document.getElementById('af_power').value = f.power_desc || '';
+      document.getElementById('af_weak').value = f.weakness || '';
+      document.getElementById('af_hp').value = f.hp || 100;
+      document.getElementById('af_atk').value = f.atk || 20;
+      document.getElementById('af_def').value = f.def || 10;
+      document.getElementById('af_coins').value = f.reward_coins || 100;
+      document.getElementById('af_xp').value = f.reward_xp || 50;
+      document.getElementById('af_drop').value = f.drop_item || '';
+      document.getElementById('af_dprice').value = f.drop_price || 50;
+      if (f.photo) {
+        window.uploadedImages['floor_photo'] = f.photo;
+        const pImg = document.getElementById('prev_floor_photo');
+        if (pImg) { pImg.src = f.photo; pImg.classList.remove('hidden'); }
+      }
+    };
+
+    window.admSubmitFloor = function() {
+      callTowerAdminApi('save_floor', {
+        floor_num: Number(document.getElementById('af_num').value || 1),
+        boss_name: document.getElementById('af_name').value,
+        photo: window.uploadedImages['floor_photo'] || '',
+        description: document.getElementById('af_desc').value,
+        power_desc: document.getElementById('af_power').value,
+        weakness: document.getElementById('af_weak').value,
+        hp: Number(document.getElementById('af_hp').value || 100),
+        atk: Number(document.getElementById('af_atk').value || 20),
+        def_val: Number(document.getElementById('af_def').value || 10),
+        reward_coins: Number(document.getElementById('af_coins').value || 100),
+        reward_xp: Number(document.getElementById('af_xp').value || 50),
+        drop_item: document.getElementById('af_drop').value,
+        drop_price: Number(document.getElementById('af_dprice').value || 50)
+      });
+    };
+
+    window.admSubmitItem = function() {
+      callTowerAdminApi('save_item', {
+        item_type: document.getElementById('ai_type').value,
+        name: document.getElementById('ai_name').value,
+        photo: window.uploadedImages['item_photo'] || '',
+        price: Number(document.getElementById('ai_price').value || 0),
+        hp_bonus: Number(document.getElementById('ai_hp').value || 0),
+        atk_bonus: Number(document.getElementById('ai_atk').value || 0),
+        def_bonus: Number(document.getElementById('ai_def').value || 0),
+        spd_bonus: Number(document.getElementById('ai_spd').value || 0)
+      });
+    };
+
+    window.admSubmitChars = function() {
+      callTowerAdminApi('save_gender_imgs', {
+        male_img: window.uploadedImages['male_photo'] || '',
+        female_img: window.uploadedImages['female_photo'] || ''
+      });
+    };
+
+    window.admSubmitGift = function() {
+      callTowerAdminApi('save_gift', {
+        code: document.getElementById('ag_code').value,
+        coins: Number(document.getElementById('ag_coins').value || 0),
+        xp: Number(document.getElementById('ag_xp').value || 0),
+        max_uses: Number(document.getElementById('ag_uses').value || 1)
+      });
+    };
+
+    window.admSubmitPopup = function(clear = false) {
+      if (clear) return callTowerAdminApi('save_popup', { clear: true });
+      callTowerAdminApi('save_popup', {
+        text: document.getElementById('ap_text').value,
+        photo: window.uploadedImages['popup_photo'] || '',
+        btn_text: document.getElementById('ap_btxt').value,
+        btn_url: document.getElementById('ap_burl').value,
+        hours: Number(document.getElementById('ap_hrs').value || 24)
+      });
+    };
+
+    window.admDecideVoucher = function(vid, dec) {
+      const noteEl = document.getElementById('vnote_' + vid);
+      callTowerAdminApi('decide_voucher', {
+        voucher_id: vid,
+        decision: dec,
+        note: noteEl ? noteEl.value : ''
+      });
+    };
+
+    function startTowerAdminApp(root) {
+      if (!isOwner) {
+        root.innerHTML = `<div class="p-8 text-center"><div class="glass-panel p-6 rounded-3xl text-rose-400 font-black">⛔ دسترسی غیرمجاز (فقط مالک ربات)</div></div>`;
+        return;
+      }
+      root.innerHTML = `<div class="p-6 text-center"><div class="glass-panel p-6 rounded-3xl font-bold">در حال بارگذاری پنل فرماندهی برج...</div></div>`;
+      callTowerAdminApi('state');
+    }
+
+    function drawTowerAdminApp(root) {
+      if (!root || currentGame !== 'tower_admin') return;
+      if (!isOwner) {
+        root.innerHTML = `<div class="p-8 text-center"><div class="glass-panel p-6 rounded-3xl text-rose-400 font-black">⛔ دسترسی غیرمجاز</div></div>`;
+        return;
+      }
+      if (!admState) return;
+
+      const tabs = [
+        { id: 'floors',   lbl: '👹 طبقات و غول' },
+        { id: 'items',    lbl: '⚔️ سلاح و زره' },
+        { id: 'chars',    lbl: '🚻 عکس کاراکتر' },
+        { id: 'vouchers', lbl: '🎟️ ووچرها' },
+        { id: 'gifts',    lbl: '🎁 کد هدیه' },
+        { id: 'popup',    lbl: '📢 پاپ‌آپ' },
+        { id: 'users',    lbl: '👤 کاربران' }
+      ];
+      const tabsHtml = tabs.map(t => `
+        <button onclick="admSwitchTab('${t.id}')" class="px-3 py-2 rounded-xl text-xs font-black shrink-0 ${admTab === t.id ? 'btn-primary text-white' : 'glass-soft text-slate-300'}">
+          ${t.lbl}
+        </button>
+      `).join('');
+
+      let sectionHtml = '';
+
+      /* ۱. تب طبقات و غول‌ها (فرم خانه‌به‌خانه + آپلود مستقیم عکس) */
+      if (admTab === 'floors') {
+        const fList = (admState.floors || []).map(f => `
+          <div class="glass-soft p-2.5 rounded-2xl flex items-center justify-between gap-2 text-xs">
+            <div class="flex items-center gap-2">
+              ${f.photo ? `<img src="${f.photo}" class="w-10 h-10 rounded-xl object-cover" />` : `<div class="w-10 h-10 rounded-xl bg-rose-900/50 flex items-center justify-center">👹</div>`}
+              <div>
+                <div class="font-black text-amber-300">طبقه ${f.floor_num}: ${f.boss_name}</div>
+                <div class="text-[10px] text-slate-300">❤️${f.hp} | ⚔️${f.atk} | 🛡️${f.def} | 🪙${f.reward_coins}</div>
+              </div>
+            </div>
+            <div class="flex gap-1">
+              <button onclick="admFillFloorForm(${f.floor_num})" class="btn-primary px-2.5 py-1.5 rounded-xl text-[10px] font-bold">ویرایش</button>
+              <button onclick="callTowerAdminApi('delete_floor',{floor_num:${f.floor_num}})" class="btn-danger px-2.5 py-1.5 rounded-xl text-[10px] font-bold">حذف</button>
+            </div>
+          </div>
+        `).join('');
+
+        sectionHtml = `
+          <div class="glass-panel p-4 rounded-3xl space-y-2.5 text-xs">
+            <h3 class="font-black text-sm text-amber-300 text-center mb-1">👹 افزودن / ویرایش طبقه و غول (خانه‌به‌خانه)</h3>
+
+            <div class="grid grid-cols-2 gap-2">
+              <div>
+                <label class="block text-[11px] text-slate-300 mb-1">شماره طبقه:</label>
+                <input id="af_num" type="number" value="${(admState.floors?.length || 0) + 1}" class="w-full p-2.5 rounded-xl glass-soft text-center font-black text-white" />
+              </div>
+              <div>
+                <label class="block text-[11px] text-slate-300 mb-1">نام غول:</label>
+                <input id="af_name" type="text" placeholder="مثلاً: اژدهای خاکستر" class="w-full p-2.5 rounded-xl glass-soft text-center font-bold text-white" />
+              </div>
+            </div>
+
+            <!-- آپلود مستقیم عکس غول از گالری -->
+            <div class="glass-soft p-3 rounded-2xl text-center">
+              <label class="block text-[11px] text-amber-200 font-bold mb-2">📷 عکس غول (آپلود مستقیم از گالری گوشی/سیستم):</label>
+              <input type="file" accept="image/*" onchange="handleImageUpload(this, 'floor_photo', 'prev_floor_photo')" class="w-full text-[11px] text-slate-300" />
+              <img id="prev_floor_photo" class="hidden w-28 h-28 object-cover rounded-2xl mx-auto mt-2 border border-amber-400" />
+            </div>
+
+            <div>
+              <label class="block text-[11px] text-slate-300 mb-1">توضیح کوتاه مرحله:</label>
+              <input id="af_desc" type="text" placeholder="توضیح داستان یا ویژگی غول..." class="w-full p-2.5 rounded-xl glass-soft text-white" />
+            </div>
+
+            <div class="grid grid-cols-2 gap-2">
+              <div>
+                <label class="block text-[11px] text-slate-300 mb-1">🔥 قدرت ویژه غول:</label>
+                <input id="af_power" type="text" placeholder="مثلاً: نفس آتشین" class="w-full p-2.5 rounded-xl glass-soft text-white" />
+              </div>
+              <div>
+                <label class="block text-[11px] text-slate-300 mb-1">⚡ نقطه ضعف غول:</label>
+                <input id="af_weak" type="text" placeholder="مثلاً: شمشیر یخی" class="w-full p-2.5 rounded-xl glass-soft text-white" />
+              </div>
+            </div>
+
+            <div class="grid grid-cols-3 gap-2">
+              <div>
+                <label class="block text-[11px] text-rose-300 mb-1">❤️ جان (HP):</label>
+                <input id="af_hp" type="number" value="250" class="w-full p-2 rounded-xl glass-soft text-center font-bold text-white" />
+              </div>
+              <div>
+                <label class="block text-[11px] text-amber-300 mb-1">⚔️ حمله (ATK):</label>
+                <input id="af_atk" type="number" value="35" class="w-full p-2 rounded-xl glass-soft text-center font-bold text-white" />
+              </div>
+              <div>
+                <label class="block text-[11px] text-sky-300 mb-1">🛡️ دفاع (DEF):</label>
+                <input id="af_def" type="number" value="15" class="w-full p-2 rounded-xl glass-soft text-center font-bold text-white" />
+              </div>
+            </div>
+
+            <div class="grid grid-cols-2 gap-2">
+              <div>
+                <label class="block text-[11px] text-amber-300 mb-1">🪙 پاداش سکه:</label>
+                <input id="af_coins" type="number" value="300" class="w-full p-2 rounded-xl glass-soft text-center font-bold text-white" />
+              </div>
+              <div>
+                <label class="block text-[11px] text-purple-300 mb-1">⭐ پاداش XP:</label>
+                <input id="af_xp" type="number" value="100" class="w-full p-2 rounded-xl glass-soft text-center font-bold text-white" />
+              </div>
+            </div>
+
+            <div class="grid grid-cols-2 gap-2">
+              <div>
+                <label class="block text-[11px] text-emerald-300 mb-1">🎁 نام غنیمت افتاده:</label>
+                <input id="af_drop" type="text" placeholder="مثلاً: یاقوت سرخ" class="w-full p-2 rounded-xl glass-soft text-center text-white" />
+              </div>
+              <div>
+                <label class="block text-[11px] text-emerald-300 mb-1">💰 قیمت فروش غنیمت:</label>
+                <input id="af_dprice" type="number" value="80" class="w-full p-2 rounded-xl glass-soft text-center font-bold text-white" />
+              </div>
+            </div>
+
+            <button onclick="admSubmitFloor()" class="btn-success w-full py-3.5 rounded-2xl font-black text-sm mt-2">
+              💾 ذخیره طبقه و غول
+            </button>
+          </div>
+
+          <div class="glass-panel p-3.5 rounded-3xl space-y-2 mt-3">
+            <h4 class="text-xs font-black text-indigo-300 text-center">لیست طبقات فعلی برج (${(admState.floors || []).length} طبقه)</h4>
+            <div class="flex flex-col gap-2">${fList}</div>
+          </div>
+        `;
+      }
+
+      /* ۲. تب سلاح‌ها و زره‌ها (فرم خانه‌به‌خانه + آپلود مستقیم عکس) */
+      else if (admTab === 'items') {
+        const iList = (admState.items || []).map(it => `
+          <div class="glass-soft p-2.5 rounded-2xl flex items-center justify-between gap-2 text-xs">
+            <div class="flex items-center gap-2">
+              ${it.photo ? `<img src="${it.photo}" class="w-10 h-10 rounded-xl object-cover" />` : `<div class="w-10 h-10 rounded-xl glass-panel flex items-center justify-center">${it.item_type==='weapon'?'⚔️':'🛡️'}</div>`}
+              <div>
+                <div class="font-black text-white">${it.name} (${it.price} 🪙)</div>
+                <div class="text-[10px] text-emerald-300">+HP:${it.hp_bonus} | +ATK:${it.atk_bonus} | +DEF:${it.def_bonus} | SPD:${it.spd_bonus}</div>
+              </div>
+            </div>
+            <button onclick="callTowerAdminApi('delete_item',{item_id:${it.id}})" class="btn-danger px-2.5 py-1.5 rounded-xl text-[10px] font-bold">حذف</button>
+          </div>
+        `).join('');
+
+        sectionHtml = `
+          <div class="glass-panel p-4 rounded-3xl space-y-2.5 text-xs">
+            <h3 class="font-black text-sm text-amber-300 text-center">⚔️ افزودن سلاح یا زره جدید (خانه‌به‌خانه)</h3>
+
+            <div class="grid grid-cols-2 gap-2">
+              <div>
+                <label class="block text-[11px] text-slate-300 mb-1">نوع آیتم:</label>
+                <select id="ai_type" class="w-full p-2.5 rounded-xl bg-slate-900 border border-white/20 text-white font-bold">
+                  <option value="weapon">⚔️ سلاح (Weapon)</option>
+                  <option value="armor">🛡️ زره (Armor)</option>
+                </select>
+              </div>
+              <div>
+                <label class="block text-[11px] text-slate-300 mb-1">نام سلاح / زره:</label>
+                <input id="ai_name" type="text" placeholder="مثلاً: شمشیر اژدها" class="w-full p-2.5 rounded-xl glass-soft text-white font-bold" />
+              </div>
+            </div>
+
+            <div class="glass-soft p-3 rounded-2xl text-center">
+              <label class="block text-[11px] text-amber-200 font-bold mb-2">📷 عکس سلاح یا زره (آپلود مستقیم از گالری):</label>
+              <input type="file" accept="image/*" onchange="handleImageUpload(this, 'item_photo', 'prev_item_photo')" class="w-full text-[11px] text-slate-300" />
+              <img id="prev_item_photo" class="hidden w-24 h-24 object-cover rounded-2xl mx-auto mt-2 border border-amber-400" />
+            </div>
+
+            <div>
+              <label class="block text-[11px] text-amber-300 mb-1">🪙 قیمت خرید (۰ = رایگان):</label>
+              <input id="ai_price" type="number" value="1000" class="w-full p-2.5 rounded-xl glass-soft text-center font-black text-white" />
+            </div>
+
+            <div class="grid grid-cols-2 gap-2">
+              <div>
+                <label class="block text-[11px] text-rose-300 mb-1">❤️ افزایش جان (+HP):</label>
+                <input id="ai_hp" type="number" value="40" class="w-full p-2 rounded-xl glass-soft text-center font-bold text-white" />
+              </div>
+              <div>
+                <label class="block text-[11px] text-amber-300 mb-1">⚔️ افزایش حمله (+ATK):</label>
+                <input id="ai_atk" type="number" value="50" class="w-full p-2 rounded-xl glass-soft text-center font-bold text-white" />
+              </div>
+              <div>
+                <label class="block text-[11px] text-sky-300 mb-1">🛡️ افزایش دفاع (+DEF):</label>
+                <input id="ai_def" type="number" value="20" class="w-full p-2 rounded-xl glass-soft text-center font-bold text-white" />
+              </div>
+              <div>
+                <label class="block text-[11px] text-emerald-300 mb-1">⚡ تغییر سرعت (+SPD):</label>
+                <input id="ai_spd" type="number" value="5" class="w-full p-2 rounded-xl glass-soft text-center font-bold text-white" />
+              </div>
+            </div>
+
+            <button onclick="admSubmitItem()" class="btn-success w-full py-3.5 rounded-2xl font-black text-sm">
+              ➕ افزودن به لیست تجهیزات برج
+            </button>
+          </div>
+
+          <div class="glass-panel p-3.5 rounded-3xl space-y-2 mt-3">
+            <h4 class="text-xs font-black text-indigo-300 text-center">لیست سلاح‌ها و زره‌های موجود</h4>
+            <div class="flex flex-col gap-2">${iList}</div>
+          </div>
+        `;
+      }
+
+      /* ۳. تب آپلود مستقیم عکس کاراکتر مرد و زن */
+      else if (admTab === 'chars') {
+        sectionHtml = `
+          <div class="glass-panel p-4 rounded-3xl space-y-4 text-xs text-center">
+            <h3 class="font-black text-sm text-amber-300">🚻 آپلود مستقیم تصاویر کاراکتر مرد و زن</h3>
+
+            <div class="glass-soft p-3.5 rounded-2xl">
+              <div class="font-black text-sky-300 mb-2">🚹 تصویر کاراکتر مرد</div>
+              ${admState.male_img ? `<img src="${admState.male_img}" class="w-28 h-32 object-cover rounded-xl mx-auto mb-2 border border-sky-400" />` : ''}
+              <input type="file" accept="image/*" onchange="handleImageUpload(this, 'male_photo', 'prev_male_photo')" class="w-full text-[11px]" />
+              <img id="prev_male_photo" class="hidden w-28 h-32 object-cover rounded-xl mx-auto mt-2 border-2 border-emerald-400" />
+            </div>
+
+            <div class="glass-soft p-3.5 rounded-2xl">
+              <div class="font-black text-pink-300 mb-2">🚺 تصویر کاراکتر زن</div>
+              ${admState.female_img ? `<img src="${admState.female_img}" class="w-28 h-32 object-cover rounded-xl mx-auto mb-2 border border-pink-400" />` : ''}
+              <input type="file" accept="image/*" onchange="handleImageUpload(this, 'female_photo', 'prev_female_photo')" class="w-full text-[11px]" />
+              <img id="prev_female_photo" class="hidden w-28 h-32 object-cover rounded-xl mx-auto mt-2 border-2 border-emerald-400" />
+            </div>
+
+            <button onclick="admSubmitChars()" class="btn-success w-full py-3.5 rounded-2xl font-black text-sm">
+              💾 ذخیره تصاویر کاراکترها
+            </button>
+          </div>
+        `;
+      }
+
+      /* ۴. تب مدیریت درخواست‌های ووچر با باکس یادداشت */
+      else if (admTab === 'vouchers') {
+        const vRows = (admState.vouchers || []).map(v => `
+          <div class="glass-soft p-3 rounded-2xl text-xs space-y-2 border border-white/10">
+            <div class="flex justify-between items-center">
+              <span class="font-black text-amber-300">#${v.id} — ${v.user_name} (${v.user_id})</span>
+              <span class="px-2 py-0.5 rounded-lg bg-indigo-600/50 font-bold">${v.voucher_type}</span>
+            </div>
+            <div class="flex justify-between text-[11px]">
+              <span>سکه پیشنهادی: <b class="text-emerald-300">${v.coins_offered.toLocaleString()} 🪙</b></span>
+              <span>وضعیت: <b>${v.status}</b></span>
+            </div>
+            ${v.status === 'pending' ? `
+              <input id="vnote_${v.id}" type="text" placeholder="یادداشت شما برای این کاربر (اختیاری)..." class="w-full p-2 rounded-xl bg-slate-900 border border-white/20 text-white text-xs" />
+              <div class="grid grid-cols-2 gap-2">
+                <button onclick="admDecideVoucher(${v.id}, 'approved')" class="btn-success py-2 rounded-xl font-black">✅ تایید و ارسال کد</button>
+                <button onclick="admDecideVoucher(${v.id}, 'rejected')" class="btn-danger py-2 rounded-xl font-black">❌ رد و عودت سکه</button>
+              </div>
+            ` : `
+              ${v.voucher_code ? `<div class="text-emerald-300 font-bold">کد صادرشده: ${v.voucher_code}</div>` : ''}
+              ${v.owner_note ? `<div class="text-slate-300">یادداشت: ${v.owner_note}</div>` : ''}
+            `}
+          </div>
+        `).join('');
+
+        sectionHtml = `
+          <div class="glass-panel p-4 rounded-3xl space-y-2.5">
+            <h3 class="font-black text-sm text-amber-300 text-center">🎟️ مدیریت درخواست‌های ووچر بازیکنان</h3>
+            <div class="flex flex-col gap-2.5">${vRows || '<div class="text-center text-xs text-slate-400">درخواستی ثبت نشده است.</div>'}</div>
+          </div>
+        `;
+      }
+
+      /* ۵. تب ساخت کد هدیه خانه‌به‌خانه */
+      else if (admTab === 'gifts') {
+        const gRows = (admState.gifts || []).map(g => {
+          const usedCnt = JSON.parse(g.used_by || '[]').length;
+          return `
+            <div class="glass-soft p-2.5 rounded-2xl flex justify-between items-center text-xs">
+              <div>
+                <div class="font-black text-amber-300">${g.code}</div>
+                <div class="text-[10px] text-slate-300">+${g.coins} 🪙 | +${g.xp} XP | مصرف: ${usedCnt}/${g.max_uses}</div>
+              </div>
+              <button onclick="callTowerAdminApi('delete_gift',{code:'${g.code}'})" class="btn-danger px-2.5 py-1 rounded-xl text-[10px] font-bold">حذف</button>
+            </div>
+          `;
+        }).join('');
+
+        sectionHtml = `
+          <div class="glass-panel p-4 rounded-3xl space-y-2.5 text-xs">
+            <h3 class="font-black text-sm text-amber-300 text-center">🎁 ساخت کد هدیه جدید</h3>
+            <div>
+              <label class="block text-[11px] text-slate-300 mb-1">کد هدیه:</label>
+              <input id="ag_code" type="text" placeholder="مثلاً: RHINO2026" class="w-full p-2.5 rounded-xl glass-soft text-center font-black text-white" />
+            </div>
+            <div class="grid grid-cols-3 gap-2">
+              <div>
+                <label class="block text-[11px] text-amber-300 mb-1">مقدار سکه:</label>
+                <input id="ag_coins" type="number" value="2000" class="w-full p-2 rounded-xl glass-soft text-center font-bold text-white" />
+              </div>
+              <div>
+                <label class="block text-[11px] text-purple-300 mb-1">مقدار XP:</label>
+                <input id="ag_xp" type="number" value="300" class="w-full p-2 rounded-xl glass-soft text-center font-bold text-white" />
+              </div>
+              <div>
+                <label class="block text-[11px] text-emerald-300 mb-1">ظرفیت مجاز:</label>
+                <input id="ag_uses" type="number" value="50" class="w-full p-2 rounded-xl glass-soft text-center font-bold text-white" />
+              </div>
+            </div>
+            <button onclick="admSubmitGift()" class="btn-success w-full py-3.5 rounded-2xl font-black text-sm">➕ ثبت کد هدیه</button>
+          </div>
+
+          <div class="glass-panel p-3.5 rounded-3xl space-y-2 mt-3">
+            <h4 class="text-xs font-black text-indigo-300 text-center">کدهای هدیه فعال</h4>
+            <div class="flex flex-col gap-2">${gRows}</div>
+          </div>
+        `;
+      }
+
+      /* ۶. تب ساخت پاپ‌آپ تبلیغاتی شناور با آپلود عکس */
+      else if (admTab === 'popup') {
+        sectionHtml = `
+          <div class="glass-panel p-4 rounded-3xl space-y-2.5 text-xs">
+            <h3 class="font-black text-sm text-amber-300 text-center">📢 تنظیم پاپ‌آپ تبلیغاتی شناور در منوی برج</h3>
+            <div>
+              <label class="block text-[11px] text-slate-300 mb-1">متن پیام پاپ‌آپ:</label>
+              <textarea id="ap_text" rows="3" placeholder="متن تبلیغ یا اطلاعیه..." class="w-full p-2.5 rounded-xl glass-soft text-white"></textarea>
+            </div>
+            <div class="glass-soft p-3 rounded-2xl text-center">
+              <label class="block text-[11px] text-amber-200 font-bold mb-1">📷 عکس پاپ‌آپ (اختیاری — آپلود مستقیم از گالری):</label>
+              <input type="file" accept="image/*" onchange="handleImageUpload(this, 'popup_photo', 'prev_popup_photo')" class="w-full text-[11px]" />
+              <img id="prev_popup_photo" class="hidden w-32 h-24 object-cover rounded-xl mx-auto mt-2 border border-amber-400" />
+            </div>
+            <div class="grid grid-cols-2 gap-2">
+              <div>
+                <label class="block text-[11px] text-slate-300 mb-1">متن دکمه (اختیاری):</label>
+                <input id="ap_btxt" type="text" placeholder="مثلاً: عضویت در کانال" class="w-full p-2 rounded-xl glass-soft text-white" />
+              </div>
+              <div>
+                <label class="block text-[11px] text-slate-300 mb-1">لینک دکمه (اختیاری):</label>
+                <input id="ap_burl" type="text" placeholder="https://t.me/..." class="w-full p-2 rounded-xl glass-soft text-white" />
+              </div>
+            </div>
+            <div>
+              <label class="block text-[11px] text-amber-300 mb-1">⏳ مدت زمان نمایش شناور (به ساعت):</label>
+              <input id="ap_hrs" type="number" value="24" class="w-full p-2.5 rounded-xl glass-soft text-center font-black text-white" />
+            </div>
+            <div class="grid grid-cols-2 gap-2 pt-2">
+              <button onclick="admSubmitPopup(false)" class="btn-success py-3 rounded-2xl font-black">✅ فعال‌سازی پاپ‌آپ</button>
+              <button onclick="admSubmitPopup(true)" class="btn-danger py-3 rounded-2xl font-black">🗑️ حذف پاپ‌آپ فعلی</button>
+            </div>
+          </div>
+        `;
+      }
+
+      /* ۷. تب مدیریت کاربران، شارژ و مسدودسازی + قفل توسعه بازی */
+      else if (admTab === 'users') {
+        const u = admLookedUpUser;
+        sectionHtml = `
+          <div class="glass-panel p-4 rounded-3xl space-y-3 text-xs">
+            <div class="flex justify-between items-center glass-soft p-3 rounded-2xl">
+              <span class="font-black">وضعیت کلی بازی برج شیاطین:</span>
+              <button onclick="callTowerAdminApi('toggle_dev')" class="${admState.dev_mode ? 'btn-danger' : 'btn-success'} px-3 py-1.5 rounded-xl font-black">
+                ${admState.dev_mode ? '🛠️ در حال توسعه (فقط مالک)' : '🟢 باز برای همه'}
+              </button>
+            </div>
+
+            <h3 class="font-black text-sm text-amber-300 text-center pt-1">🔍 بررسی، شارژ و مسدودسازی بازیکن</h3>
+            <div class="flex gap-2">
+              <input id="au_uid" type="number" value="${u ? u.user_id : ''}" placeholder="آیدی عددی کاربر..." class="flex-1 p-2.5 rounded-xl glass-soft text-center font-black text-white" />
+              <button onclick="callTowerAdminApi('Lookup_user',{target_uid:Number(document.getElementById('au_uid').value)})" class="btn-primary px-4 rounded-xl font-black">جستجو</button>
+            </div>
+
+            ${u ? `
+              <div class="glass-soft p-3 rounded-2xl space-y-1.5 border border-amber-400/40">
+                <div class="flex justify-between"><span>شناسه کاربر:</span><b>${u.user_id} (${u.gender || 'بدون کاراکتر'})</b></div>
+                <div class="flex justify-between"><span>لول / XP:</span><b class="text-purple-300">Lvl ${u.level} (${u.xp} XP)</b></div>
+                <div class="flex justify-between"><span>موجودی کیف / بانک:</span><b class="text-amber-300">${u.coins.toLocaleString()} 🪙 / ${u.bank_coins.toLocaleString()} 🏦</b></div>
+                <div class="flex justify-between"><span>طبقه فعلی / انسانیت:</span><b>طبقه ${u.current_floor} | ${u.humanity}% 🧠</b></div>
+                <div class="flex justify-between"><span>وضعیت حساب:</span><b class="${u.is_banned ? 'text-rose-400' : 'text-emerald-400'}">${u.is_banned ? '🚫 مسدود' : '🟢 آزاد'}</b></div>
+
+                <div class="grid grid-cols-2 gap-2 pt-2 border-t border-white/10">
+                  <input id="au_addc" type="number" placeholder="سکه اهدایی (+)" class="p-2 rounded-xl bg-slate-900 text-center text-white font-bold" />
+                  <input id="au_addx" type="number" placeholder="XP اهدایی (+)" class="p-2 rounded-xl bg-slate-900 text-center text-white font-bold" />
+                </div>
+                <div class="grid grid-cols-2 gap-2 pt-1">
+                  <button onclick="callTowerAdminApi('charge_user',{target_uid:${u.user_id},add_coins:Number(document.getElementById('au_addc').value||0),add_xp:Number(document.getElementById('au_addx').value||0)})" class="btn-success py-2.5 rounded-xl font-black">⚡ شارژ کاربر</button>
+                  <button onclick="callTowerAdminApi('toggle_ban_user',{target_uid:${u.user_id}})" class="btn-danger py-2.5 rounded-xl font-black">${u.is_banned ? '🟢 رفع مسدودیت' : '🚫 مسدود کردن'}</button>
+                </div>
+              </div>
+            ` : ''}
+          </div>
+        `;
+      }
+
+      root.innerHTML = `
+        ${renderTopBar('👑 پنل فرماندهی برج')}
+        <div class="flex-1 overflow-y-auto px-3 pb-6 flex flex-col">
+          <div class="flex gap-1.5 overflow-x-auto pb-2 mb-2 shrink-0">${tabsHtml}</div>
+          ${admMsg ? `<div class="p-3 rounded-2xl bg-emerald-600/35 border border-emerald-400 text-xs font-extrabold text-center mb-2.5">${admMsg}</div>` : ''}
+          ${admErr ? `<div class="p-3 rounded-2xl bg-rose-600/40 border border-rose-400 text-xs font-extrabold text-center mb-2.5">${admErr}</div>` : ''}
+          ${sectionHtml}
+          <button onclick="nav('demontower')" class="btn-primary w-full py-3 rounded-2xl font-black text-xs mt-3">👹 ورود به محیط بازی برج شیاطین</button>
+        </div>
+      `;
+    }
+
+    /* ═══════════════════════════════════════════════════════════════════════════
+       بازی کامل برج شیاطین (Demon Tower RPG)
        ═══════════════════════════════════════════════════════════════════════════ */
     let dtData = null;
     let dtTab = 'main';
@@ -1585,14 +1652,10 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
             </div>
             ${p.sleep_rem > 0 ? `<div class="p-3 rounded-xl bg-rose-600/40 text-xs font-bold mb-3">😴 (${Math.ceil(p.sleep_rem/60)}m)</div>` : ''}
             ${p.hospital_rem > 0 ? `
-              <div class="p-3 rounded-xl bg-amber-500/30 text-amber-200 text-xs font-extrabold mb-3">
-                ⏳ ${p.hospital_rem}s
-              </div>
+              <div class="p-3 rounded-xl bg-amber-500/30 text-amber-200 text-xs font-extrabold mb-3">⏳ ${p.hospital_rem}s</div>
               <button onclick="dtAct('state')" class="btn-primary w-full py-3 rounded-xl font-bold text-xs">🔄</button>
             ` : `
-              <button onclick="dtAct('enter_hospital')" class="btn-success w-full py-4 rounded-2xl font-black text-sm">
-                ${D.healBtn}
-              </button>
+              <button onclick="dtAct('enter_hospital')" class="btn-success w-full py-4 rounded-2xl font-black text-sm">${D.healBtn}</button>
             `}
           </div>
           <button onclick="dtNav('main')" class="btn-primary w-full py-3 rounded-2xl font-bold text-xs">${D.backTower}</button>
@@ -2587,6 +2650,7 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
     function render() {
       const root = document.getElementById('app');
       if (!root) return;
+      if (currentGame === 'tower_admin') return startTowerAdminApp(root);
       if (currentGame === 'demontower') return startDemonTowerApp(root);
       if (currentGame === 'lobby_gate') return renderLobbyGate(root);
       if (currentGame === 'hokm' || currentGame === 'hokm4p') return startHokmEngine(root, '4p');
