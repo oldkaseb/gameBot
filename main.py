@@ -427,27 +427,7 @@ async def main():
     async def _pre_checkout(pcq: PreCheckoutQuery):
         await pcq.answer(ok=True)
 
-    asyncio.create_task(cleanup_loop(bot))
-    health_runner = await _start_health_server(int(os.getenv("PORT", "8080")))
-
-    log.info("Bot starting polling...")
-    try:
-        await bot.delete_webhook(drop_pending_updates=True)
-        await dp.start_polling(
-            bot,
-            allowed_updates=[
-                "message", "edited_message", "callback_query",
-                "inline_query", "chosen_inline_result",
-                "pre_checkout_query", "successful_payment",
-            ],
-        )
-    finally:
-        if health_runner:
-            health_runner.should_exit = True
-        await db.close()
-        await bot.session.close()
-
-@dp.message(F.successful_payment)
+    @dp.message(F.successful_payment)
     async def _on_successful_payment(msg: Message):
         payload_str = msg.successful_payment.invoice_payload or ""
         if payload_str.startswith("dtpack_"):
@@ -468,6 +448,27 @@ async def main():
                 )
                 return
         await msg.answer(f"{E.HEART} از حمایت شما سپاسگزاریم!", parse_mode=ParseMode.HTML)
+
+    asyncio.create_task(cleanup_loop(bot))
+    health_runner = await _start_health_server(int(os.getenv("PORT", "8080")))
+
+    log.info("Bot starting polling...")
+    try:
+        await bot.delete_webhook(drop_pending_updates=True)
+        await dp.start_polling(
+            bot,
+            allowed_updates=[
+                "message", "edited_message", "callback_query",
+                "inline_query", "chosen_inline_result",
+                "pre_checkout_query", "successful_payment",
+            ],
+        )
+    finally:
+        if health_runner:
+            health_runner.should_exit = True
+        await db.close()
+        await bot.session.close()
+
 
 if __name__ == "__main__":
     asyncio.run(main())
