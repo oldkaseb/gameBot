@@ -924,7 +924,102 @@ async def handle_tower_admin_api(payload: dict) -> dict:
     action = payload.get("action") or "state"
     msg_out = ""
 
-    if action == "toggle_dev":
+    # ─── ۱. بخش مدیریت کلی ربات (کانال‌های قفل، همگانی، گروه‌ها، بن سراسری، ادمین‌ها) ───
+    if action == "bot_add_channel":
+        chat_id = str(payload.get("chat_id") or "").strip()
+        title = str(payload.get("title") or chat_id).strip()
+        username = str(payload.get("username") or "").strip().lstrip("@")
+        if not username and chat_id.startswith("@"):
+            username = chat_id.lstrip("@")
+        if chat_id:
+            await db.add_channel(chat_id, title, username)
+            msg_out = f"✅ کانال «{title}» به قفل عضویت اجباری اضافه شد."
+
+    elif action == "bot_del_channel":
+        chat_id = str(payload.get("chat_id") or "").strip()
+        await db.remove_channel(chat_id)
+        msg_out = "🗑️ کانال از لیست عضویت اجباری حذف شد."
+
+    elif action == "bot_global_ban":
+        target_id = int(payload.get("target_id") or 0)
+        ban_state = bool(payload.get("ban"))
+        if target_id:
+            await db.upsert_user(target_id, "", "")
+            await db.ban_user(target_id, ban_state)
+            msg_out = f"✅ وضعیت کاربر {target_id} در کل ربات به «{'مسدود' if ban_state else 'آزاد'}» تغییر کرد."
+
+    elif action == "bot_set_admin":
+        target_id = int(payload.get("target_id") or 0)
+        adm_state = bool(payload.get("is_admin"))
+        if target_id:
+            await db.upsert_user(target_id, "", "")
+            await db.set_admin(target_id, adm_state)
+            msg_out = f"👑 وضعیت ادمین بودن {target_id} به «{'فعال' if adm_state else 'غیرفعال'}» تغییر یافت."
+
+    elif action == "bot_leave_group":
+        chat_id = int(payload.get("chat_id") or 0)
+        bot_token = os.environ.get("BOT_TOKEN", "")
+        if chat_id and bot_token:
+            temp_bot = Bot(token=bot_token)
+            try:
+                await temp_bot.leave_chat(chat_id)
+            except Exception:
+                pass
+            finally:
+                await temp_bot.session.close()
+            try:
+                await db.pool.execute("DELETE FROM groups WHERE chat_id=$1", chat_id)
+            except Exception:
+                pass
+            msg_out = f"🚪 ربات از گروه {chat_id} خارج شد."
+
+    elif action == "bot_group_link":
+        chat_id = int(payload.get("chat_id") or 0)
+        bot_token = os.environ.get("BOT_TOKEN", "")
+        invite_link = ""
+        if chat_id and bot_token:
+            temp_bot = Bot(token=bot_token)
+            try:
+                link_obj = await temp_bot.create_chat_invite_link(chat_id)
+                invite_link = link_obj.invite_link
+            except Exception as e:
+                return {"ok": False, "error": f"ربات در این گروه دسترسی ساخت لینک ندارد: {e}", "admin_data": await _collect_admin_state()}
+            finally:
+                await temp_bot.session.close()
+        return {"ok": True, "msg": f"🔗 لینک ورود به گروه:\n{invite_link}", "invite_link": invite_link, "admin_data": await _collect_admin_state()}
+
+    elif action == "bot_broadcast":
+        target_type = str(payload.get("target_type") or "users")  # users | groups
+        text = str(payload.get("text") or "").strip()
+        btn_text = str(payload.get("btn_text") or "").strip()
+        btn_url = str(payload.get("btn_url") or "").strip()
+        if not text:
+            return {"ok": False, "error": "متن پیام همگانی نمی‌تواند خالی باشد!", "admin_data": await _collect_admin_state()}
+
+        if target_type == "groups":
+            rows = await db.pool.fetch("SELECT chat_id AS id FROM groups WHERE is_banned=FALSE")
+        else:
+            rows = await db.pool.fetch("SELECT user_id AS id FROM users WHERE is_banned=FALSE")
+
+        target_ids = [r["id"] for r in rows]
+        bot_token = os.environ.get("BOT_TOKEN", "")
+        sent_ok, sent_fail = 0, 0
+        if bot_token and target_ids:
+            temp_bot = Bot(token=bot_token)
+            markup = kb([[primary(btn_text, url=btn_url)]]) if (btn_text and btn_url) else None
+            try:
+                for tid in target_ids:
+                    try:
+                        await temp_bot.send_message(tid, text, reply_markup=markup, parse_mode=ParseMode.HTML)
+                        sent_ok += 1
+                    except Exception:
+                        sent_fail += 1
+            finally:
+                await temp_bot.session.close()
+        msg_out = f"📢 ارسال همگانی به پایان رسید!\n✅ موفق: {sent_ok} | ❌ ناموفق: {sent_fail}"
+
+    # ─── ۲. بخش مدیریت برج شیاطین (طبقات، تجهیزات، کاراکتر، ووچرها، پاپ‌آپ، کد هدیه) ───
+    elif action == "toggle_dev":
         cur = await get_dt_config("dev_mode", "0")
         new_val = "0" if cur == "1" else "1"
         await set_dt_config("dev_mode", new_val)
@@ -933,9 +1028,9 @@ async def handle_tower_admin_api(payload: dict) -> dict:
     elif action == "save_gender_imgs":
         male_img = payload.get("male_img")
         female_img = payload.get("female_img")
-        if male_img is not None and male_img != "":
+        if male_img:
             await set_dt_config("male_img", male_img)
-        if female_img is not None and female_img != "":
+        if female_img:
             await set_dt_config("female_img", female_img)
         msg_out = "✅ تصاویر کاراکتر مرد و زن با موفقیت آپلود و ذخیره شدند!"
 
@@ -1032,7 +1127,13 @@ async def handle_tower_admin_api(payload: dict) -> dict:
     elif action == "Lookup_user":
         t_uid = int(payload.get("target_uid") or 0)
         st = await get_or_create_player(t_uid)
-        return {"ok": True, "looked_up": st["player"], "admin_data": await _collect_admin_state()}
+        u_main = await db.get_user(t_uid)
+        looked = st["player"]
+        looked["global_banned"] = bool(u_main["is_banned"]) if u_main else False
+        looked["is_bot_admin"] = bool(u_main["is_admin"]) if u_main else False
+        looked["first_name"] = u_main["first_name"] if u_main else ""
+        looked["username"] = u_main["username"] if u_main else ""
+        return {"ok": True, "looked_up": looked, "admin_data": await _collect_admin_state()}
 
     elif action == "charge_user":
         t_uid = int(payload.get("target_uid") or 0)
@@ -1060,7 +1161,7 @@ async def handle_tower_admin_api(payload: dict) -> dict:
         st = await get_or_create_player(t_uid)
         return {
             "ok": True,
-            "msg": f"وضعیت کاربر {t_uid} به «{'مسدود' if new_b else 'آزاد'}» تغییر یافت.",
+            "msg": f"وضعیت کاربر {t_uid} در برج به «{'مسدود' if new_b else 'آزاد'}» تغییر یافت.",
             "looked_up": st["player"],
             "admin_data": await _collect_admin_state(),
         }
@@ -1143,8 +1244,16 @@ async def _collect_admin_state() -> dict:
         except Exception:
             pass
 
+    # اطلاعات کلی ربات (آمار، کانال‌های اجباری، لیست گروه‌ها)
+    bot_stats = await db.stats()
+    forced_channels = [dict(r) for r in await db.list_channels()]
+    groups_list = [dict(r) for r in await db.list_groups(limit=40)]
+
     return {
         "players_count": players_cnt,
+        "bot_stats": bot_stats,
+        "forced_channels": forced_channels,
+        "groups_list": groups_list,
         "dev_mode": dev_mode,
         "male_img": male_img,
         "female_img": female_img,
