@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""games/demon_tower.py — موتور برج شیاطین + API پنل مدیریت مینی‌اپی ویژه مالک با آپلود مستقیم تصویر"""
+"""games/demon_tower.py — موتور کامل ۷ زبانه برج شیاطین (نبرد تعاملی زنده) + API پنل مینی‌اپی مالک"""
 
 import json
 import math
@@ -8,13 +8,12 @@ import random
 import string
 import time
 from aiogram import Router, F, Bot
-from aiogram.types import Message, CallbackQuery, LabeledPrice
+from aiogram.types import Message, LabeledPrice
 from aiogram.enums import ParseMode
 from aiogram.filters import Command
 
 from database import db
-from emojis import E
-from utils.premium import primary, success, danger, kb
+from utils.premium import success, kb
 
 router = Router(name="demon_tower")
 OWNER_IDS = {7662192190, 6041119040}
@@ -27,6 +26,9 @@ STAR_PACKAGES = {
     "pack_3": {"stars": 400, "coins": 28000, "xp": 3000, "title": "Tower Lord (28,000 Coins + 3,000 XP)"},
     "pack_4": {"stars": 900, "coins": 75000, "xp": 8000, "title": "Demon Emperor (75,000 Coins + 8,000 XP)"},
 }
+
+# نگهداری نبردهای زنده و تعاملی بازیکنان در حافظه سرور
+active_tower_battles: dict[int, dict] = {}
 
 DT_MESSAGES = {
     "fa": {
@@ -103,7 +105,7 @@ DT_MESSAGES = {
 
 
 def _dt_msg(lang: str, key: str, **kwargs) -> str:
-    d = DT_MESSAGES.get(lang, DT_MESSAGES.get("en" if lang != "fa" else "fa", DT_MESSAGES["fa"]))
+    d = DT_MESSAGES.get(lang, DT_MESSAGES["en" if lang != "fa" else "fa"])
     txt = d.get(key, DT_MESSAGES["fa"].get(key, key))
     return txt.format(**kwargs) if kwargs else txt
 
@@ -350,10 +352,6 @@ async def get_or_create_player(uid: int) -> dict:
     }
 
 
-# نگهداری نبردهای زنده و تعاملی بازیکنان در حافظه سرور
-active_tower_battles: dict[int, dict] = {}
-
-
 def _roll_next_boss_state(boss_name: str, lang: str = "fa") -> tuple[str, str, int]:
     """تعیین حرکت بعدی غول (حمله ۵ ثانیه‌ای، دفاع مطلق، حالت جاخالی، یا عادی)"""
     roll = random.random()
@@ -508,7 +506,6 @@ async def handle_tower_api_action(payload: dict) -> dict:
             st["active_battle"] = active_tower_battles.get(uid)
             return {"ok": True, "msg": _dt_msg(lang, "bought_equipped", name=item_row["name"]), "state": st}
 
-    # ─── شروع نبرد تعاملی و چندمرحله‌ای با غول طبقه ───
     if action in ("battle_floor", "battle_start"):
         if not p["gender"]:
             return {"ok": False, "error": _dt_msg(lang, "pick_gender_first"), "state": full_state}
@@ -530,7 +527,6 @@ async def handle_tower_api_action(payload: dict) -> dict:
         if not boss:
             return {"ok": False, "error": _dt_msg(lang, "all_cleared"), "state": full_state}
 
-        # تقویت جان غول برای طولانی‌تر و نفس‌گیر شدن نبرد تعاملی
         scaled_boss_hp = max(180, int(boss["hp"] * 2.2))
         b_state, b_prompt, b_window = _roll_next_boss_state(boss["boss_name"], lang)
 
@@ -544,9 +540,9 @@ async def handle_tower_api_action(payload: dict) -> dict:
             "boss_def": boss["def"],
             "p_hp": p["hp"],
             "p_max_hp": p["max_hp"],
-            "p_rage": 25,  # خشم اولیه برای مهارت‌های ویژه
+            "p_rage": 25,
             "turn": 1,
-            "boss_state": b_state,  # normal | charging | abs_defense | evasive | stunned
+            "boss_state": b_state,
             "state_prompt": b_prompt,
             "deadline_sec": b_window,
             "state_ts": now,
@@ -559,7 +555,6 @@ async def handle_tower_api_action(payload: dict) -> dict:
         full_state["active_battle"] = battle_session
         return {"ok": True, "state": full_state}
 
-    # ─── اجرای حرکت بازیکن در نبرد زنده (یا اتمام مهلت ۵ ثانیه‌ای دفاع) ───
     if action == "battle_move":
         bt = active_tower_battles.get(uid)
         boss = full_state["current_boss"]
@@ -573,7 +568,6 @@ async def handle_tower_api_action(payload: dict) -> dict:
         base_boss_dmg = max(8, bt["boss_atk"] - int(p["def"] * 0.45))
         log_line = ""
 
-        # بررسی اینکه آیا بازیکن در حالت شارژ حمله ۵ ثانیه‌ای دیر عمل کرده یا تایم‌اوت شده
         timed_out = (move == "timeout") or (b_state == "charging" and (now - bt["state_ts"]) > 6.2 and move not in ("shield", "dodge"))
 
         if timed_out:
@@ -587,7 +581,6 @@ async def handle_tower_api_action(payload: dict) -> dict:
             next_st, next_pr, next_w = _roll_next_boss_state(b_name, lang)
 
         elif b_state == "charging":
-            # غول در حال شارژ حمله ۵ ثانیه‌ای است
             if move == "shield":
                 reduced = max(2, int(base_boss_dmg * 0.2))
                 counter = int(base_atk * 0.75)
@@ -603,8 +596,8 @@ async def handle_tower_api_action(payload: dict) -> dict:
                 next_pr = f"😵 «{b_name}» گیج و بی‌دفاع شده! با ضربه سنگین یا جادوی خون حمله کن!" if lang == "fa" else f"😵 '{b_name}' is Stunned! Use Heavy Strike!"
                 next_w = 0
             elif move == "dodge":
-                 Dodge_chance = min(0.88, 0.65 + (p["spd"] * 0.005))
-                if random.random() < Dodge_chance:
+                dodge_chance = min(0.88, 0.65 + (p["spd"] * 0.005))
+                if random.random() < dodge_chance:
                     bt["p_rage"] = min(100, bt["p_rage"] + 30)
                     log_line = (
                         f"💨 با سرعت بالا از حمله مرگبار «{b_name}» جاخالی دادی و هیچ آسیبی ندیدی! (+30 خشم)"
@@ -618,7 +611,6 @@ async def handle_tower_api_action(payload: dict) -> dict:
                     log_line = f"⚠️ جاخالی کامل نبود و {hit} آسیب دیدی!" if lang == "fa" else f"⚠️ Partial dodge! Took {hit} DMG!"
                     next_st, next_pr, next_w = _roll_next_boss_state(b_name, lang)
             else:
-                # بازیکن به جای دفاع در برابر حمله ۵ ثانیه‌ای، حمله زده!
                 heavy_hit = int(base_boss_dmg * 1.7)
                 dmg_done = int(base_atk * 0.6)
                 bt["boss_hp"] = max(0, bt["boss_hp"] - dmg_done)
@@ -631,7 +623,6 @@ async def handle_tower_api_action(payload: dict) -> dict:
                 next_st, next_pr, next_w = _roll_next_boss_state(b_name, lang)
 
         elif b_state == "abs_defense":
-            # غول در حالت دفاع مطلق است
             if move == "break":
                 dmg = int(base_atk * 1.35)
                 bt["boss_hp"] = max(0, bt["boss_hp"] - dmg)
@@ -663,7 +654,6 @@ async def handle_tower_api_action(payload: dict) -> dict:
                 next_st, next_pr, next_w = _roll_next_boss_state(b_name, lang)
 
         elif b_state == "evasive":
-            # غول آماده جاخالی دادن است
             if move == "heavy":
                 counter = int(base_boss_dmg * 0.9)
                 bt["p_hp"] = max(0, bt["p_hp"] - counter)
@@ -698,7 +688,6 @@ async def handle_tower_api_action(payload: dict) -> dict:
                 next_st, next_pr, next_w = _roll_next_boss_state(b_name, lang)
 
         else:
-            # حالت عادی (normal) یا گیج‌شده (stunned)
             mult = 1.65 if b_state == "stunned" else 1.0
             boss_retaliation = 0 if b_state == "stunned" else int(base_boss_dmg * random.uniform(0.65, 1.0))
 
@@ -742,7 +731,6 @@ async def handle_tower_api_action(payload: dict) -> dict:
         bt["logs"].insert(0, log_line)
         bt["logs"] = bt["logs"][:6]
 
-        # بررسی پایان نبرد (مرگ غول یا مرگ بازیکن)
         if bt["boss_hp"] <= 0:
             return await _finalize_tower_battle(uid, p, boss, bt, won=True, lang=lang)
         if bt["p_hp"] <= 0:
@@ -774,7 +762,9 @@ async def handle_tower_api_action(payload: dict) -> dict:
         if not inv:
             return {"ok": False, "error": _dt_msg(lang, "empty_loot"), "state": full_state}
         total_val = sum(int(x.get("price", 50)) for x in inv)
-        await db.pool.execute("UPDATE dt_players SET coins=coins+$1, inventory='[]' WHERE user_id=$2", total_val, uid)
+        await db.pool.execute(
+            "UPDATE dt_players SET coins=coins+$1, inventory='[]' WHERE user_id=$2", total_val, uid
+        )
         return {"ok": True, "msg": _dt_msg(lang, "loot_sold", val=total_val), "state": await get_or_create_player(uid)}
 
     if action == "bank_deposit":
@@ -925,10 +915,6 @@ async def handle_tower_api_action(payload: dict) -> dict:
     return {"ok": True, "state": full_state}
 
 
-# ═══════════════════════════════════════════════════════════════════════════
-# API مخفی مینی‌اپ پنل برج (فقط و فقط برای OWNER_IDS)
-# ═══════════════════════════════════════════════════════════════════════════
-
 async def handle_tower_admin_api(payload: dict) -> dict:
     uid = int(payload.get("uid") or 0)
     if uid not in OWNER_IDS:
@@ -968,7 +954,6 @@ async def handle_tower_admin_api(payload: dict) -> dict:
         drop_item = str(payload.get("drop_item") or "").strip()
         drop_price = int(payload.get("drop_price") or 50)
 
-        # اگر عکس جدیدی آپلود نشده بود، عکس قبلی طبقه حفظ شود
         if not photo:
             old_p = await db.pool.fetchval("SELECT photo FROM dt_floors WHERE floor_num=$1", fnum)
             photo = old_p or ""
@@ -1170,10 +1155,6 @@ async def _collect_admin_state() -> dict:
         "vouchers": vouchers,
     }
 
-
-# ═══════════════════════════════════════════════════════════════════════════
-# دستور «پنل برج» در پیوی ربات (باز کردن مستقیم مینی‌اپ مخفی مالک)
-# ═══════════════════════════════════════════════════════════════════════════
 
 @router.message(Command("tower_panel"))
 @router.message(F.text.in_({"پنل برج", "پنل برج شیاطین", "/tower"}))
