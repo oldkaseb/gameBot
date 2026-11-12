@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""webapp/backend/main.py — سرور کامل گیم باکس راینو (مینی‌اپ گلس‌مورفیسم + لابی ۳ گزینه‌ای + حکم فرش ایرانی)"""
+"""webapp/backend/main.py — سرور کامل گیم باکس راینو (رفع قطعی SyntaxError جاوااسکریپت + لود مستقیم PNGهای گیت‌هاب)"""
 
 import io
 import json
@@ -27,13 +27,14 @@ app.add_middleware(
 
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 FONT_PATH = BASE_DIR / "Vazirmatn-SemiBold.ttf"
+
+# مسیر دقیق فایل‌های PNG آپلودشده در ریشه گیت‌هاب شما
 CUSTOM_HERO_FILE = BASE_DIR / "rhino_banner.png"
 CUSTOM_MENU_BG = BASE_DIR / "menu_bg.png"
 CUSTOM_CARPET_BG = BASE_DIR / "hokm_carpet.png"
 
 hokm_rooms: dict[str, HokmGame] = {}
 guess_rooms: dict[str, dict] = {}
-voice_signals: dict[str, list] = {}
 
 GAME_META = {
     "hub":          {"title": "RHINO GAME BOX",      "c1": (15, 23, 42),  "c2": (79, 70, 229)},
@@ -91,14 +92,26 @@ def generate_game_banner(game_key: str) -> bytes:
     return buf.getvalue()
 
 
+@app.get("/api/custom_bg/{bg_name}")
+async def serve_custom_bg(bg_name: str):
+    """سرو کردن مستقیم تصاویر PNG آپلودشده در ریشه گیت‌هاب"""
+    if bg_name == "hero" and CUSTOM_HERO_FILE.exists():
+        return FileResponse(str(CUSTOM_HERO_FILE), media_type="image/png")
+    if bg_name == "menu" and CUSTOM_MENU_BG.exists():
+        return FileResponse(str(CUSTOM_MENU_BG), media_type="image/png")
+    if bg_name == "carpet" and CUSTOM_CARPET_BG.exists():
+        return FileResponse(str(CUSTOM_CARPET_BG), media_type="image/png")
+    return Response(status_code=404)
+
+
 @app.get("/api/banner/{game_type}.png")
 async def serve_game_banner(game_type: str):
     if game_type == "rhino_hero" and CUSTOM_HERO_FILE.exists():
-        return FileResponse(str(CUSTOM_HERO_FILE))
+        return FileResponse(str(CUSTOM_HERO_FILE), media_type="image/png")
     if game_type == "menu_bg" and CUSTOM_MENU_BG.exists():
-        return FileResponse(str(CUSTOM_MENU_BG))
+        return FileResponse(str(CUSTOM_MENU_BG), media_type="image/png")
     if game_type == "hokm_carpet" and CUSTOM_CARPET_BG.exists():
-        return FileResponse(str(CUSTOM_CARPET_BG))
+        return FileResponse(str(CUSTOM_CARPET_BG), media_type="image/png")
     png_bytes = generate_game_banner(game_key=game_type)
     return Response(content=png_bytes, media_type="image/png")
 
@@ -138,7 +151,7 @@ class GuessActionPayload(BaseModel):
     session: str
     uid: int
     name: str
-    action: str  # create | state | guess | restart
+    action: str
     min_val: int = 1
     max_val: int = 100
     guess_val: int | None = None
@@ -186,10 +199,6 @@ async def api_check_join(user_id: int):
 
 @app.post("/api/invite_friends")
 async def api_invite_friends(payload: InvitePlayersPayload):
-    """
-    دعوت دوستان از طریق ربات با یوزرنیم یا آیدی عددی.
-    اگر کاربر تا کنون ربات را استارت نکرده باشد، به دعوت‌کننده اخطار دقیق می‌دهد.
-    """
     from aiogram import Bot
     from aiogram.enums import ParseMode
     from utils.premium import success, kb
@@ -300,7 +309,6 @@ async def hokm_action_endpoint(payload: HokmActionPayload):
 
 @app.post("/api/guess/action")
 async def guess_action_endpoint(payload: GuessActionPayload):
-    """حدس عدد همگانی گروهی: ساخت بازه، اشتراک‌گذاری، ثبت برنده و دکمه دور بعد فقط برای سازنده"""
     sid = payload.session
     if payload.action == "create" or sid not in guess_rooms:
         lo = min(payload.min_val, payload.max_val)
@@ -362,7 +370,8 @@ async def get_gardone_data(chat_id: int):
     return {"ok": True, "names": names, "winners": winners, "host": g.get("host_name", "")}
 
 
-MINIAPP_TEMPLATE = """<!DOCTYPE html>
+# استفاده از r""" (Raw String) تا کاراکترهای \n در جاوااسکریپت نشکنند و صفحه سفید نشود
+MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
 <html lang="fa" dir="rtl">
 <head>
   <meta charset="UTF-8" />
@@ -375,10 +384,6 @@ MINIAPP_TEMPLATE = """<!DOCTYPE html>
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
   <script src="https://cdn.tailwindcss.com"></script>
   <style>
-    :root {
-      --menu-bg: url('__MENU_BG__');
-      --carpet-bg: url('__CARPET_BG__');
-    }
     * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
     html, body {
       width: 100vw;
@@ -388,7 +393,7 @@ MINIAPP_TEMPLATE = """<!DOCTYPE html>
       overflow: hidden;
       background-color: #070b14;
       background-image:
-        var(--menu-bg),
+        __MENU_BG__
         radial-gradient(circle at 20% 15%, rgba(79, 70, 229, 0.28) 0%, transparent 45%),
         radial-gradient(circle at 80% 85%, rgba(16, 185, 129, 0.22) 0%, transparent 45%);
       background-size: cover;
@@ -397,7 +402,6 @@ MINIAPP_TEMPLATE = """<!DOCTYPE html>
       font-family: system-ui, -apple-system, sans-serif;
       user-select: none;
     }
-    /* فاصله ایمن از بالای صفحه گوشی برای عدم تداخل با دکمه‌های بستن و مینیمایز تلگرام */
     #app {
       width: 100vw;
       height: 100dvh;
@@ -407,7 +411,6 @@ MINIAPP_TEMPLATE = """<!DOCTYPE html>
       flex-direction: column;
       overflow: hidden;
     }
-    /* تم گلس‌مورفیسم با اوپاسیتی کم و بلور نرم */
     .glass-panel {
       background: rgba(15, 23, 42, 0.42);
       backdrop-filter: blur(16px);
@@ -416,10 +419,10 @@ MINIAPP_TEMPLATE = """<!DOCTYPE html>
       box-shadow: 0 8px 32px rgba(0, 0, 0, 0.35);
     }
     .glass-soft {
-      background: rgba(255, 255, 255, 0.07);
+      background: rgba(255, 255, 255, 0.08);
       backdrop-filter: blur(12px);
       -webkit-backdrop-filter: blur(12px);
-      border: 1px solid rgba(255, 255, 255, 0.12);
+      border: 1px solid rgba(255, 255, 255, 0.14);
     }
     .btn-primary {
       background: linear-gradient(135deg, rgba(37, 99, 235, 0.85), rgba(79, 70, 229, 0.85));
@@ -438,14 +441,13 @@ MINIAPP_TEMPLATE = """<!DOCTYPE html>
     }
     .ltr-grid { direction: ltr !important; }
 
-    /* زمینه فرش ایرانی قرمز حکم (قابل جایگزینی با فایل hokm_carpet.jpg در گیت‌هاب) */
     .persian-carpet {
       position: relative;
       width: 100%;
       height: 100%;
       background-color: #781014;
       background-image:
-        var(--carpet-bg),
+        __CARPET_BG__
         radial-gradient(ellipse at center, rgba(185, 28, 28, 0.52) 0%, rgba(102, 10, 14, 0.94) 68%, #3a0608 100%),
         repeating-linear-gradient(45deg, rgba(245, 158, 11, 0.06) 0px, rgba(245, 158, 11, 0.06) 2px, transparent 2px, transparent 6px);
       background-size: cover;
@@ -495,6 +497,13 @@ MINIAPP_TEMPLATE = """<!DOCTYPE html>
   <div id="app"></div>
 
   <script>
+    window.onerror = function(msg, url, line) {
+      const root = document.getElementById('app');
+      if (root) {
+        root.innerHTML = `<div class="p-6 text-center"><div class="glass-panel p-4 rounded-2xl text-xs text-rose-300">Error: ${msg} (Line ${line})</div></div>`;
+      }
+    };
+
     const tg = window.Telegram?.WebApp;
     if (tg) {
       tg.ready();
@@ -699,7 +708,7 @@ MINIAPP_TEMPLATE = """<!DOCTYPE html>
       render();
     };
 
-    /* ═══════════ صفحه اصلی گیم باکس راینو (کارت معرفی + ۳ بازی در حال ساخت + لیست بازی‌ها) ═══════════ */
+    /* ═══════════ صفحه اصلی گیم باکس راینو ═══════════ */
     function renderHub(root) {
       const wipGames = [
         { title: "شکارچی سیاه‌چال", icon: "🏰" },
@@ -723,7 +732,7 @@ MINIAPP_TEMPLATE = """<!DOCTYPE html>
       ];
 
       const wipHtml = wipGames.map(w => `
-        <div class="glass-soft rounded-2xl p-3 flex items-center justify-between opacity-75">
+        <div class="glass-soft rounded-2xl p-3 flex items-center justify-between opacity-80">
           <div class="flex items-center gap-2.5">
             <span class="text-2xl">${w.icon}</span>
             <span class="font-extrabold text-sm text-slate-200">${w.title}</span>
@@ -748,25 +757,28 @@ MINIAPP_TEMPLATE = """<!DOCTYPE html>
       root.innerHTML = `
         ${renderTopBar(T().heroTitle)}
         <div class="flex-1 overflow-y-auto px-3 pb-6 flex flex-col gap-3">
-          <!-- کارت اصلی معرفی تیم راینو -->
           <div class="glass-panel rounded-3xl overflow-hidden shrink-0">
-            <img src="${HERO_CUSTOM_IMG}" onerror="this.src='/api/banner/hub.png'" class="w-full h-40 object-cover border-b border-white/10" />
+            ${HERO_CUSTOM_IMG ? `
+              <img src="${HERO_CUSTOM_IMG}" class="w-full h-44 object-cover border-b border-white/10" />
+            ` : `
+              <div class="w-full h-36 bg-gradient-to-br from-indigo-900 via-purple-900 to-slate-900 flex flex-col items-center justify-center border-b border-white/10">
+                <div class="text-4xl mb-1">🦏 🎮</div>
+                <div class="text-xs font-black tracking-widest text-indigo-300">RHINO™ TEAM OFFICIAL</div>
+              </div>
+            `}
             <div class="p-4 text-center">
               <h1 class="text-xl font-black text-amber-300 mb-1.5">${T().heroTitle}</h1>
               <p class="text-xs text-slate-200 font-bold leading-relaxed whitespace-pre-line">${T().heroBody}</p>
             </div>
           </div>
 
-          <!-- سه بازی در حال ساخت -->
           <div class="flex flex-col gap-2">${wipHtml}</div>
-
-          <!-- لیست سایر بازی‌ها -->
           <div class="flex flex-col gap-2.5 mt-1">${gamesHtml}</div>
         </div>
       `;
     }
 
-    /* ═══════════ درگاه ۳ گزینه‌ای بازی‌های لابی‌دار (ربات / دعوت با باکس یوزرنیم / اشتراک‌گذاری مستقیم) ═══════════ */
+    /* ═══════════ درگاه ۳ گزینه‌ای بازی‌های لابی‌دار ═══════════ */
     window.setRpsTargetAndContinue = function(n) {
       lobbyState.rpsTargetWins = n;
       lobbyState.step = 'options';
@@ -886,13 +898,7 @@ MINIAPP_TEMPLATE = """<!DOCTYPE html>
       `;
     }
 
-    /* ═══════════════════════════════════════════════════════════════════════════
-       میز حکم واقعی روی فرش قرمز ایرانی:
-       - کارت‌های بزرگ و طبیعی بدون بیرون زدن از صفحه
-       - کارت‌های برعکس با حجم واقعی جلوی دست هر تیم تا ۷ کارت
-       - کارت مستطیلی پروفایل زیر دست هر بازیکن + تایمر چرخشی ۲ دقیقه‌ای دور عکس
-       - چت و ری‌اکشن شفاف بالای اسم بازیکن + مایک صوتی + تعیین تیم توسط سازنده
-       ═══════════════════════════════════════════════════════════════════════════ */
+    /* ═══════════ میز حکم واقعی روی فرش قرمز ایرانی ═══════════ */
     let hokmMode = '4p';
     let hokmError = '';
     let myMicActive = false;
@@ -962,7 +968,6 @@ MINIAPP_TEMPLATE = """<!DOCTYPE html>
     }
 
     function renderRealFaceDownTricks(count) {
-      /* کارت‌های برعکس با حجم واقعی که جلوی دست تیم قرار می‌گیرند تا به ۷ برسند */
       let items = '';
       for (let i = 0; i < 7; i++) {
         if (i < count) {
@@ -975,7 +980,6 @@ MINIAPP_TEMPLATE = """<!DOCTYPE html>
     }
 
     function renderPlayerRectCard(seat, compact = false) {
-      /* کارت مستطیلی مشخصات بازیکن + تایمر چرخشی دور عکس + پاپ‌آپ شفاف پیام/ری‌اکشن بالای اسم */
       if (!seat) return '';
       const pct = seat.timer_pct ?? 100;
       const ringColor = seat.is_turn ? (pct > 35 ? '#10b981' : '#ef4444') : 'rgba(255,255,255,0.2)';
@@ -1016,7 +1020,6 @@ MINIAPP_TEMPLATE = """<!DOCTYPE html>
       const pList = st.players || [];
       const isHost = !st.host_id || Number(st.host_id) === Number(uid);
 
-      // ۱. لابی تعیین تیم‌ها توسط سازنده و پر کردن یار کم با هوش مصنوعی
       if (st.status === 'joining') {
         const rowsHtml = pList.map((p, idx) => `
           <div class="glass-soft p-2.5 rounded-xl flex justify-between items-center text-xs font-bold">
@@ -1100,7 +1103,6 @@ MINIAPP_TEMPLATE = """<!DOCTYPE html>
         centerStageHtml = `<div class="relative w-48 h-44 flex items-center justify-center">${playedHtml}</div>`;
       }
 
-      // چیدمان بزرگ و طبیعی کارت‌های دست در پایین صفحه بدون بیرون زدن از کادر
       const handCards = st.my_hand || [];
       const overlapPx = handCards.length > 9 ? -15 : (handCards.length > 6 ? -10 : -4);
       const handHtml = handCards.map((c, idx) => `
@@ -1120,7 +1122,6 @@ MINIAPP_TEMPLATE = """<!DOCTYPE html>
           <div class="persian-carpet flex flex-col justify-between p-2 overflow-hidden">
             <div class="carpet-medallion"></div>
 
-            <!-- ردیف بالا: خروج + حکم + یار روبه‌رو + دست‌های برعکس حریف -->
             <div class="z-20 flex justify-between items-start gap-1">
               <div class="glass-panel px-2 py-1 rounded-xl text-[10px] font-extrabold">
                 <div>حکم: <span class="bg-white text-black px-1 rounded">${st.trump_icon}</span></div>
@@ -1132,7 +1133,6 @@ MINIAPP_TEMPLATE = """<!DOCTYPE html>
               <button onclick="nav('hub')" class="btn-danger px-2.5 py-1 rounded-xl text-[10px] font-bold">خروج</button>
             </div>
 
-            <!-- ردیف میانی: حریف راست + ترنج وسط فرش + حریف چپ -->
             <div class="z-20 flex-1 flex items-center justify-between px-0.5 min-h-[150px]">
               <div class="flex flex-col items-center gap-1">
                 ${rightSeat ? renderPlayerRectCard(rightSeat, true) : ''}
@@ -1151,9 +1151,7 @@ MINIAPP_TEMPLATE = """<!DOCTYPE html>
               </div>
             </div>
 
-            <!-- بخش پایین: کارت‌های برعکسِ برده ما جلوی دستمان + کارت‌های دست بزرگ + کارت مستطیلی پروفایل و چت/مایک -->
             <div class="z-20 flex flex-col items-center gap-1">
-              <!-- ردیف ۷ کارت برعکس با حجم واقعی جلوی دست ما -->
               <div class="flex items-center gap-1.5">
                 <span class="text-[10px] font-extrabold text-emerald-300">دست‌های ما (${st.our_tricks}/7):</span>
                 ${renderRealFaceDownTricks(st.our_tricks)}
@@ -1161,12 +1159,10 @@ MINIAPP_TEMPLATE = """<!DOCTYPE html>
 
               ${hokmError ? `<div class="bg-rose-600/90 px-3 py-0.5 rounded-lg text-[11px] font-bold">${hokmError}</div>` : ''}
 
-              <!-- دست کامل کارت‌های بازیکن (بزرگ و داخل کادر) -->
               <div class="ltr-grid w-full flex justify-center items-end py-1 px-1 overflow-hidden">
                 ${handHtml}
               </div>
 
-              <!-- کارت مستطیلی مشخصات خود بازیکن + مایک + ری‌اکشن سریع و پیام شفاف -->
               <div class="w-full flex items-center justify-between gap-1 px-1">
                 ${renderPlayerRectCard(bottomSeat)}
 
@@ -1190,7 +1186,7 @@ MINIAPP_TEMPLATE = """<!DOCTYPE html>
       `;
     }
 
-    /* ═══════════ بازی ۲۰۴۸ با اسکرول لمسی (بدون دکمه) و رنگ مجزا برای هر عدد ═══════════ */
+    /* ═══════════ بازی ۲۰۴۸ با اسکرول لمسی و رنگ مجزا برای هر عدد ═══════════ */
     let b2048 = null, s2048 = 0, t2048X = 0, t2048Y = 0;
     const TILE_COLORS_2048 = {
       0:    "bg-white/5 text-transparent border-white/5",
@@ -1263,7 +1259,7 @@ MINIAPP_TEMPLATE = """<!DOCTYPE html>
       }
     }
 
-    /* ═══════════ پازل کشویی با اسکرول لمسی و تپ ═══════════ */
+    /* ═══════════ پازل کشویی با اسکرول لمسی ═══════════ */
     let spz = null, spzX = 0, spzY = 0;
     function initSpz() { spz = [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,0].sort(() => Math.random()-0.5); }
     window.clickSpz = function(i) {
@@ -1305,7 +1301,7 @@ MINIAPP_TEMPLATE = """<!DOCTYPE html>
       }
     }
 
-    /* ═══════════ بازی دوز با دایره‌های رنگی و قابلیت انتخاب رنگ توسط کاربر ═══════════ */
+    /* ═══════════ بازی دوز با دایره‌های رنگی ═══════════ */
     const DOOZ_COLORS = [
       { id: 'rose',   cls: 'bg-rose-500 shadow-[0_0_12px_#f43f5e]',   name: 'قرمز' },
       { id: 'cyan',   cls: 'bg-cyan-400 shadow-[0_0_12px_#22d3ee]',   name: 'آبی نئون' },
@@ -1354,7 +1350,7 @@ MINIAPP_TEMPLATE = """<!DOCTYPE html>
       `;
     }
 
-    /* ═══════════ حدس عدد همگانی گروه (باکس از عدد تا عدد + اشتراک‌گذاری + دور بعد فقط سازنده) ═══════════ */
+    /* ═══════════ حدس عدد همگانی گروه ═══════════ */
     let guessRoomData = null;
     async function callGuessApi(action, extra = {}) {
       try {
@@ -1498,7 +1494,7 @@ MINIAPP_TEMPLATE = """<!DOCTYPE html>
       `;
     }
 
-    /* ═══════════ سایر بازی‌ها (چهار در ردیف، جفت‌ها، حافظه، تایپ، حدس کلمه، گردونه) ═══════════ */
+    /* ═══════════ سایر بازی‌ها ═══════════ */
     let c4B = null, c4Turn = 1, c4Win = 0;
     function initC4() { c4B = Array(6).fill(0).map(()=>Array(7).fill(0)); c4Turn = 1; c4Win = 0; }
     window.dropC4 = function(col) {
@@ -1687,17 +1683,6 @@ MINIAPP_TEMPLATE = """<!DOCTYPE html>
 """
 
 
-@app.get("/api/custom_bg/{bg_name}")
-async def serve_custom_bg(bg_name: str):
-    if bg_name == "hero" and CUSTOM_HERO_FILE.exists():
-        return FileResponse(str(CUSTOM_HERO_FILE))
-    if bg_name == "menu" and CUSTOM_MENU_BG.exists():
-        return FileResponse(str(CUSTOM_MENU_BG))
-    if bg_name == "carpet" and CUSTOM_CARPET_BG.exists():
-        return FileResponse(str(CUSTOM_CARPET_BG))
-    return Response(status_code=404)
-
-
 @app.get("/{full_path:path}")
 async def serve_entry(request: Request, full_path: str):
     from runtime import get_bot_username
@@ -1706,10 +1691,9 @@ async def serve_entry(request: Request, full_path: str):
     base_url = os.environ.get("MINI_APP_URL", "https://games.rhinokaseb.abrdns.com").rstrip("/")
     og_img = f"{base_url}/api/banner/{game}.png"
 
-    # فقط اگر فایل عکس در مخزن گیت‌هاب یا متغیر محیطی وجود داشت ست شود (وگرنه خالی بماند تا بنر PLAY NOW زوم نشود)
     hero_img = os.environ.get("RHINO_HERO_IMAGE", "")
-    if not hero_img:
-        hero_img = f"{base_url}/api/custom_bg/hero" if CUSTOM_HERO_FILE.exists() else ""
+    if not hero_img and CUSTOM_HERO_FILE.exists():
+        hero_img = f"{base_url}/api/custom_bg/hero"
 
     menu_bg = os.environ.get("RHINO_MENU_BG", "")
     if not menu_bg and CUSTOM_MENU_BG.exists():
