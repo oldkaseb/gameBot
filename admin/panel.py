@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""admin/panel.py — دریافت قطعی متن خالی، ایموجی پریمیوم و رسانه در پیوی برای ارسال همگانی مینی‌اپ"""
+"""admin/panel.py — دریافت پیام همگانی در پیوی با حفظ و پیش‌نمایش ۱۰۰٪ واقعی ایموجی‌های پریمیوم و کاستوم"""
 
 import json
 import os
@@ -9,7 +9,7 @@ from aiogram.types import Message, CallbackQuery
 from aiogram.enums import ParseMode, ChatType
 from aiogram.filters import Command, BaseFilter
 
-from emojis import E
+from emojis import E, render_emojis
 from utils.premium import success, danger, kb
 from games.demon_tower import get_dt_config, set_dt_config
 
@@ -19,7 +19,7 @@ MINI_APP_URL = os.environ.get("MINI_APP_URL", "https://games.rhinokaseb.abrdns.c
 
 
 class IsWaitingBroadcastFilter(BaseFilter):
-    """فیلتر اختصاصی که بررسی می‌کند آیا مالک در حالت ارسال پیام همگانی قرار دارد یا خیر"""
+    """بررسی اینکه آیا مالک در حالت ارسال پیام همگانی به پیوی ربات است یا خیر"""
     async def __call__(self, msg: Message) -> bool:
         if not msg.from_user or msg.from_user.id not in OWNER_IDS:
             return False
@@ -36,7 +36,20 @@ def _admin_miniapp_kb(uid: int):
     ])
 
 
-# ۱. هندلر دریافت پیام همگانی در بالاترین اولویت روتر ادمین (هم متن خالی، هم ایموجی پریمیوم، هم عکس و ویدیو)
+def _extract_html_with_custom_emojis(msg: Message) -> str:
+    """
+    استخراج متن یا کپشن پیام به صورت HTML کامل شامل تگ‌های <tg-emoji emoji-id="...">
+    و تبدیل تگ‌های [E:...] به ایموجی پریمیوم تلگرام.
+    """
+    raw_html = getattr(msg, "html_text", None) or msg.text or msg.caption or ""
+    if "[E:" in raw_html:
+        try:
+            raw_html = render_emojis(raw_html)
+        except Exception:
+            pass
+    return raw_html
+
+
 @router.message(IsWaitingBroadcastFilter())
 async def capture_owner_broadcast_message(msg: Message):
     uid = msg.from_user.id
@@ -46,26 +59,55 @@ async def capture_owner_broadcast_message(msg: Message):
         await msg.reply("❌ دریافت پیام همگانی لغو شد.", reply_markup=_admin_miniapp_kb(uid))
         return
 
-    raw_content = msg.text or msg.caption or ""
-    preview_txt = (raw_content or "[رسانه / فایل / استیکر]")[:180]
+    raw_plain = msg.text or msg.caption or ""
+    full_html = _extract_html_with_custom_emojis(msg)
+    has_shortcode = "[E:" in raw_plain
+
+    # شمارش تعداد ایموجی‌های پریمیوم/کاستوم تشخیص‌داده‌شده در پیام
+    all_ents = (msg.entities or []) + (msg.caption_entities or [])
+    custom_emoji_count = sum(1 for ent in all_ents if ent.type == "custom_emoji")
+    if has_shortcode:
+        custom_emoji_count += raw_plain.count("[E:")
+
+    short_summary = (raw_plain or "[رسانه / فایل / استیکر]")[:120]
 
     draft_data = {
         "src_chat_id": msg.chat.id,
         "src_msg_id": msg.message_id,
-        "raw_html": msg.html_text or raw_content,
-        "has_shortcode": ("[E:" in raw_content),
-        "preview": preview_txt,
+        "raw_html": full_html,
+        "has_shortcode": has_shortcode,
+        "custom_emoji_count": custom_emoji_count,
+        "preview": f"{short_summary} ({custom_emoji_count} ایموجی پریمیوم)" if custom_emoji_count else short_summary,
         "saved_at": time.strftime("%H:%M:%S"),
     }
 
     await set_dt_config("bc_draft", json.dumps(draft_data))
     await set_dt_config(f"bc_waiting_{uid}", "0")
 
+    # ۱. ارسال پیش‌نمایش زنده و واقعی با ایموجی‌های پریمیوم در پیوی
+    try:
+        if has_shortcode and msg.text:
+            await msg.bot.send_message(
+                chat_id=msg.chat.id,
+                text=full_html,
+                parse_mode=ParseMode.HTML,
+            )
+        else:
+            await msg.bot.copy_message(
+                chat_id=msg.chat.id,
+                from_chat_id=msg.chat.id,
+                message_id=msg.message_id,
+            )
+    except Exception:
+        pass
+
+    # ۲. ارسال دکمه بازگشت به مینی‌اپ برای تنظیم مقصد، دکمه شیشه‌ای و ارسال نهایی
     admin_url = f"{MINI_APP_URL}/?game=tower_admin&uid={uid}"
     await msg.reply(
-        f"✅ <b>پیام همگانی شما (متن / ایموجی پریمیوم / رسانه) با موفقیت ثبت شد!</b>\n\n"
-        f"📌 پیش‌نمایش: <i>{preview_txt}</i>\n\n"
-        f"حالا روی دکمه زیر بزنید تا در مینی‌اپ مقصد، دکمه شیشه‌ای و <b>ارسال نهایی</b> را انجام دهید:",
+        f"{E.CHECK} <b>پیش‌نمایش واقعی پیام شما در بالا رندر شد!</b>\n"
+        f"{E.SPARK} تعداد ایموجی پریمیوم ثبت‌شده در پیام: <b>{custom_emoji_count} عدد</b>\n\n"
+        f"<i>(توجه: در داخل کادر مینی‌اپ فقط خلاصه متن نمایش داده می‌شود، اما در زمان ارسال همگانی دقیقاً همین پیام پریمیوم بالا برای همه ارسال خواهد شد)</i>\n\n"
+        f"حالا روی دکمه زیر بزنید و از داخل مینی‌اپ ارسال نهایی را انجام دهید:",
         reply_markup=kb([
             [success("👑 بازگشت به مینی‌اپ و ارسال نهایی", web_app_url=admin_url)]
         ]),
