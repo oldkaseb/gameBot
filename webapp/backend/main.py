@@ -1072,6 +1072,14 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
             </div>
 
             <div class="border-t border-white/10 pt-3 space-y-2.5">
+              <h4 class="font-black text-sm text-amber-300 text-center">✨ ارسال همگانی با ایموجی پریمیوم (در پیوی ربات)</h4>
+              <p class="text-[11px] text-slate-300 text-center">برای اینکه ایموجی‌های پریمیوم تلگرام دقیقاً با همان شکل و انیمیشن ارسال شوند، روی دکمه زیر بزنید و پیامتان را در پیوی ربات بفرستید:</p>
+              <button onclick="callTowerAdminApi('bot_trigger_pm_broadcast');setTimeout(()=>tg?.close?.(),900)" class="btn-primary w-full py-3.5 rounded-2xl font-black text-xs border border-amber-400/50">
+                💎 ارسال پیام همگانی در پیوی ربات (حفظ ایموجی پریمیوم)
+              </button>
+            </div>
+
+            <div class="border-t border-white/10 pt-3 space-y-2.5">
               <h4 class="font-black text-sm text-indigo-300 text-center">📢 ارسال پیام همگانی (Broadcast)</h4>
               <select id="bc_target" class="w-full p-2.5 rounded-xl bg-slate-900 border border-white/20 text-white font-bold text-center">
                 <option value="users">👤 ارسال به تمام کاربران (پیوی)</option>
@@ -1434,9 +1442,30 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
         `;
       }
 
-      /* ۷. تب مدیریت کاربران، شارژ برج، مسدودسازی سراسری ربات و ادمین کردن */
+      /* ۷. تب مدیریت کاربران + لیست کامل تمام کاربران با مشخصات کامل */
       else if (admTab === 'users') {
         const u = admLookedUpUser;
+        const allUsers = admState.users_list || [];
+        const usersRowsHtml = allUsers.map((usr, idx) => `
+          <div onclick="callTowerAdminApi('Lookup_user',{target_uid:${usr.user_id}})" class="glass-soft p-3 rounded-2xl flex items-center justify-between gap-2 text-xs cursor-pointer hover:border-amber-400/50 transition">
+            <div class="text-right space-y-0.5 min-w-0">
+              <div class="font-black text-white truncate">
+                ${idx + 1}. ${usr.first_name || 'بدون نام'}
+                ${usr.username ? `<span class="text-sky-300 font-normal">(@${usr.username})</span>` : ''}
+                ${usr.is_bot_admin ? '<span class="text-amber-300">👑</span>' : ''}
+              </div>
+              <div class="text-[10px] text-slate-300 font-mono">
+                ID: ${usr.user_id} | 🌐 ${usr.language || 'fa'} | ⭐ Lvl ${usr.dt_level} | 🏰 طبقه ${usr.dt_floor} | 🪙 ${Number(usr.dt_coins || 0).toLocaleString()}
+              </div>
+              <div class="text-[10px]">
+                ${usr.global_banned ? '<span class="text-rose-400 font-bold">⛔ بن از ربات</span> ' : '<span class="text-emerald-400">🟢 فعال</span> '}
+                ${usr.dt_banned ? '<span class="text-rose-400 font-bold">| 🚫 بن از برج</span>' : ''}
+              </div>
+            </div>
+            <button class="btn-primary px-2.5 py-1.5 rounded-xl text-[10px] font-black shrink-0">مدیریت ◀</button>
+          </div>
+        `).join('');
+
         sectionHtml = `
           <div class="glass-panel p-4 rounded-3xl space-y-3 text-xs">
             <div class="flex justify-between items-center glass-soft p-3 rounded-2xl">
@@ -1446,20 +1475,20 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
               </button>
             </div>
 
-            <h3 class="font-black text-sm text-amber-300 text-center pt-1">🔍 جستجو، شارژ و مدیریت کاربر در کل ربات</h3>
+            <h3 class="font-black text-sm text-amber-300 text-center pt-1">🔍 جستجو، شارژ و مدیریت کاربر</h3>
             <div class="flex gap-2">
               <input id="au_uid" type="number" value="${u ? u.user_id : ''}" placeholder="آیدی عددی کاربر..." class="flex-1 p-2.5 rounded-xl glass-soft text-center font-black text-white" />
               <button onclick="callTowerAdminApi('Lookup_user',{target_uid:Number(document.getElementById('au_uid').value)})" class="btn-primary px-4 rounded-xl font-black">جستجو</button>
             </div>
 
             ${u ? `
-              <div class="glass-soft p-3 rounded-2xl space-y-1.5 border border-amber-400/40">
-                <div class="flex justify-between"><span>کاربر:</span><b>${u.first_name || ''} (${u.user_id})</b></div>
-                <div class="flex justify-between"><span>لول / XP برج:</span><b class="text-purple-300">Lvl ${u.level} (${u.xp} XP)</b></div>
+              <div class="glass-soft p-3 rounded-2xl space-y-1.5 border-2 border-amber-400">
+                <div class="flex justify-between"><span>نام و یوزرنیم:</span><b>${u.first_name || '—'} ${u.username ? '(@'+u.username+')' : ''}</b></div>
+                <div class="flex justify-between"><span>آیدی عددی:</span><b class="font-mono text-amber-200">${u.user_id}</b></div>
+                <div class="flex justify-between"><span>کاراکتر / لول برج:</span><b class="text-purple-300">${u.gender || 'ندارد'} | Lvl ${u.level} (${u.xp} XP)</b></div>
                 <div class="flex justify-between"><span>موجودی کیف / بانک:</span><b class="text-amber-300">${u.coins.toLocaleString()} 🪙 / ${u.bank_coins.toLocaleString()} 🏦</b></div>
-                <div class="flex justify-between"><span>طبقه / انسانیت:</span><b>طبقه ${u.current_floor} | ${u.humanity}% 🧠</b></div>
-                <div class="flex justify-between"><span>وضعیت در برج:</span><b class="${u.is_banned ? 'text-rose-400' : 'text-emerald-400'}">${u.is_banned ? '🚫 مسدود در برج' : '🟢 آزاد در برج'}</b></div>
-                <div class="flex justify-between"><span>وضعیت در کل ربات:</span><b class="${u.global_banned ? 'text-rose-400' : 'text-emerald-400'}">${u.global_banned ? '⛔ بن سراسری' : '🟢 فعال'}</b></div>
+                <div class="flex justify-between"><span>طبقه / جان / انسانیت:</span><b>طبقه ${u.current_floor} | ❤️${u.hp}/${u.max_hp} | 🧠${u.humanity}%</b></div>
+                <div class="flex justify-between"><span>وضعیت در برج / ربات:</span><b class="${(u.is_banned || u.global_banned) ? 'text-rose-400' : 'text-emerald-400'}">${u.is_banned ? '🚫 بن برج' : '🟢 آزاد برج'} | ${u.global_banned ? '⛔ بن ربات' : '🟢 فعال ربات'}</b></div>
 
                 <div class="grid grid-cols-2 gap-2 pt-2 border-t border-white/10">
                   <input id="au_addc" type="number" placeholder="سکه اهدایی (+)" class="p-2 rounded-xl bg-slate-900 text-center text-white font-bold" />
@@ -1473,6 +1502,11 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
                 </div>
               </div>
             ` : ''}
+          </div>
+
+          <div class="glass-panel p-4 rounded-3xl space-y-2.5 mt-3">
+            <h4 class="text-xs font-black text-indigo-300 text-center">📋 لیست کامل کاربران ربات (${allUsers.length} نفر — برای مدیریت روی کاربر بزنید)</h4>
+            <div class="flex flex-col gap-2 max-h-96 overflow-y-auto">${usersRowsHtml || '<div class="text-center text-xs text-slate-400">کاربری یافت نشد.</div>'}</div>
           </div>
         `;
       }
