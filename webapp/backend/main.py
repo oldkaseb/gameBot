@@ -673,7 +673,7 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
         },
         games: {
           wip1: "شکارچی سیاه‌چال", wip2: "هک گاوصندوق", wip3: "برج شیاطین", wip3Sub: "RPG • طبقات و غول‌ها",
-          hokm: "حکم ۴", hokmSub: "۴ نفره • فرش ایرانی",
+          hokm: "حکم ۴", hokmSub: "۴ نفره •",
           hokm2p: "حکم ۲", hokm2pSub: "۲ نفره • تک‌به‌تک",
           dooz: "دوز ۲", doozSub: "۲ نفره • حلقه رنگی",
           doz4p: "دوز ۴", doz4pSub: "۴ نفره • حلقه رنگی",
