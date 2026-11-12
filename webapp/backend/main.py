@@ -168,6 +168,7 @@ class TowerActionPayload(BaseModel):
     name: str = "Player"
     lang: str = "fa"
     action: str = "state"
+    move: str | None = None
     gender: str | None = None
     item_id: int | None = None
     weapon_id: int | None = None
