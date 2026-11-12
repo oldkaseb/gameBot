@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""webapp/backend/main.py — سرور کامل گیم باکس راینو (رفع قطعی SyntaxError جاوااسکریپت + لود مستقیم PNGهای گیت‌هاب)"""
+"""webapp/backend/main.py — رفع کامل بسته شدن کیبورد هنگام تایپ و رفع کرش اشتراک‌گذاری لینک میز بازی"""
 
 import io
 import json
@@ -28,7 +28,6 @@ app.add_middleware(
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 FONT_PATH = BASE_DIR / "Vazirmatn-SemiBold.ttf"
 
-# مسیر دقیق فایل‌های PNG آپلودشده در ریشه گیت‌هاب شما
 CUSTOM_HERO_FILE = BASE_DIR / "rhino_banner.png"
 CUSTOM_MENU_BG = BASE_DIR / "menu_bg.png"
 CUSTOM_CARPET_BG = BASE_DIR / "hokm_carpet.png"
@@ -94,7 +93,6 @@ def generate_game_banner(game_key: str) -> bytes:
 
 @app.get("/api/custom_bg/{bg_name}")
 async def serve_custom_bg(bg_name: str):
-    """سرو کردن مستقیم تصاویر PNG آپلودشده در ریشه گیت‌هاب"""
     if bg_name == "hero" and CUSTOM_HERO_FILE.exists():
         return FileResponse(str(CUSTOM_HERO_FILE), media_type="image/png")
     if bg_name == "menu" and CUSTOM_MENU_BG.exists():
@@ -370,7 +368,6 @@ async def get_gardone_data(chat_id: int):
     return {"ok": True, "names": names, "winners": winners, "host": g.get("host_name", "")}
 
 
-# استفاده از r""" (Raw String) تا کاراکترهای \n در جاوااسکریپت نشکنند و صفحه سفید نشود
 MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
 <html lang="fa" dir="rtl">
 <head>
@@ -387,7 +384,7 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
     * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
     html, body {
       width: 100vw;
-      height: 100dvh;
+      height: 100vh;
       margin: 0;
       padding: 0;
       overflow: hidden;
@@ -400,11 +397,14 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
       background-position: center;
       color: #fff;
       font-family: system-ui, -apple-system, sans-serif;
-      user-select: none;
+    }
+    input, textarea {
+      user-select: text !important;
+      -webkit-user-select: text !important;
     }
     #app {
       width: 100vw;
-      height: 100dvh;
+      height: 100vh;
       padding-top: calc(env(safe-area-inset-top, 14px) + 38px);
       padding-bottom: env(safe-area-inset-bottom, 8px);
       display: flex;
@@ -497,11 +497,10 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
   <div id="app"></div>
 
   <script>
+    /* جلوگیری از کرش صفحه در صورت خطاهای جزئی مرورگر یا متدهای تلگرام */
     window.onerror = function(msg, url, line) {
-      const root = document.getElementById('app');
-      if (root) {
-        root.innerHTML = `<div class="p-6 text-center"><div class="glass-panel p-4 rounded-2xl text-xs text-rose-300">Error: ${msg} (Line ${line})</div></div>`;
-      }
+      console.warn("MiniApp non-fatal error:", msg, line);
+      return true;
     };
 
     const tg = window.Telegram?.WebApp;
@@ -510,8 +509,15 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
       tg.expand();
     }
 
+    /* بررسی اینکه آیا کاربر در حال تایپ در یک input است تا تایمرها کیبورد را نبندند */
+    function isUserTyping() {
+      const el = document.activeElement;
+      return el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA');
+    }
+
     const HERO_CUSTOM_IMG = "__HERO_IMAGE__";
     const BOT_USERNAME = "__BOT_USERNAME__";
+    const SHORT_NAME = "__SHORT_NAME__";
     const params = new URLSearchParams(window.location.search);
     const startParam = tg?.initDataUnsafe?.start_param || params.get('startapp') || params.get('tgWebAppStartParam') || '';
     let parsedGame = params.get('game') || '';
@@ -778,7 +784,7 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
       `;
     }
 
-    /* ═══════════ درگاه ۳ گزینه‌ای بازی‌های لابی‌دار ═══════════ */
+    /* ═══════════ درگاه ۳ گزینه‌ای بازی‌های لابی‌دار و اشتراک‌گذاری ضدکرش ═══════════ */
     window.setRpsTargetAndContinue = function(n) {
       lobbyState.rpsTargetWins = n;
       lobbyState.step = 'options';
@@ -826,13 +832,34 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
       } catch (e) {}
     };
 
+    /* تابع اشتراک‌گذاری مستقیم میز بازی بدون کرش در تمام حالت‌های تلگرام */
     window.shareTableInline = function(gameType, extraStr = '') {
-      const q = `share_${gameType}__${parsedChat}__${extraStr}`;
-      if (tg && tg.switchInlineQuery) {
-        tg.switchInlineQuery(q, ['users', 'groups', 'supergroups']);
-      } else {
-        window.open(`https://t.me/${BOT_USERNAME}?startgroup=true`, '_blank');
+      const startParamStr = `${gameType}__${parsedChat}__${lang}`;
+      const directTableUrl = `https://t.me/${BOT_USERNAME}/${SHORT_NAME}?startapp=${startParamStr}`;
+      const gameNames = {
+        hokm: "میز حکم ۴ نفره راینو",
+        hokm2p: "میز حکم ۲ نفره راینو",
+        dooz: "میز دوز ۲ نفره",
+        doz4p: "میز دوز ۴ نفره",
+        connect4: "میز چهار در یک ردیف",
+        rps: `میز سنگ کاغذ قیچی (تا ${extraStr || 3} برد)`,
+        memory: "میز مسابقه حافظه",
+        guess: `مسابقه حدس عدد همگانی (${extraStr || '1-100'})`
+      };
+      const gTitle = gameNames[gameType] || "میز بازی گیم باکس راینو";
+      const shareText = `🎮 دعوت به ${gTitle}\n👤 میزبان: ${myName}\n👇 برای ورود مستقیم به میز بازی روی لینک زیر بزنید:`;
+      const shareUrl = `https://t.me/share/url?url=${encodeURIComponent(directTableUrl)}&text=${encodeURIComponent(shareText)}`;
+
+      try {
+        if (tg && typeof tg.openTelegramLink === 'function') {
+          tg.openTelegramLink(shareUrl);
+          return;
+        }
+      } catch (err) {
+        console.warn("openTelegramLink fallback:", err);
       }
+
+      window.open(shareUrl, '_blank');
     };
 
     function renderLobbyGate(root) {
@@ -898,13 +925,15 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
       `;
     }
 
-    /* ═══════════ میز حکم واقعی روی فرش قرمز ایرانی ═══════════ */
+    /* ═══════════ میز حکم واقعی روی فرش قرمز ایرانی (با محافظت از کیبورد هنگام تایپ) ═══════════ */
     let hokmMode = '4p';
     let hokmError = '';
     let myMicActive = false;
     let localAudioStream = null;
 
     async function callHokmApi(action, extra = {}) {
+      /* اگر کاربر در حال تایپ پیام در باکس چت است، رفرش خودکار را رد کن تا کیبورد بسته نشود */
+      if (action === 'state' && isUserTyping()) return;
       try {
         const res = await fetch('/api/hokm/action', {
           method: 'POST',
@@ -927,7 +956,9 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
         } else if (action !== 'state') {
           hokmError = '';
         }
-        if (data.state) drawHokmTable(data.state);
+        if (data.state && !(action === 'state' && isUserTyping())) {
+          drawHokmTable(data.state);
+        }
       } catch (e) {}
     }
 
@@ -940,8 +971,10 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
     window.hokmSendCustomChat = function() {
       const inp = document.getElementById('hokmChatInp');
       if (inp && inp.value.trim()) {
-        callHokmApi('chat', { text: inp.value.trim() });
+        const msgText = inp.value.trim();
         inp.value = '';
+        inp.blur();
+        callHokmApi('chat', { text: msgText });
       }
     };
     window.hokmToggleMic = async function() {
@@ -964,7 +997,7 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
       root.innerHTML = `<div class="p-4 flex-1 flex items-center justify-center"><div class="glass-panel p-6 rounded-3xl font-bold">در حال چیدن فرش حکم...</div></div>`;
       callHokmApi('join');
       if (hokmPollTimer) clearInterval(hokmPollTimer);
-      hokmPollTimer = setInterval(() => callHokmApi('state'), 1000);
+      hokmPollTimer = setInterval(() => callHokmApi('state'), 1200);
     }
 
     function renderRealFaceDownTricks(count) {
@@ -1177,7 +1210,7 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
               </div>
 
               <div class="w-full flex gap-1 px-1">
-                <input id="hokmChatInp" type="text" maxlength="40" placeholder="پیام شفاف بالای اسم..." class="flex-1 px-2.5 py-1 rounded-xl glass-soft text-white text-[11px]" />
+                <input id="hokmChatInp" type="text" maxlength="40" placeholder="پیام شفاف بالای اسم..." onkeydown="if(event.key==='Enter')hokmSendCustomChat()" class="flex-1 px-2.5 py-1 rounded-xl glass-soft text-white text-[11px]" />
                 <button onclick="hokmSendCustomChat()" class="btn-primary px-3 py-1 rounded-xl text-[11px] font-bold">ارسال</button>
               </div>
             </div>
@@ -1350,9 +1383,10 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
       `;
     }
 
-    /* ═══════════ حدس عدد همگانی گروه ═══════════ */
+    /* ═══════════ حدس عدد همگانی گروه (با محافظت از کیبورد هنگام تایپ) ═══════════ */
     let guessRoomData = null;
     async function callGuessApi(action, extra = {}) {
+      if (action === 'state' && isUserTyping()) return;
       try {
         const res = await fetch('/api/guess/action', {
           method: 'POST',
@@ -1367,7 +1401,7 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
         });
         const data = await res.json();
         if (data.ok === false && data.error && tg?.showAlert) tg.showAlert(data.error);
-        if (data.room) {
+        if (data.room && !(action === 'state' && isUserTyping())) {
           guessRoomData = data.room;
           drawGuessRoom(document.getElementById('app'));
         }
@@ -1379,11 +1413,16 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
       const hi = Number(document.getElementById('gMaxInp')?.value || 500);
       callGuessApi('create', { min_val: lo, max_val: hi });
       if (guessPollTimer) clearInterval(guessPollTimer);
-      guessPollTimer = setInterval(() => callGuessApi('state'), 2000);
+      guessPollTimer = setInterval(() => callGuessApi('state'), 2500);
     };
     window.sendGroupGuessVal = function() {
-      const v = Number(document.getElementById('gValInp')?.value);
-      if (!isNaN(v)) callGuessApi('guess', { guess_val: v });
+      const inp = document.getElementById('gValInp');
+      const v = Number(inp?.value);
+      if (inp && inp.value.trim() !== '' && !isNaN(v)) {
+        inp.value = '';
+        inp.blur();
+        callGuessApi('guess', { guess_val: v });
+      }
     };
     window.restartGroupGuess = function() {
       callGuessApi('restart');
@@ -1441,7 +1480,7 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
               </div>
             ` : `
               <div class="flex gap-2 my-2">
-                <input id="gValInp" type="number" placeholder="حدس شما..." class="flex-1 p-3 rounded-xl glass-soft text-center font-black text-lg text-white" />
+                <input id="gValInp" type="number" placeholder="حدس شما..." onkeydown="if(event.key==='Enter')sendGroupGuessVal()" class="flex-1 p-3 rounded-xl glass-soft text-center font-black text-lg text-white" />
                 <button onclick="sendGroupGuessVal()" class="btn-success px-5 rounded-xl font-black">ثبت</button>
               </div>
             `}
@@ -1689,6 +1728,7 @@ async def serve_entry(request: Request, full_path: str):
     game = request.query_params.get("game") or "hub"
     meta = GAME_META.get(game, GAME_META["hub"])
     base_url = os.environ.get("MINI_APP_URL", "https://games.rhinokaseb.abrdns.com").rstrip("/")
+    short_name = os.environ.get("MINI_APP_SHORT_NAME", "RhinoGamesApp").strip() or "RhinoGamesApp"
     og_img = f"{base_url}/api/banner/{game}.png"
 
     hero_img = os.environ.get("RHINO_HERO_IMAGE", "")
@@ -1711,5 +1751,6 @@ async def serve_entry(request: Request, full_path: str):
         .replace("__MENU_BG__", f"url('{menu_bg}')," if menu_bg else "")
         .replace("__CARPET_BG__", f"url('{carpet_bg}')," if carpet_bg else "")
         .replace("__BOT_USERNAME__", get_bot_username())
+        .replace("__SHORT_NAME__", short_name)
     )
     return HTMLResponse(content=html_content, status_code=200)
