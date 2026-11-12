@@ -1000,6 +1000,27 @@ async def handle_tower_admin_api(payload: dict) -> dict:
                 await temp_bot.session.close()
         return {"ok": True, "msg": f"🔗 لینک ورود به گروه:\n{invite_link}", "invite_link": invite_link, "admin_data": await _collect_admin_state()}
 
+    elif action == "bot_trigger_pm_broadcast":
+        bot_token = os.environ.get("BOT_TOKEN", "")
+        if bot_token:
+            temp_bot = Bot(token=bot_token)
+            try:
+                await temp_bot.send_message(
+                    chat_id=uid,
+                    text=(
+                        "✨ <b>ارسال همگانی با پشتیبانی ۱۰۰٪ از ایموجی پریمیوم</b>\n\n"
+                        "مقصد ارسال همگانی را انتخاب کنید و سپس پیام حاوی ایموجی پریمیوم خود را در همین پیوی بفرستید:"
+                    ),
+                    reply_markup=kb([
+                        [primary("👤 ارسال به تمام کاربران (پیوی)", "adm:bc_users")],
+                        [primary("👥 ارسال به تمام گروه‌ها", "adm:bc_groups")],
+                    ]),
+                    parse_mode=ParseMode.HTML,
+                )
+            finally:
+                await temp_bot.session.close()
+        return {"ok": True, "msg": "📩 پیام شروع ارسال همگانی به پیوی شما ارسال شد! مینی‌اپ را ببندید و پیام پریمیوم خود را در پیوی بفرستید.", "admin_data": await _collect_admin_state()}
+        
     elif action == "bot_broadcast":
         target_type = str(payload.get("target_type") or "users")
         text = str(payload.get("text") or "").strip()
@@ -1034,6 +1055,7 @@ async def handle_tower_admin_api(payload: dict) -> dict:
                 await temp_bot.session.close()
         msg_out = f"📢 ارسال همگانی به پایان رسید!\n✅ موفق: {sent_ok} | ❌ ناموفق: {sent_fail}"
 
+    
     # ─── ۲. مدیریت برج شیاطین (طبقات، تجهیزات، کاراکتر، ووچرها، پاپ‌آپ، کد هدیه) ───
     elif action == "toggle_dev":
         cur = await get_dt_config("dev_mode", "0")
