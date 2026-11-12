@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""webapp/backend/main.py — مینی‌اپ گیم باکس راینو + برج شیاطین + پنل مینی‌اپی مخفی فرماندهی کل ربات با آپلود مستقیم عکس"""
+"""webapp/backend/main.py — مینی‌اپ گیم باکس راینو + برج شیاطین + پنل مینی‌اپی مخفی فرماندهی کل ربات با ارسال همگانی هیبریدی"""
 
 import io
 import json
@@ -1058,9 +1058,11 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
 
       let sectionHtml = '';
 
-      /* ۰-الف. تب آمار کل ربات و ارسال همگانی */
+      /* ۰-الف. تب آمار کل ربات و ارسال همگانی هیبریدی (دریافت متن در پیوی + تنظیمات و ارسال نهایی در مینی‌اپ) */
       if (admTab === 'bot_stats') {
         const st = admState.bot_stats || {};
+        const draft = admState.bc_draft || null;
+
         sectionHtml = `
           <div class="glass-panel p-4 rounded-3xl space-y-3 text-xs">
             <h3 class="font-black text-sm text-amber-300 text-center">📊 آمار زنده کل ربات راینو</h3>
@@ -1072,27 +1074,43 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
             </div>
 
             <div class="border-t border-white/10 pt-3 space-y-2.5">
-              <h4 class="font-black text-sm text-amber-300 text-center">✨ ارسال همگانی با ایموجی پریمیوم (در پیوی ربات)</h4>
-              <p class="text-[11px] text-slate-300 text-center">برای اینکه ایموجی‌های پریمیوم تلگرام دقیقاً با همان شکل و انیمیشن ارسال شوند، روی دکمه زیر بزنید و پیامتان را در پیوی ربات بفرستید:</p>
-              <button onclick="callTowerAdminApi('bot_trigger_pm_broadcast');setTimeout(()=>tg?.close?.(),900)" class="btn-primary w-full py-3.5 rounded-2xl font-black text-xs border border-amber-400/50">
-                💎 ارسال پیام همگانی در پیوی ربات (حفظ ایموجی پریمیوم)
-              </button>
-            </div>
+              <h4 class="font-black text-sm text-indigo-300 text-center">📢 ارسال پیام همگانی (با حفظ ایموجی پریمیوم)</h4>
 
-            <div class="border-t border-white/10 pt-3 space-y-2.5">
-              <h4 class="font-black text-sm text-indigo-300 text-center">📢 ارسال پیام همگانی (Broadcast)</h4>
-              <select id="bc_target" class="w-full p-2.5 rounded-xl bg-slate-900 border border-white/20 text-white font-bold text-center">
-                <option value="users">👤 ارسال به تمام کاربران (پیوی)</option>
-                <option value="groups">👥 ارسال به تمام گروه‌ها</option>
-              </select>
-              <textarea id="bc_text" rows="3" placeholder="متن پیام همگانی را بنویسید (پشتیبانی از تگ‌های HTML)..." class="w-full p-2.5 rounded-xl glass-soft text-white"></textarea>
-              <div class="grid grid-cols-2 gap-2">
-                <input id="bc_btxt" type="text" placeholder="متن دکمه شیشه‌ای (اختیاری)" class="p-2 rounded-xl glass-soft text-white text-center" />
-                <input id="bc_burl" type="text" placeholder="لینک دکمه (https://...)" class="p-2 rounded-xl glass-soft text-white text-center" />
+              <!-- مرحله ۱: دکمه ارسال پیام به پیوی ربات به جای باکس تکست -->
+              <div class="glass-soft p-3 rounded-2xl text-center space-y-2 border ${draft ? 'border-emerald-400/50' : 'border-amber-400/40'}">
+                ${draft ? `
+                  <div class="text-emerald-300 font-black text-xs">✅ پیام همگانی شما در پیوی دریافت و آماده ارسال است!</div>
+                  <div class="p-2 rounded-xl bg-black/40 text-slate-200 text-[11px] truncate">«${draft.preview}» (ثبت در ${draft.saved_at})</div>
+                  <div class="grid grid-cols-2 gap-2 pt-1">
+                    <button onclick="callTowerAdminApi('bot_arm_bc_capture');setTimeout(()=>tg?.close?.(),700)" class="btn-primary py-2 rounded-xl font-bold text-[11px]">🔄 تغییر پیام در پیوی</button>
+                    <button onclick="callTowerAdminApi('bot_clear_bc_draft')" class="btn-danger py-2 rounded-xl font-bold text-[11px]">🗑️ پاک کردن پیام</button>
+                  </div>
+                ` : `
+                  <div class="text-amber-200 font-bold text-[11px]">هنوز پیامی برای ارسال همگانی ثبت نشده است:</div>
+                  <button onclick="callTowerAdminApi('bot_arm_bc_capture');setTimeout(()=>tg?.close?.(),700)" class="btn-primary w-full py-3.5 rounded-2xl font-black text-xs border border-amber-400/50">
+                    📝 ثبت پیام همگانی در پیوی ربات (با ایموجی پریمیوم)
+                  </button>
+                `}
               </div>
-              <button onclick="callTowerAdminApi('bot_broadcast',{target_type:document.getElementById('bc_target').value,text:document.getElementById('bc_text').value,btn_text:document.getElementById('bc_btxt').value,btn_url:document.getElementById('bc_burl').value})" class="btn-success w-full py-3.5 rounded-2xl font-black text-sm">
-                🚀 شروع ارسال همگانی
-              </button>
+
+              <!-- مرحله ۲: تنظیمات مقصد، دکمه شیشه‌ای و ارسال نهایی از داخل مینی‌اپ -->
+              <div class="space-y-2 pt-1">
+                <label class="block text-[11px] text-slate-300 font-bold">۱. انتخاب مقصد ارسال:</label>
+                <select id="bc_target" class="w-full p-2.5 rounded-xl bg-slate-900 border border-white/20 text-white font-bold text-center">
+                  <option value="users">👤 ارسال به تمام کاربران (پیوی)</option>
+                  <option value="groups">👥 ارسال به تمام گروه‌ها</option>
+                </select>
+
+                <label class="block text-[11px] text-slate-300 font-bold">۲. دکمه شیشه‌ای زیر پیام (اختیاری):</label>
+                <div class="grid grid-cols-2 gap-2">
+                  <input id="bc_btxt" type="text" placeholder="متن دکمه شیشه‌ای" class="p-2.5 rounded-xl glass-soft text-white text-center" />
+                  <input id="bc_burl" type="text" placeholder="لینک (https://...)" class="p-2.5 rounded-xl glass-soft text-white text-center" />
+                </div>
+
+                <button onclick="callTowerAdminApi('bot_broadcast',{target_type:document.getElementById('bc_target').value,btn_text:document.getElementById('bc_btxt').value,btn_url:document.getElementById('bc_burl').value})" ${!draft ? 'disabled' : ''} class="${draft ? 'btn-success' : 'bg-slate-800 opacity-50'} w-full py-4 rounded-2xl font-black text-sm mt-2">
+                  🚀 شروع ارسال همگانی نهایی
+                </button>
+              </div>
             </div>
           </div>
         `;
