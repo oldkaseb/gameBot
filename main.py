@@ -346,12 +346,12 @@ async def main():
     me = await bot.get_me()
     set_bot_username(me.username or "RhinoGamesBot")
     log.info(f"Bot connected: @{get_bot_username()}")
-
+    
+    dp.include_router(admin_router)
     register_all_games(dp)
     dp.include_router(anon_router)
     dp.include_router(stop_router)
     dp.include_router(inline_games_router)
-    dp.include_router(admin_router)
     dp.include_router(persian_cmd_router)
 
     forced = ForcedJoinMiddleware(bot)
