@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""webapp/backend/game_logic/hokm.py — موتور واقعی حکم ۲ و ۴ نفره با اجرای گام‌به‌گام نوبت‌ها"""
+"""webapp/backend/game_logic/hokm.py — موتور کامل حکم با تایمر ۱۲۰ ثانیه‌ای، چت/ری‌اکشن شفاف، چینش تیم و هوش مصنوعی"""
 
 import random
 import time
@@ -7,8 +7,8 @@ import time
 SUITS = {"S": "♠️", "H": "♥️", "D": "♦️", "C": "♣️"}
 SUIT_NAMES_FA = {"S": "پیک ♠️", "H": "دل ♥️", "D": "خشت ♦️", "C": "گشنیز ♣️"}
 RANK_DISPLAY = {11: "J", 12: "Q", 13: "K", 14: "A"}
-# ترتیب مرتب‌سازی دست: گشنیز، خشت، پیک، دل
 SUIT_ORDER = {"C": 0, "D": 1, "S": 2, "H": 3}
+TURN_TIMEOUT_SEC = 120  # ۲ دقیقه مهلت بازی هر کارت
 
 
 def create_deck() -> list[str]:
@@ -47,58 +47,99 @@ class HokmGame:
         self.session_id = session_id
         self.mode = "2p" if "2p" in str(mode).lower() else "4p"
         self.max_players = 2 if self.mode == "2p" else 4
-        self.status = "joining"  # joining | hakem_choosing | playing | trick_pause | finished
-        self.players: list[dict] = []  # [{"id": int, "name": str, "is_bot": bool}]
+        self.status = "joining"
+        self.host_id: int | None = None
+        self.players: list[dict] = []  # [{"id", "name", "username", "photo", "is_bot", "mic_on"}]
         self.hands: dict[int, list[str]] = {}
         self.deck: list[str] = []
         self.hakem_id: int | None = None
         self.hakem_name: str = ""
         self.turn_index: int = 0
+        self.turn_started_at: float = time.time()
         self.hokm_suit: str | None = None
-        self.current_trick: list[dict] = []  # [{"player_id": int, "seat_idx": int, "name": str, "card": str}]
+        self.current_trick: list[dict] = []
         self.last_trick_winner: str = ""
         self.last_winner_id: int | None = None
         self.trick_scores: dict = {}
         self.game_scores: dict = {}
         self.winner_display: str = ""
+        self.bubbles: dict[int, dict] = {}  # {uid: {"text": str, "expires": float}}
         self.updated_at = time.time()
 
         if initial_players:
             for p in initial_players:
-                self.join(int(p["id"]), p.get("name") or f"Player {p['id']}")
+                self.join(int(p["id"]), p.get("name") or "Player", p.get("username") or "", p.get("photo") or "")
 
-    def join(self, user_id: int, name: str = "بازیکن", is_bot: bool = False) -> bool:
+    def join(self, user_id: int, name: str = "بازیکن", username: str = "", photo: str = "", is_bot: bool = False) -> bool:
         user_id = int(user_id)
+        if self.host_id is None and not is_bot and user_id > 0:
+            self.host_id = user_id
+
         for p in self.players:
             if p["id"] == user_id:
                 if name and not is_bot:
                     p["name"] = name
+                if username:
+                    p["username"] = username
+                if photo:
+                    p["photo"] = photo
                 return True
 
         if len(self.players) >= self.max_players:
             return False
 
-        self.players.append({"id": user_id, "name": name or f"بازیکن {len(self.players)+1}", "is_bot": is_bot})
+        self.players.append({
+            "id": user_id,
+            "name": name or f"بازیکن {len(self.players)+1}",
+            "username": username,
+            "photo": photo,
+            "is_bot": is_bot,
+            "mic_on": False,
+        })
         self.hands[user_id] = []
-
-        if len(self.players) == self.max_players and self.status == "joining":
-            self.start_first_deal()
         return True
 
-    def fill_with_bots(self):
-        if self.mode == "4p":
-            # چیدمان صندلی‌ها: 0=کاربر، 1=حریف راست، 2=یار روبه‌رو، 3=حریف چپ
-            bot_names = ["حریف راست", "یار خودی", "حریف چپ"]
-        else:
-            bot_names = ["حریف روبه‌رو"]
+    def swap_seats(self, requester_id: int, idx1: int, idx2: int) -> dict:
+        """قابلیت تغییر هم‌تیمی‌ها توسط سازنده بازی قبل از شروع"""
+        if self.status != "joining":
+            return {"ok": False, "error": "فقط قبل از شروع بازی می‌توانید تیم‌ها را تغییر دهید."}
+        if self.host_id and int(requester_id) != int(self.host_id):
+            return {"ok": False, "error": "فقط سازنده میز می‌تواند یارها را جابه‌جا کند."}
+        if 0 <= idx1 < len(self.players) and 0 <= idx2 < len(self.players):
+            self.players[idx1], self.players[idx2] = self.players[idx2], self.players[idx1]
+        return {"ok": True}
 
+    def start_match(self, fill_bots: bool = True) -> dict:
+        if fill_bots and len(self.players) < self.max_players:
+            self.fill_with_bots()
+        if len(self.players) < self.max_players:
+            return {"ok": False, "error": "تعداد بازیکنان هنوز کامل نیست!"}
+        if self.status == "joining":
+            self.start_first_deal()
+        return {"ok": True}
+
+    def fill_with_bots(self):
+        bot_names = ["هوش مصنوعی ۱", "یار هوشمند", "هوش مصنوعی ۲"] if self.mode == "4p" else ["حریف هوشمند"]
         idx = 0
         while len(self.players) < self.max_players:
             bot_id = -(idx + 1)
             seat_num = len(self.players)
-            bname = bot_names[seat_num - 1] if seat_num - 1 < len(bot_names) else f"بازیکن {seat_num+1}"
-            self.join(bot_id, bname, is_bot=True)
+            bname = bot_names[seat_num - 1] if seat_num - 1 < len(bot_names) else f"ربات {seat_num}"
+            self.join(bot_id, bname, username="RhinoAI", is_bot=True)
             idx += 1
+        if len(self.players) == self.max_players and self.status == "joining":
+            self.start_first_deal()
+
+    def post_bubble(self, user_id: int, text: str):
+        """ارسال پیام یا ری‌اکشن سریع که بالای کارت بازیکن به صورت شفاف ظاهر می‌شود"""
+        clean = (text or "").strip()[:45]
+        if clean:
+            self.bubbles[int(user_id)] = {"text": clean, "expires": time.time() + 5.5}
+
+    def toggle_mic(self, user_id: int, mic_state: bool):
+        for p in self.players:
+            if p["id"] == int(user_id):
+                p["mic_on"] = bool(mic_state)
 
     def start_first_deal(self, keep_game_scores: bool = False, next_hakem_idx: int | None = None):
         self.deck = create_deck()
@@ -126,6 +167,7 @@ class HokmGame:
         self.hakem_id = hakem["id"]
         self.hakem_name = hakem["name"]
         self.turn_index = next(i for i, p in enumerate(self.players) if p["id"] == self.hakem_id)
+        self.turn_started_at = time.time()
 
         if self.mode == "4p":
             self.trick_scores = {"A": 0, "B": 0}
@@ -163,9 +205,37 @@ class HokmGame:
 
         self.status = "playing"
         self.turn_index = next(i for i, p in enumerate(self.players) if p["id"] == self.hakem_id)
+        self.turn_started_at = time.time()
         self.current_trick = []
         self.updated_at = time.time()
         return {"ok": True}
+
+    def _pick_best_card_for_player(self, pid: int) -> str | None:
+        b_hand = self.hands.get(pid, [])
+        if not b_hand:
+            return None
+        valid_cards = b_hand
+        if self.current_trick:
+            ts = self.current_trick[0]["card"][0]
+            follow = [c for c in b_hand if c.startswith(ts)]
+            if follow:
+                valid_cards = follow
+
+        if self.current_trick:
+            ts = self.current_trick[0]["card"][0]
+            best_so_far = max(self.current_trick, key=lambda x: card_value(x["card"], self.hokm_suit or "S", ts))
+            p_seat = next((i for i, p in enumerate(self.players) if p["id"] == pid), 0)
+            is_partner_winning = (self.mode == "4p" and (best_so_far["seat_idx"] % 2 == p_seat % 2))
+            if is_partner_winning:
+                return min(valid_cards, key=lambda c: card_value(c, self.hokm_suit or "S", ts))
+            winning_options = [
+                c for c in valid_cards
+                if card_value(c, self.hokm_suit or "S", ts) > card_value(best_so_far["card"], self.hokm_suit or "S", ts)
+            ]
+            if winning_options:
+                return min(winning_options, key=lambda c: card_value(c, self.hokm_suit or "S", ts))
+            return min(valid_cards, key=lambda c: card_value(c, self.hokm_suit or "S", ts))
+        return max(valid_cards, key=lambda c: int(c[1:]))
 
     def play_card(self, user_id: int, card_code: str) -> dict:
         user_id = int(user_id)
@@ -204,61 +274,42 @@ class HokmGame:
 
         if len(self.current_trick) < self.max_players:
             self.turn_index = (self.turn_index + 1) % self.max_players
+            self.turn_started_at = time.time()
             return {"ok": True}
 
-        # تمام بازیکنان کارت انداختند -> مکث روی فرش برای دیده شدن کارت‌ها
         self._evaluate_trick_winner()
         return {"ok": True}
 
     def step_bot_once(self) -> dict:
-        """اجرای فقط یک نوبت بات در هر تیک تا کارت‌ها یکی‌یکی و طبیعی روی فرش انداخته شوند"""
+        now = time.time()
         if self.status == "trick_pause":
-            if time.time() - self.updated_at >= 1.3:
+            if now - self.updated_at >= 1.35:
                 self.collect_trick()
             return {"ok": True}
+
+        # اگر حاکم تا ۲ دقیقه حکم نکرد، ربات بهترین خال را انتخاب کند
+        if self.status == "hakem_choosing" and self.hakem_id is not None:
+            if now - self.turn_started_at >= TURN_TIMEOUT_SEC:
+                best_suit = max(SUITS.keys(), key=lambda s: sum(1 for c in self.hands.get(self.hakem_id, []) if c.startswith(s)))
+                self.post_bubble(self.hakem_id, "⏰ انتخاب خودکار حکم")
+                self.choose_trump(self.hakem_id, best_suit)
+                return {"ok": True}
 
         if self.status != "playing":
             return {"ok": True}
 
         cur_p = self.players[self.turn_index]
-        if not cur_p.get("is_bot"):
-            return {"ok": True}
+        elapsed = now - self.turn_started_at
 
-        b_hand = self.hands.get(cur_p["id"], [])
-        if not b_hand:
-            return {"ok": True}
+        # اگر بازیکن بات است (مکث طبیعی ۱ ثانیه) یا اگر بازیکن انسانی تا ۱۲۰ ثانیه بازی نکرد
+        if cur_p.get("is_bot") or elapsed >= TURN_TIMEOUT_SEC:
+            chosen = self._pick_best_card_for_player(cur_p["id"])
+            if chosen:
+                if not cur_p.get("is_bot") and elapsed >= TURN_TIMEOUT_SEC:
+                    self.post_bubble(cur_p["id"], "⏰ بازی خودکار (اتمام ۲ دقیقه)")
+                return self.play_card(cur_p["id"], chosen)
 
-        valid_cards = b_hand
-        if self.current_trick:
-            ts = self.current_trick[0]["card"][0]
-            follow = [c for c in b_hand if c.startswith(ts)]
-            if follow:
-                valid_cards = follow
-
-        # هوش مصنوعی: اگر یارش دست را برده، کارت کوچک رد کند؛ وگرنه بالاترین کارت را بزند
-        chosen = valid_cards[0]
-        if self.current_trick:
-            ts = self.current_trick[0]["card"][0]
-            best_so_far = max(self.current_trick, key=lambda x: card_value(x["card"], self.hokm_suit or "S", ts))
-            is_partner_winning = (
-                self.mode == "4p"
-                and (best_so_far["seat_idx"] % 2 == self.turn_index % 2)
-            )
-            if is_partner_winning:
-                chosen = min(valid_cards, key=lambda c: card_value(c, self.hokm_suit or "S", ts))
-            else:
-                winning_options = [
-                    c for c in valid_cards
-                    if card_value(c, self.hokm_suit or "S", ts) > card_value(best_so_far["card"], self.hokm_suit or "S", ts)
-                ]
-                if winning_options:
-                    chosen = min(winning_options, key=lambda c: card_value(c, self.hokm_suit or "S", ts))
-                else:
-                    chosen = min(valid_cards, key=lambda c: card_value(c, self.hokm_suit or "S", ts))
-        else:
-            chosen = max(valid_cards, key=lambda c: int(c[1:]))
-
-        return self.play_card(cur_p["id"], chosen)
+        return {"ok": True}
 
     def _evaluate_trick_winner(self):
         trick_suit = self.current_trick[0]["card"][0]
@@ -267,12 +318,11 @@ class HokmGame:
             key=lambda play: card_value(play["card"], self.hokm_suit, trick_suit),
         )
         self.last_winner_id = winner_play["player_id"]
-        self.last_trick_winner = f"{winner_play['name']} دست را برید/برد"
+        self.last_trick_winner = f"{winner_play['name']} دست را گرفت"
         self.status = "trick_pause"
         self.updated_at = time.time()
 
     def collect_trick(self):
-        """جمع کردن ۴ کارت از روی فرش و اضافه کردن ۱ کارت برعکس به دست‌های تیم برنده"""
         if self.status != "trick_pause":
             return
 
@@ -287,6 +337,7 @@ class HokmGame:
             round_over = any(s >= 7 for s in self.trick_scores.values())
 
         self.turn_index = next(i for i, p in enumerate(self.players) if p["id"] == winner_id)
+        self.turn_started_at = time.time()
         self.current_trick = []
         self.status = "playing"
         self.updated_at = time.time()
@@ -294,20 +345,15 @@ class HokmGame:
         if not round_over:
             return
 
-        # رسیدن به ۷ کارت برعکس (پایان دور)
         cur_hakem_idx = next(i for i, p in enumerate(self.players) if p["id"] == self.hakem_id)
 
         if self.mode == "4p":
             winning_team = "A" if self.trick_scores["A"] >= 7 else "B"
             loser_team = "B" if winning_team == "A" else "A"
             hakem_team = "A" if cur_hakem_idx in (0, 2) else "B"
-
-            if self.trick_scores[loser_team] == 0:
-                pts = 3 if winning_team != hakem_team else 2
-            else:
-                pts = 1
+            pts = (3 if winning_team != hakem_team else 2) if self.trick_scores[loser_team] == 0 else 1
             self.game_scores[winning_team] += pts
-            self.winner_display = "تیم شما و یارتان" if winning_team == "A" else "تیم حریف"
+            self.winner_display = "تیم ۱" if winning_team == "A" else "تیم ۲"
             game_over = self.game_scores[winning_team] >= 7
             next_hakem_idx = cur_hakem_idx if winning_team == hakem_team else (cur_hakem_idx + 1) % 4
         else:
@@ -327,26 +373,36 @@ class HokmGame:
         self.start_first_deal(keep_game_scores=True, next_hakem_idx=next_hakem_idx)
 
     def get_state_for_player(self, user_id: int) -> dict:
+        now = time.time()
         user_id = int(user_id)
         my_seat = next((i for i, p in enumerate(self.players) if p["id"] == user_id), 0)
         my_cards = [format_card_obj(c) for c in sort_hand(self.hands.get(user_id, []))]
 
-        # محاسبه جایگاه نسبی صندلی‌ها نسبت به بازیکن فعلی:
-        # bottom: خود بازیکن (0) | right: حریف راست (1) | top: یار روبه‌رو (2) | left: حریف چپ (3)
+        rem_sec = max(0, int(TURN_TIMEOUT_SEC - (now - self.turn_started_at)))
+        timer_pct = max(0, min(100, int((rem_sec / TURN_TIMEOUT_SEC) * 100)))
+
         seats_view = {}
         for idx, p in enumerate(self.players):
             rel = (idx - my_seat) % self.max_players
-            if self.max_players == 4:
-                pos_name = ["bottom", "right", "top", "left"][rel]
-            else:
-                pos_name = ["bottom", "top"][rel]
+            pos_name = (["bottom", "right", "top", "left"][rel] if self.max_players == 4 else ["bottom", "top"][rel])
+            bub = self.bubbles.get(p["id"])
+            active_bubble = bub["text"] if (bub and bub["expires"] > now) else ""
+            is_turn = (idx == self.turn_index and self.status in ("playing", "hakem_choosing"))
             seats_view[pos_name] = {
                 "id": p["id"],
                 "name": p["name"],
+                "username": p.get("username") or "",
+                "photo": p.get("photo") or "",
+                "is_bot": p.get("is_bot", False),
+                "mic_on": p.get("mic_on", False),
                 "seat_idx": idx,
+                "team": ("تیم ۱" if idx in (0, 2) else "تیم ۲") if self.mode == "4p" else "انفرادی",
                 "cards_left": len(self.hands.get(p["id"], [])),
-                "is_turn": (idx == self.turn_index and self.status == "playing"),
+                "is_turn": is_turn,
+                "timer_sec": rem_sec if is_turn else TURN_TIMEOUT_SEC,
+                "timer_pct": timer_pct if is_turn else 100,
                 "is_hakem": (p["id"] == self.hakem_id),
+                "bubble": active_bubble,
             }
 
         trick_cards = []
@@ -362,7 +418,6 @@ class HokmGame:
 
         turn_player = self.players[self.turn_index] if self.players and 0 <= self.turn_index < len(self.players) else None
 
-        # محاسبه دست‌های گرفته‌شده (تعداد کارت‌های برعکس برای چیدن تا ۷)
         if self.mode == "4p":
             my_team = "A" if my_seat in (0, 2) else "B"
             opp_team = "B" if my_team == "A" else "A"
@@ -379,10 +434,21 @@ class HokmGame:
 
         return {
             "session_id": self.session_id,
+            "host_id": self.host_id,
             "mode": self.mode,
             "max_players": self.max_players,
             "status": self.status,
-            "players": [{"id": p["id"], "name": p["name"], "cards_left": len(self.hands.get(p["id"], []))} for p in self.players],
+            "players": [
+                {
+                    "id": p["id"],
+                    "name": p["name"],
+                    "username": p.get("username") or "",
+                    "is_bot": p.get("is_bot", False),
+                    "seat_idx": i,
+                    "team": ("تیم ۱" if i in (0, 2) else "تیم ۲") if self.mode == "4p" else f"نفر {i+1}",
+                }
+                for i, p in enumerate(self.players)
+            ],
             "seats": seats_view,
             "hakem_id": self.hakem_id,
             "hakem_name": self.hakem_name,
