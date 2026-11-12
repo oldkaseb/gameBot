@@ -1548,44 +1548,173 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
           </div>
         `;
       }
-
+      
       else if (dtTab === 'floor') {
-        const myWeapons = (dtData.items || []).filter(i => i.item_type === 'weapon' && p.owned_weapons.includes(i.id));
-        const wSelectHtml = myWeapons.map(w => `
-          <button onclick="dtSelectedWeapon=${w.id};drawDemonTower(document.getElementById('app'))" class="px-3 py-2 rounded-xl text-xs font-bold border ${dtSelectedWeapon === w.id ? 'btn-success border-white' : 'glass-soft border-white/10'}">
-            ⚔️ ${w.name} (+${w.atk_bonus} ATK)
-          </button>
-        `).join('');
+        if (window.dtBattleTimer) { clearInterval(window.dtBattleTimer); window.dtBattleTimer = null; }
+        const bt = dtData.active_battle;
 
-        bodyHtml = `
-          ${alertHtml}
-          ${boss ? `
-            <div class="glass-panel p-4 rounded-3xl text-center mb-3">
-              ${boss.photo ? `<img src="${boss.photo}" class="w-full h-40 object-cover rounded-2xl mb-3" />` : `<div class="text-6xl my-3">👹</div>`}
-              <div class="text-xs font-black text-rose-400">${D.floorBtn} ${boss.floor_num}</div>
-              <h2 class="text-xl font-black text-amber-300 mb-1">${boss.boss_name}</h2>
-              <p class="text-xs text-slate-200 mb-3">${boss.description}</p>
-              <div class="grid grid-cols-3 gap-2 text-xs font-extrabold glass-soft p-2.5 rounded-2xl mb-2">
-                <span class="text-rose-300">❤️ HP: ${boss.hp}</span>
-                <span class="text-amber-300">⚔️ ATK: ${boss.atk}</span>
-                <span class="text-sky-300">🛡️ DEF: ${boss.def}</span>
+        // اگر نبرد زنده در جریان است، میدان نبرد تعاملی با ۶ دکمه و تایمر ۵ ثانیه‌ای نمایش داده شود
+        if (bt) {
+          const bossHpPct = Math.max(0, Math.min(100, Math.round((bt.boss_hp / bt.boss_max_hp) * 100)));
+          const myHpPct = Math.max(0, Math.min(100, Math.round((bt.p_hp / bt.p_max_hp) * 100)));
+          const isCharging = bt.boss_state === 'charging';
+          const isAbsDef = bt.boss_state === 'abs_defense';
+          const isStunned = bt.boss_state === 'stunned';
+
+          const stateColors = {
+            charging: 'bg-rose-600/50 border-rose-400 text-rose-100 animate-pulse',
+            abs_defense: 'bg-sky-600/40 border-sky-400 text-sky-100',
+            evasive: 'bg-amber-600/40 border-amber-400 text-amber-100',
+            stunned: 'bg-emerald-600/40 border-emerald-400 text-emerald-100',
+            normal: 'glass-soft border-white/20 text-slate-200'
+          };
+
+          const logsHtml = (bt.logs || []).map((l, idx) => `
+            <div class="text-[11px] ${idx === 0 ? 'text-amber-300 font-black' : 'text-slate-300'} border-b border-white/5 pb-1">${l}</div>
+          `).join('');
+
+          bodyHtml = `
+            ${alertHtml}
+            <div class="glass-panel p-3.5 rounded-3xl mb-2.5 border ${isCharging ? 'border-rose-500 shadow-[0_0_25px_rgba(244,63,94,0.45)]' : 'border-white/15'}">
+              <!-- هدر وضعیت غول و نوار جان غول -->
+              <div class="flex items-center gap-3 mb-2">
+                ${bt.boss_photo ? `<img src="${bt.boss_photo}" class="w-16 h-16 rounded-2xl object-cover border-2 border-rose-500 shrink-0" />` : `<div class="w-16 h-16 rounded-2xl bg-rose-950 flex items-center justify-center text-4xl shrink-0">👹</div>`}
+                <div class="flex-1 min-w-0">
+                  <div class="flex justify-between items-center mb-1">
+                    <span class="font-black text-sm text-amber-300 truncate">${bt.boss_name}</span>
+                    <span class="text-xs font-extrabold text-rose-300">❤️ ${bt.boss_hp} / ${bt.boss_max_hp}</span>
+                  </div>
+                  <div class="w-full h-3 bg-slate-900 rounded-full overflow-hidden border border-white/10">
+                    <div style="width: ${bossHpPct}%" class="h-full bg-gradient-to-r from-rose-600 to-amber-500 transition-all"></div>
+                  </div>
+                  <div class="text-[10px] text-slate-300 mt-1 flex justify-between">
+                    <span>نوبت ${bt.turn}</span>
+                    <span>⚔️ ATK: ${bt.boss_atk} | 🛡️ DEF: ${bt.boss_def}</span>
+                  </div>
+                </div>
               </div>
-              <div class="text-[11px] text-slate-300 text-start space-y-1 glass-soft p-2.5 rounded-2xl mb-3">
-                <div>🔥 <b>${D.bossPower}:</b> ${boss.power_desc}</div>
-                <div>⚡ <b>${D.bossWeak}:</b> ${boss.weakness}</div>
-                <div>🎁 <b>${D.bossReward}:</b> ${boss.reward_coins} 🪙 + ${boss.reward_xp} XP + «${boss.drop_item}»</div>
+
+              <!-- هشدار وضعیت لحظه‌ای غول و تایمر ۵ ثانیه‌ای دفاع -->
+              <div class="p-3 rounded-2xl border text-center font-black text-xs mb-3 ${stateColors[bt.boss_state] || stateColors.normal}">
+                <div>${bt.state_prompt}</div>
+                ${isCharging ? `
+                  <div class="mt-2 flex items-center justify-center gap-2">
+                    <span class="px-3 py-1 rounded-xl bg-black/60 text-rose-300 text-sm font-black">
+                      ⏱️ فرصت واکنش: <span id="dtCountdownNum">5.0</span> ثانیه
+                    </span>
+                  </div>
+                ` : ''}
               </div>
 
-              <div class="text-xs font-bold text-amber-200 mb-2">${D.pickWeaponHint}</div>
-              <div class="flex flex-wrap gap-1.5 justify-center mb-4">${wSelectHtml}</div>
+              <!-- نوار جان و خشم بازیکن -->
+              <div class="glass-soft p-2.5 rounded-2xl mb-3">
+                <div class="flex justify-between text-xs font-extrabold mb-1">
+                  <span class="text-emerald-300">❤️ جان شما: ${bt.p_hp} / ${bt.p_max_hp}</span>
+                  <span class="text-amber-300">🔥 خشم (Rage): ${bt.p_rage}%</span>
+                </div>
+                <div class="w-full h-2.5 bg-slate-900 rounded-full overflow-hidden mb-1.5">
+                  <div style="width: ${myHpPct}%" class="h-full bg-emerald-500 transition-all"></div>
+                </div>
+                <div class="w-full h-1.5 bg-slate-900 rounded-full overflow-hidden">
+                  <div style="width: ${bt.p_rage}%" class="h-full bg-amber-400 transition-all"></div>
+                </div>
+              </div>
 
-              <button onclick="dtAct('battle_floor', {weapon_id: dtSelectedWeapon})" class="btn-danger w-full py-4 rounded-2xl font-black text-base">
-                ${D.startBattleBtn} ${boss.floor_num}
-              </button>
+              <!-- ۶ دکمه تاکتیکی نبرد -->
+              <div class="grid grid-cols-2 gap-2 mb-3">
+                <button onclick="dtAct('battle_move',{move:'quick'})" class="btn-primary py-3 px-2 rounded-2xl font-black text-xs flex flex-col items-center">
+                  <span>⚡ حمله سریع</span>
+                  <span class="text-[10px] opacity-80 font-bold">ضد جاخالی (+25 خشم)</span>
+                </button>
+                <button onclick="dtAct('battle_move',{move:'heavy'})" class="${isStunned ? 'btn-success ring-2 ring-white' : 'btn-danger'} py-3 px-2 rounded-2xl font-black text-xs flex flex-col items-center">
+                  <span>💥 ضربه سنگین</span>
+                  <span class="text-[10px] opacity-80 font-bold">خسارت بالا به غول</span>
+                </button>
+                <button onclick="dtAct('battle_move',{move:'shield'})" class="${isCharging ? 'btn-success ring-2 ring-amber-300' : 'glass-soft'} py-3 px-2 rounded-2xl font-black text-xs flex flex-col items-center">
+                  <span>🛡️ سپر دفاعی</span>
+                  <span class="text-[10px] opacity-80 font-bold">دفع حمله ۵ ثانیه‌ای + ضدحمله</span>
+                </button>
+                <button onclick="dtAct('battle_move',{move:'dodge'})" class="${isCharging ? 'btn-success ring-2 ring-amber-300' : 'glass-soft'} py-3 px-2 rounded-2xl font-black text-xs flex flex-col items-center">
+                  <span>💨 جاخالی سریع</span>
+                  <span class="text-[10px] opacity-80 font-bold">فرار از ضربه (+30 خشم)</span>
+                </button>
+                <button onclick="dtAct('battle_move',{move:'break'})" class="${isAbsDef ? 'btn-success ring-2 ring-sky-300' : 'glass-soft'} py-3 px-2 rounded-2xl font-black text-xs flex flex-col items-center">
+                  <span>🔨 شکستن گارد</span>
+                  <span class="text-[10px] opacity-80 font-bold">ضد حالت دفاع مطلق غول</span>
+                </button>
+                <button onclick="dtAct('battle_move',{move:'blood'})" ${bt.p_rage < 50 ? 'disabled' : ''} class="${bt.p_rage >= 50 ? 'btn-danger ring-2 ring-rose-300' : 'bg-slate-800/60 opacity-45'} py-3 px-2 rounded-2xl font-black text-xs flex flex-col items-center">
+                  <span>🩸 جادوی خون (50% خشم)</span>
+                  <span class="text-[10px] opacity-80 font-bold">ضربه مرگبار + شفای جان</span>
+                </button>
+              </div>
+
+              <!-- گزارش لحظه‌به‌لحظه نبرد -->
+              <div class="glass-soft p-2.5 rounded-2xl max-h-28 overflow-y-auto space-y-1 text-right">
+                ${logsHtml}
+              </div>
             </div>
-          ` : `<div class="glass-panel p-6 rounded-3xl text-center font-black text-emerald-300">🎉</div>`}
-          <button onclick="dtNav('main')" class="btn-primary w-full py-3 rounded-2xl font-bold text-xs">${D.backTower}</button>
-        `;
+          `;
+
+          // راه‌اندازی تایمر ۵ ثانیه‌ای واقعی در صورت شارژ حمله غول
+          if (isCharging) {
+            let rem = 5.0;
+            setTimeout(() => {
+              if (window.dtBattleTimer) clearInterval(window.dtBattleTimer);
+              window.dtBattleTimer = setInterval(() => {
+                if (currentGame !== 'demontower' || dtTab !== 'floor') {
+                  clearInterval(window.dtBattleTimer);
+                  return;
+                }
+                rem = Math.max(0, rem - 0.2);
+                const el = document.getElementById('dtCountdownNum');
+                if (el) el.innerText = rem.toFixed(1);
+                if (rem <= 0) {
+                  clearInterval(window.dtBattleTimer);
+                  window.dtBattleTimer = null;
+                  dtAct('battle_move', { move: 'timeout' });
+                }
+              }, 200);
+            }, 50);
+          }
+        } else {
+          // صفحه آماده‌سازی قبل از ورود به نبرد طبقه (انتخاب سلاح و مشاهده مشخصات غول)
+          const myWeapons = (dtData.items || []).filter(i => i.item_type === 'weapon' && p.owned_weapons.includes(i.id));
+          const wSelectHtml = myWeapons.map(w => `
+            <button onclick="dtSelectedWeapon=${w.id};drawDemonTower(document.getElementById('app'))" class="px-3 py-2 rounded-xl text-xs font-bold border ${dtSelectedWeapon === w.id ? 'btn-success border-white' : 'glass-soft border-white/10'}">
+              ⚔️ ${w.name} (+${w.atk_bonus} ATK)
+            </button>
+          `).join('');
+
+          bodyHtml = `
+            ${alertHtml}
+            ${boss ? `
+              <div class="glass-panel p-4 rounded-3xl text-center mb-3">
+                ${boss.photo ? `<img src="${boss.photo}" class="w-full h-40 object-cover rounded-2xl mb-3" />` : `<div class="text-6xl my-3">👹</div>`}
+                <div class="text-xs font-black text-rose-400">${D.floorBtn} ${boss.floor_num}</div>
+                <h2 class="text-xl font-black text-amber-300 mb-1">${boss.boss_name}</h2>
+                <p class="text-xs text-slate-200 mb-3">${boss.description}</p>
+                <div class="grid grid-cols-3 gap-2 text-xs font-extrabold glass-soft p-2.5 rounded-2xl mb-2">
+                  <span class="text-rose-300">❤️ HP: ${boss.hp * 2}</span>
+                  <span class="text-amber-300">⚔️ ATK: ${boss.atk}</span>
+                  <span class="text-sky-300">🛡️ DEF: ${boss.def}</span>
+                </div>
+                <div class="text-[11px] text-slate-300 text-start space-y-1 glass-soft p-2.5 rounded-2xl mb-3">
+                  <div>🔥 <b>${D.bossPower}:</b> ${boss.power_desc}</div>
+                  <div>⚡ <b>${D.bossWeak}:</b> ${boss.weakness}</div>
+                  <div>🎁 <b>${D.bossReward}:</b> ${boss.reward_coins} 🪙 + ${boss.reward_xp} XP + «${boss.drop_item}»</div>
+                </div>
+
+                <div class="text-xs font-bold text-amber-200 mb-2">${D.pickWeaponHint}</div>
+                <div class="flex flex-wrap gap-1.5 justify-center mb-4">${wSelectHtml}</div>
+
+                <button onclick="dtAct('battle_start', {weapon_id: dtSelectedWeapon})" class="btn-danger w-full py-4 rounded-2xl font-black text-base">
+                  ${D.startBattleBtn} ${boss.floor_num}
+                </button>
+              </div>
+            ` : `<div class="glass-panel p-6 rounded-3xl text-center font-black text-emerald-300">🎉</div>`}
+            <button onclick="dtNav('main')" class="btn-primary w-full py-3 rounded-2xl font-bold text-xs">${D.backTower}</button>
+          `;
+        }
       }
 
       else if (dtTab === 'char') {
