@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
-"""games/demon_tower.py — موتور کامل ۷ زبانه برج شیاطین + API پنل فرماندهی کل ربات بدون وابستگی به متدهای فرعی db"""
+"""games/demon_tower.py — موتور کامل ۷ زبانه برج شیاطین + API پنل فرماندهی کل ربات با ارسال همگانی هیبریدی"""
 
+import asyncio
 import json
 import math
 import os
@@ -921,7 +922,7 @@ async def handle_tower_admin_api(payload: dict) -> dict:
     action = payload.get("action") or "state"
     msg_out = ""
 
-    # ─── ۱. مدیریت کلی ربات (کانال‌های قفل، همگانی، گروه‌ها، بن سراسری، ادمین‌ها) ───
+    # ─── ۱. مدیریت کلی ربات (کانال‌های قفل، همگانی هیبریدی، گروه‌ها، بن سراسری، ادمین‌ها) ───
     if action == "bot_add_channel":
         chat_id = str(payload.get("chat_id") or "").strip()
         title = str(payload.get("title") or chat_id).strip()
@@ -1000,7 +1001,9 @@ async def handle_tower_admin_api(payload: dict) -> dict:
                 await temp_bot.session.close()
         return {"ok": True, "msg": f"🔗 لینک ورود به گروه:\n{invite_link}", "invite_link": invite_link, "admin_data": await _collect_admin_state()}
 
-    elif action == "bot_trigger_pm_broadcast":
+    # ─── سیستم ارسال همگانی هیبریدی (دریافت متن و ایموجی پریمیوم در پیوی + تنظیمات و ارسال نهایی در مینی‌اپ) ───
+    elif action in ("bot_arm_bc_capture", "bot_trigger_pm_broadcast"):
+        await set_dt_config(f"bc_waiting_{uid}", "1")
         bot_token = os.environ.get("BOT_TOKEN", "")
         if bot_token:
             temp_bot = Bot(token=bot_token)
@@ -1008,26 +1011,40 @@ async def handle_tower_admin_api(payload: dict) -> dict:
                 await temp_bot.send_message(
                     chat_id=uid,
                     text=(
-                        "✨ <b>ارسال همگانی با پشتیبانی ۱۰۰٪ از ایموجی پریمیوم</b>\n\n"
-                        "مقصد ارسال همگانی را انتخاب کنید و سپس پیام حاوی ایموجی پریمیوم خود را در همین پیوی بفرستید:"
+                        "📝 <b>ربات آماده دریافت پیام همگانی شماست!</b>\n\n"
+                        "لطفاً همین الان پیام مورد نظر خود را (شامل هرگونه <b>ایموجی پریمیوم تلگرام</b>، عکس، ویدیو، ویس یا تگ <code>[E:...]</code>) در همین پیوی بفرستید تا در مینی‌اپ ثبت شود:"
                     ),
-                    reply_markup=kb([
-                        [primary("👤 ارسال به تمام کاربران (پیوی)", "adm:bc_users")],
-                        [primary("👥 ارسال به تمام گروه‌ها", "adm:bc_groups")],
-                    ]),
+                    reply_markup=kb([[danger("❌ انصراف از ثبت پیام", "adm:cancel_bc_capture")]]),
                     parse_mode=ParseMode.HTML,
                 )
             finally:
                 await temp_bot.session.close()
-        return {"ok": True, "msg": "📩 پیام شروع ارسال همگانی به پیوی شما ارسال شد! مینی‌اپ را ببندید و پیام پریمیوم خود را در پیوی بفرستید.", "admin_data": await _collect_admin_state()}
-        
+        return {
+            "ok": True,
+            "msg": "📩 ربات در پیوی آماده دریافت پیام شماست! پنجره مینی‌اپ را ببندید، پیامتان را در پیوی بفرستید و با دکمه‌ای که ربات می‌دهد به مینی‌اپ برگردید.",
+            "admin_data": await _collect_admin_state(),
+        }
+
+    elif action == "bot_clear_bc_draft":
+        await set_dt_config("bc_draft", "")
+        await set_dt_config(f"bc_waiting_{uid}", "0")
+        msg_out = "🗑️ پیش‌نویس پیام همگانی پاک شد."
+
     elif action == "bot_broadcast":
+        draft_raw = await get_dt_config("bc_draft", "")
         target_type = str(payload.get("target_type") or "users")
-        text = str(payload.get("text") or "").strip()
         btn_text = str(payload.get("btn_text") or "").strip()
         btn_url = str(payload.get("btn_url") or "").strip()
-        if not text:
-            return {"ok": False, "error": "متن پیام همگانی نمی‌تواند خالی باشد!", "admin_data": await _collect_admin_state()}
+        fallback_text = str(payload.get("text") or "").strip()
+
+        if not draft_raw and not fallback_text:
+            return {
+                "ok": False,
+                "error": "⚠️ هنوز پیامی در پیوی ثبت نکرده‌اید! ابتدا روی دکمه «ثبت پیام همگانی در پیوی ربات» بزنید.",
+                "admin_data": await _collect_admin_state(),
+            }
+
+        draft = json.loads(draft_raw) if draft_raw else None
 
         target_ids = []
         try:
@@ -1042,20 +1059,46 @@ async def handle_tower_admin_api(payload: dict) -> dict:
         bot_token = os.environ.get("BOT_TOKEN", "")
         sent_ok, sent_fail = 0, 0
         if bot_token and target_ids:
-            temp_bot = Bot(token=bot_token)
+            try:
+                from main import EmojiBot
+                temp_bot = EmojiBot(token=bot_token)
+            except Exception:
+                temp_bot = Bot(token=bot_token)
+
             markup = kb([[primary(btn_text, url=btn_url)]]) if (btn_text and btn_url) else None
             try:
                 for tid in target_ids:
                     try:
-                        await temp_bot.send_message(tid, text, reply_markup=markup, parse_mode=ParseMode.HTML)
+                        if draft:
+                            if draft.get("has_shortcode"):
+                                await temp_bot.send_message(
+                                    chat_id=tid,
+                                    text=draft["raw_html"],
+                                    reply_markup=markup,
+                                    parse_mode=ParseMode.HTML,
+                                )
+                            else:
+                                await temp_bot.copy_message(
+                                    chat_id=tid,
+                                    from_chat_id=draft["src_chat_id"],
+                                    message_id=draft["src_msg_id"],
+                                    reply_markup=markup,
+                                )
+                        else:
+                            await temp_bot.send_message(
+                                chat_id=tid,
+                                text=fallback_text,
+                                reply_markup=markup,
+                                parse_mode=ParseMode.HTML,
+                            )
                         sent_ok += 1
                     except Exception:
                         sent_fail += 1
+                    await asyncio.sleep(0.035)
             finally:
                 await temp_bot.session.close()
-        msg_out = f"📢 ارسال همگانی به پایان رسید!\n✅ موفق: {sent_ok} | ❌ ناموفق: {sent_fail}"
+        msg_out = f"🏁 ارسال همگانی (با حفظ ایموجی پریمیوم) به پایان رسید!\n✅ موفق: {sent_ok} | ❌ ناموفق: {sent_fail}"
 
-    
     # ─── ۲. مدیریت برج شیاطین (طبقات، تجهیزات، کاراکتر، ووچرها، پاپ‌آپ، کد هدیه) ───
     elif action == "toggle_dev":
         cur = await get_dt_config("dev_mode", "0")
@@ -1272,7 +1315,7 @@ async def handle_tower_admin_api(payload: dict) -> dict:
 
 
 async def _collect_admin_state() -> dict:
-    """جمع‌آوری ایمن تمام اطلاعات پنل مدیریت + لیست کامل کاربران با تمام مشخصات"""
+    """جمع‌آوری ایمن تمام اطلاعات پنل مدیریت + لیست کامل کاربران + پیش‌نویس همگانی پیوی"""
     await ensure_tower_tables()
     floors = [dict(r) for r in await db.pool.fetch("SELECT * FROM dt_floors ORDER BY floor_num ASC")]
     items = [dict(r) for r in await db.pool.fetch("SELECT * FROM dt_items ORDER BY item_type, price ASC, id ASC")]
@@ -1287,6 +1330,14 @@ async def _collect_admin_state() -> dict:
     if popup_raw:
         try:
             popup_data = json.loads(popup_raw)
+        except Exception:
+            pass
+
+    bc_draft_raw = await get_dt_config("bc_draft", "")
+    bc_draft = None
+    if bc_draft_raw:
+        try:
+            bc_draft = json.loads(bc_draft_raw)
         except Exception:
             pass
 
@@ -1320,7 +1371,6 @@ async def _collect_admin_state() -> dict:
     except Exception:
         pass
 
-    # دریافت لیست کامل کاربران با مشخصات ربات و مشخصات برج شیاطین
     users_list = []
     try:
         u_rows = await db.pool.fetch("""
@@ -1354,6 +1404,7 @@ async def _collect_admin_state() -> dict:
             "groups": groups_cnt,
             "stars": stars_cnt,
         },
+        "bc_draft": bc_draft,
         "forced_channels": forced_channels,
         "groups_list": groups_list,
         "users_list": users_list,
