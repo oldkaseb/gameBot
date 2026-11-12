@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""games/demon_tower.py — موتور کامل ۷ زبانه برج شیاطین (نبرد تعاملی زنده) + API پنل مینی‌اپی مالک"""
+"""games/demon_tower.py — موتور کامل ۷ زبانه برج شیاطین + API پنل فرماندهی کل ربات بدون وابستگی به متدهای فرعی db"""
 
 import json
 import math
@@ -13,7 +13,7 @@ from aiogram.enums import ParseMode
 from aiogram.filters import Command
 
 from database import db
-from utils.premium import success, kb
+from utils.premium import primary, success, danger, kb
 
 router = Router(name="demon_tower")
 OWNER_IDS = {7662192190, 6041119040}
@@ -27,7 +27,6 @@ STAR_PACKAGES = {
     "pack_4": {"stars": 900, "coins": 75000, "xp": 8000, "title": "Demon Emperor (75,000 Coins + 8,000 XP)"},
 }
 
-# نگهداری نبردهای زنده و تعاملی بازیکنان در حافظه سرور
 active_tower_battles: dict[int, dict] = {}
 
 DT_MESSAGES = {
@@ -353,7 +352,6 @@ async def get_or_create_player(uid: int) -> dict:
 
 
 def _roll_next_boss_state(boss_name: str, lang: str = "fa") -> tuple[str, str, int]:
-    """تعیین حرکت بعدی غول (حمله ۵ ثانیه‌ای، دفاع مطلق، حالت جاخالی، یا عادی)"""
     roll = random.random()
     if roll < 0.38:
         msg = (
@@ -386,7 +384,6 @@ def _roll_next_boss_state(boss_name: str, lang: str = "fa") -> tuple[str, str, i
 
 
 async def _finalize_tower_battle(uid: int, p: dict, boss: dict, bt: dict, won: bool, lang: str) -> dict:
-    """ثبت نهایی نتیجه نبرد در دیتابیس پس از کشته شدن غول یا بازیکن"""
     now = time.time()
     active_tower_battles.pop(uid, None)
     new_humanity = max(0, p["humanity"] - random.randint(12, 20))
@@ -894,10 +891,10 @@ async def handle_tower_api_action(payload: dict) -> dict:
                                 f"👤 کاربر: <b>{name}</b> (<code>{uid}</code>)\n"
                                 f"🎁 نوع ووچر: <b>{v_type}</b>\n"
                                 f"🪙 سکه پیشنهادی: <b>{coins_offered:,} سکه</b>\n\n"
-                                f"از دکمه زیر وارد مینی‌اپ پنل برج شوید و در تب «ووچرها» با یادداشت تایید یا رد کنید:"
+                                f"از دکمه زیر وارد مینی‌اپ پنل مدیریت شوید و در تب «ووچرها» با یادداشت تایید یا رد کنید:"
                             ),
                             reply_markup=kb([
-                                [success("👑 باز کردن مینی‌اپ پنل برج", web_app_url=f"{MINI_APP_URL}/?game=tower_admin&uid={oid}")]
+                                [success("👑 باز کردن مینی‌اپ فرماندهی", web_app_url=f"{MINI_APP_URL}/?game=tower_admin&uid={oid}")]
                             ]),
                             parse_mode=ParseMode.HTML,
                         )
@@ -924,7 +921,7 @@ async def handle_tower_admin_api(payload: dict) -> dict:
     action = payload.get("action") or "state"
     msg_out = ""
 
-    # ─── ۱. بخش مدیریت کلی ربات (کانال‌های قفل، همگانی، گروه‌ها، بن سراسری، ادمین‌ها) ───
+    # ─── ۱. مدیریت کلی ربات (کانال‌های قفل، همگانی، گروه‌ها، بن سراسری، ادمین‌ها) ───
     if action == "bot_add_channel":
         chat_id = str(payload.get("chat_id") or "").strip()
         title = str(payload.get("title") or chat_id).strip()
@@ -932,28 +929,43 @@ async def handle_tower_admin_api(payload: dict) -> dict:
         if not username and chat_id.startswith("@"):
             username = chat_id.lstrip("@")
         if chat_id:
-            await db.add_channel(chat_id, title, username)
+            try:
+                await db.add_channel(chat_id, title, username)
+            except Exception:
+                await db.pool.execute(
+                    "INSERT INTO forced_channels (chat_id, title, username) VALUES ($1, $2, $3) ON CONFLICT (chat_id) DO UPDATE SET title=$2, username=$3",
+                    chat_id, title, username
+                )
             msg_out = f"✅ کانال «{title}» به قفل عضویت اجباری اضافه شد."
 
     elif action == "bot_del_channel":
         chat_id = str(payload.get("chat_id") or "").strip()
-        await db.remove_channel(chat_id)
+        try:
+            await db.remove_channel(chat_id)
+        except Exception:
+            await db.pool.execute("DELETE FROM forced_channels WHERE chat_id=$1", chat_id)
         msg_out = "🗑️ کانال از لیست عضویت اجباری حذف شد."
 
     elif action == "bot_global_ban":
         target_id = int(payload.get("target_id") or 0)
         ban_state = bool(payload.get("ban"))
         if target_id:
-            await db.upsert_user(target_id, "", "")
-            await db.ban_user(target_id, ban_state)
+            try:
+                await db.upsert_user(target_id, "", "")
+                await db.ban_user(target_id, ban_state)
+            except Exception:
+                await db.pool.execute("UPDATE users SET is_banned=$1 WHERE user_id=$2", ban_state, target_id)
             msg_out = f"✅ وضعیت کاربر {target_id} در کل ربات به «{'مسدود' if ban_state else 'آزاد'}» تغییر کرد."
 
     elif action == "bot_set_admin":
         target_id = int(payload.get("target_id") or 0)
         adm_state = bool(payload.get("is_admin"))
         if target_id:
-            await db.upsert_user(target_id, "", "")
-            await db.set_admin(target_id, adm_state)
+            try:
+                await db.upsert_user(target_id, "", "")
+                await db.set_admin(target_id, adm_state)
+            except Exception:
+                await db.pool.execute("UPDATE users SET is_admin=$1 WHERE user_id=$2", adm_state, target_id)
             msg_out = f"👑 وضعیت ادمین بودن {target_id} به «{'فعال' if adm_state else 'غیرفعال'}» تغییر یافت."
 
     elif action == "bot_leave_group":
@@ -989,19 +1001,23 @@ async def handle_tower_admin_api(payload: dict) -> dict:
         return {"ok": True, "msg": f"🔗 لینک ورود به گروه:\n{invite_link}", "invite_link": invite_link, "admin_data": await _collect_admin_state()}
 
     elif action == "bot_broadcast":
-        target_type = str(payload.get("target_type") or "users")  # users | groups
+        target_type = str(payload.get("target_type") or "users")
         text = str(payload.get("text") or "").strip()
         btn_text = str(payload.get("btn_text") or "").strip()
         btn_url = str(payload.get("btn_url") or "").strip()
         if not text:
             return {"ok": False, "error": "متن پیام همگانی نمی‌تواند خالی باشد!", "admin_data": await _collect_admin_state()}
 
-        if target_type == "groups":
-            rows = await db.pool.fetch("SELECT chat_id AS id FROM groups WHERE is_banned=FALSE")
-        else:
-            rows = await db.pool.fetch("SELECT user_id AS id FROM users WHERE is_banned=FALSE")
+        target_ids = []
+        try:
+            if target_type == "groups":
+                rows = await db.pool.fetch("SELECT chat_id AS id FROM groups")
+            else:
+                rows = await db.pool.fetch("SELECT user_id AS id FROM users")
+            target_ids = [r["id"] for r in rows]
+        except Exception:
+            pass
 
-        target_ids = [r["id"] for r in rows]
         bot_token = os.environ.get("BOT_TOKEN", "")
         sent_ok, sent_fail = 0, 0
         if bot_token and target_ids:
@@ -1018,7 +1034,7 @@ async def handle_tower_admin_api(payload: dict) -> dict:
                 await temp_bot.session.close()
         msg_out = f"📢 ارسال همگانی به پایان رسید!\n✅ موفق: {sent_ok} | ❌ ناموفق: {sent_fail}"
 
-    # ─── ۲. بخش مدیریت برج شیاطین (طبقات، تجهیزات، کاراکتر، ووچرها، پاپ‌آپ، کد هدیه) ───
+    # ─── ۲. مدیریت برج شیاطین (طبقات، تجهیزات، کاراکتر، ووچرها، پاپ‌آپ، کد هدیه) ───
     elif action == "toggle_dev":
         cur = await get_dt_config("dev_mode", "0")
         new_val = "0" if cur == "1" else "1"
@@ -1127,12 +1143,18 @@ async def handle_tower_admin_api(payload: dict) -> dict:
     elif action == "Lookup_user":
         t_uid = int(payload.get("target_uid") or 0)
         st = await get_or_create_player(t_uid)
-        u_main = await db.get_user(t_uid)
         looked = st["player"]
-        looked["global_banned"] = bool(u_main["is_banned"]) if u_main else False
-        looked["is_bot_admin"] = bool(u_main["is_admin"]) if u_main else False
-        looked["first_name"] = u_main["first_name"] if u_main else ""
-        looked["username"] = u_main["username"] if u_main else ""
+        try:
+            u_main = await db.get_user(t_uid)
+            looked["global_banned"] = bool(u_main["is_banned"]) if u_main else False
+            looked["is_bot_admin"] = bool(u_main["is_admin"]) if u_main else False
+            looked["first_name"] = u_main["first_name"] if u_main else ""
+            looked["username"] = u_main["username"] if u_main else ""
+        except Exception:
+            looked["global_banned"] = False
+            looked["is_bot_admin"] = False
+            looked["first_name"] = ""
+            looked["username"] = ""
         return {"ok": True, "looked_up": looked, "admin_data": await _collect_admin_state()}
 
     elif action == "charge_user":
@@ -1228,6 +1250,8 @@ async def handle_tower_admin_api(payload: dict) -> dict:
 
 
 async def _collect_admin_state() -> dict:
+    """جمع‌آوری ایمن تمام اطلاعات پنل مدیریت مستقیماً از روی db.pool بدون خطای متدهای ناموجود"""
+    await ensure_tower_tables()
     floors = [dict(r) for r in await db.pool.fetch("SELECT * FROM dt_floors ORDER BY floor_num ASC")]
     items = [dict(r) for r in await db.pool.fetch("SELECT * FROM dt_items ORDER BY item_type, price ASC, id ASC")]
     gifts = [dict(r) for r in await db.pool.fetch("SELECT * FROM dt_gifts ORDER BY code ASC")]
@@ -1244,14 +1268,44 @@ async def _collect_admin_state() -> dict:
         except Exception:
             pass
 
-    # اطلاعات کلی ربات (آمار، کانال‌های اجباری، لیست گروه‌ها)
-    bot_stats = await db.stats()
-    forced_channels = [dict(r) for r in await db.list_channels()]
-    groups_list = [dict(r) for r in await db.list_groups(limit=40)]
+    # خواندن مستقیم آمار کلی ربات با کوئری‌های ایمن
+    users_cnt = 0
+    groups_cnt = 0
+    stars_cnt = 0
+    try:
+        users_cnt = await db.pool.fetchval("SELECT COUNT(*) FROM users") or 0
+    except Exception:
+        pass
+    try:
+        groups_cnt = await db.pool.fetchval("SELECT COUNT(*) FROM groups") or 0
+    except Exception:
+        pass
+    try:
+        stars_cnt = await db.pool.fetchval("SELECT COALESCE(SUM(amount), 0) FROM donations") or 0
+    except Exception:
+        pass
+
+    forced_channels = []
+    try:
+        ch_rows = await db.pool.fetch("SELECT chat_id, title, username FROM forced_channels")
+        forced_channels = [dict(r) for r in ch_rows]
+    except Exception:
+        pass
+
+    groups_list = []
+    try:
+        g_rows = await db.pool.fetch("SELECT chat_id, title FROM groups LIMIT 40")
+        groups_list = [dict(r) for r in g_rows]
+    except Exception:
+        pass
 
     return {
         "players_count": players_cnt,
-        "bot_stats": bot_stats,
+        "bot_stats": {
+            "users": users_cnt,
+            "groups": groups_cnt,
+            "stars": stars_cnt,
+        },
         "forced_channels": forced_channels,
         "groups_list": groups_list,
         "dev_mode": dev_mode,
@@ -1273,11 +1327,10 @@ async def cmd_tower_panel(msg: Message):
     uid = msg.from_user.id
     admin_url = f"{MINI_APP_URL}/?game=tower_admin&uid={uid}"
     await msg.answer(
-        f"👑 <b>مینی‌اپ اختصاصی مدیریت برج شیاطین</b>\n\n"
-        f"این پنل کاملاً از کاربران عادی مخفی است و فقط برای مالک باز می‌شود.\n"
-        f"در داخل مینی‌اپ می‌توانید خانه‌به‌خانه غول‌ها، سلاح‌ها، زره‌ها، کدهای هدیه، پاپ‌آپ و ووچرها را مدیریت کنید و عکس‌ها را مستقیم از گالری آپلود نمایید:",
+        f"👑 <b>مینی‌اپ اختصاصی فرماندهی کل ربات و برج شیاطین</b>\n\n"
+        f"این پنل کاملاً از کاربران عادی مخفی است و فقط برای مالک باز می‌شود:",
         reply_markup=kb([
-            [success("👑 ورود به مینی‌اپ پنل برج (ویژه مالک)", web_app_url=admin_url)]
+            [success("👑 ورود به مینی‌اپ فرماندهی کل ربات", web_app_url=admin_url)]
         ]),
         parse_mode=ParseMode.HTML,
     )
