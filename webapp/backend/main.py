@@ -28,8 +28,8 @@ app.add_middleware(
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 FONT_PATH = BASE_DIR / "Vazirmatn-SemiBold.ttf"
 CUSTOM_HERO_FILE = BASE_DIR / "rhino_banner.png"
-CUSTOM_MENU_BG = BASE_DIR / "menu_bg.jpg"
-CUSTOM_CARPET_BG = BASE_DIR / "hokm_carpet.jpg"
+CUSTOM_MENU_BG = BASE_DIR / "menu_bg.png"
+CUSTOM_CARPET_BG = BASE_DIR / "hokm_carpet.png"
 
 hokm_rooms: dict[str, HokmGame] = {}
 guess_rooms: dict[str, dict] = {}
@@ -1687,6 +1687,17 @@ MINIAPP_TEMPLATE = """<!DOCTYPE html>
 """
 
 
+@app.get("/api/custom_bg/{bg_name}")
+async def serve_custom_bg(bg_name: str):
+    if bg_name == "hero" and CUSTOM_HERO_FILE.exists():
+        return FileResponse(str(CUSTOM_HERO_FILE))
+    if bg_name == "menu" and CUSTOM_MENU_BG.exists():
+        return FileResponse(str(CUSTOM_MENU_BG))
+    if bg_name == "carpet" and CUSTOM_CARPET_BG.exists():
+        return FileResponse(str(CUSTOM_CARPET_BG))
+    return Response(status_code=404)
+
+
 @app.get("/{full_path:path}")
 async def serve_entry(request: Request, full_path: str):
     from runtime import get_bot_username
@@ -1694,17 +1705,27 @@ async def serve_entry(request: Request, full_path: str):
     meta = GAME_META.get(game, GAME_META["hub"])
     base_url = os.environ.get("MINI_APP_URL", "https://games.rhinokaseb.abrdns.com").rstrip("/")
     og_img = f"{base_url}/api/banner/{game}.png"
-    hero_img = os.environ.get("RHINO_HERO_IMAGE", f"{base_url}/api/banner/rhino_hero.png")
-    menu_bg = os.environ.get("RHINO_MENU_BG", f"{base_url}/api/banner/menu_bg.png")
-    carpet_bg = os.environ.get("RHINO_CARPET_BG", f"{base_url}/api/banner/hokm_carpet.png")
+
+    # فقط اگر فایل عکس در مخزن گیت‌هاب یا متغیر محیطی وجود داشت ست شود (وگرنه خالی بماند تا بنر PLAY NOW زوم نشود)
+    hero_img = os.environ.get("RHINO_HERO_IMAGE", "")
+    if not hero_img:
+        hero_img = f"{base_url}/api/custom_bg/hero" if CUSTOM_HERO_FILE.exists() else ""
+
+    menu_bg = os.environ.get("RHINO_MENU_BG", "")
+    if not menu_bg and CUSTOM_MENU_BG.exists():
+        menu_bg = f"{base_url}/api/custom_bg/menu"
+
+    carpet_bg = os.environ.get("RHINO_CARPET_BG", "")
+    if not carpet_bg and CUSTOM_CARPET_BG.exists():
+        carpet_bg = f"{base_url}/api/custom_bg/carpet"
 
     html_content = (
         MINIAPP_TEMPLATE
         .replace("__OG_TITLE__", meta["title"])
         .replace("__OG_IMAGE__", og_img)
         .replace("__HERO_IMAGE__", hero_img)
-        .replace("__MENU_BG__", menu_bg)
-        .replace("__CARPET_BG__", carpet_bg)
+        .replace("__MENU_BG__", f"url('{menu_bg}')," if menu_bg else "")
+        .replace("__CARPET_BG__", f"url('{carpet_bg}')," if carpet_bg else "")
         .replace("__BOT_USERNAME__", get_bot_username())
     )
     return HTMLResponse(content=html_content, status_code=200)
