@@ -719,13 +719,15 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
     function applyDynamicCssBackgrounds() {
       const rootStyle = document.documentElement.style;
       if (window.uiAssetsMap?.menu_bg) {
-        rootStyle.setProperty('--custom-menu-bg', `url('${window.uiAssetsMap.menu_bg}')`);
+        document.body.style.backgroundImage = `url('${window.uiAssetsMap.menu_bg}')`;
+      } else {
+        document.body.style.backgroundImage = `radial-gradient(circle at 15% 10%, rgba(124, 58, 237, 0.25) 0%, transparent 45%), radial-gradient(circle at 85% 85%, rgba(219, 39, 119, 0.18) 0%, transparent 45%)`;
       }
       if (window.uiAssetsMap?.hokm_carpet) {
-        rootStyle.setProperty('--custom-carpet-bg', `url('${window.uiAssetsMap.hokm_carpet}')`);
+        rootStyle.setProperty('--custom-carpet-bg', `url('${window.uiAssetsMap.hokm_carpet}'),`);
       }
       if (window.uiAssetsMap?.tower_bg) {
-        rootStyle.setProperty('--custom-tower-bg', `url('${window.uiAssetsMap.tower_bg}')`);
+        rootStyle.setProperty('--custom-tower-bg', `url('${window.uiAssetsMap.tower_bg}'),`);
       }
     }
 
