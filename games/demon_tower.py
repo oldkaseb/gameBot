@@ -1105,6 +1105,31 @@ async def handle_tower_admin_api(payload: dict) -> dict:
         new_val = "0" if cur == "1" else "1"
         await set_dt_config("dev_mode", new_val)
         msg_out = "🛠️ وضعیت بازی به «در حال توسعه» تغییر کرد." if new_val == "1" else "🟢 بازی برای همه کاربران باز شد."
+    
+    elif action == "save_ui_asset":
+        asset_key = str(payload.get("asset_key") or "").strip()
+        photo_data = str(payload.get("photo") or "").strip()
+        if asset_key and photo_data:
+            raw_assets = await get_dt_config("ui_assets", "{}")
+            try:
+                assets_map = json.loads(raw_assets)
+            except Exception:
+                assets_map = {}
+                assets_map[asset_key] = photo_data
+                await set_dt_config("ui_assets", json.dumps(assets_map))
+                msg_out = f"✅ تصویر «{asset_key}» با موفقیت آپلود و در مینی‌اپ جایگزین شد!"
+        
+    elif action == "delete_ui_asset":
+        asset_key = str(payload.get("asset_key") or "").strip()
+        raw_assets = await get_dt_config("ui_assets", "{}")
+        try:
+            assets_map = json.loads(raw_assets)
+        except Exception:
+            assets_map = {}
+            if asset_key in assets_map:
+                assets_map.pop(asset_key, None)
+                await set_dt_config("ui_assets", json.dumps(assets_map))
+                msg_out = f"🗑️ تصویر «{asset_key}» به حالت پیش‌فرض بازگردانده شد."
 
     elif action == "save_gender_imgs":
         male_img = payload.get("male_img")
@@ -1396,6 +1421,12 @@ async def _collect_admin_state() -> dict:
         users_list = [dict(r) for r in u_rows]
     except Exception:
         pass
+        
+    ui_assets_raw = await get_dt_config("ui_assets", "{}")
+    try:
+        ui_assets = json.loads(ui_assets_raw)
+    except Exception:
+        ui_assets = {}
 
     return {
         "players_count": players_cnt,
@@ -1404,6 +1435,7 @@ async def _collect_admin_state() -> dict:
             "groups": groups_cnt,
             "stars": stars_cnt,
         },
+        "ui_assets": ui_assets,
         "bc_draft": bc_draft,
         "forced_channels": forced_channels,
         "groups_list": groups_list,
