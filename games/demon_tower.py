@@ -1115,10 +1115,12 @@ async def handle_tower_admin_api(payload: dict) -> dict:
                 assets_map = json.loads(raw_assets)
             except Exception:
                 assets_map = {}
-                assets_map[asset_key] = photo_data
-                await set_dt_config("ui_assets", json.dumps(assets_map))
-                msg_out = f"✅ تصویر «{asset_key}» با موفقیت آپلود و در مینی‌اپ جایگزین شد!"
-        
+            assets_map[asset_key] = photo_data
+            await set_dt_config("ui_assets", json.dumps(assets_map))
+            msg_out = f"✅ تصویر «{asset_key}» با موفقیت ذخیره شد!"
+        else:
+            return {"ok": False, "error": "⚠️ ابتدا فایل تصویر را انتخاب کنید و ۱ ثانیه صبر کنید تا پیش‌نمایش ظاهر شود، سپس ذخیره را بزنید.", "admin_data": await _collect_admin_state()}
+
     elif action == "delete_ui_asset":
         asset_key = str(payload.get("asset_key") or "").strip()
         raw_assets = await get_dt_config("ui_assets", "{}")
@@ -1126,10 +1128,10 @@ async def handle_tower_admin_api(payload: dict) -> dict:
             assets_map = json.loads(raw_assets)
         except Exception:
             assets_map = {}
-            if asset_key in assets_map:
-                assets_map.pop(asset_key, None)
-                await set_dt_config("ui_assets", json.dumps(assets_map))
-                msg_out = f"🗑️ تصویر «{asset_key}» به حالت پیش‌فرض بازگردانده شد."
+        if asset_key in assets_map:
+            assets_map.pop(asset_key, None)
+            await set_dt_config("ui_assets", json.dumps(assets_map))
+        msg_out = f"🗑️ تصویر «{asset_key}» به حالت پیش‌فرض بازگشت."
 
     elif action == "save_gender_imgs":
         male_img = payload.get("male_img")
