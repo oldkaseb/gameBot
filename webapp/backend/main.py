@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
-"""webapp/backend/main.py — مینی‌اپ گیم باکس راینو + برج شیاطین + پنل مینی‌اپی مخفی فرماندهی کل ربات با ارسال همگانی هیبریدی"""
+"""webapp/backend/main.py — مینی‌اپ گیم باکس راینو با UI آرکید نئونی + تغییر تمام عکس‌ها از پنل ادمین"""
 
+import base64
 import io
 import json
 import os
@@ -38,29 +39,32 @@ hokm_rooms: dict[str, HokmGame] = {}
 guess_rooms: dict[str, dict] = {}
 
 GAME_META = {
-    "hub":          {"title": "RHINO GAME BOX", "c1": (15, 23, 42),  "c2": (79, 70, 229)},
-    "demontower":   {"title": "DEMON TOWER",    "c1": (69, 10, 10),  "c2": (220, 38, 38)},
+    "hub":          {"title": "RHINO GAME BOX", "c1": (18, 10, 42),  "c2": (109, 40, 217)},
+    "demontower":   {"title": "DEMON TOWER",    "c1": (85, 12, 18),  "c2": (220, 38, 38)},
+    "wip1":         {"title": "DUNGEON HEIST",  "c1": (30, 27, 75),  "c2": (124, 58, 237)},
+    "wip2":         {"title": "CYBER VAULT",    "c1": (6, 78, 59),   "c2": (16, 185, 129)},
     "tower_admin":  {"title": "TOWER ADMIN",    "c1": (30, 27, 75),  "c2": (124, 58, 237)},
-    "hokm":         {"title": "HOKM 4P",        "c1": (127, 17, 22), "c2": (185, 28, 28)},
-    "hokm2p":       {"title": "HOKM 2P",        "c1": (127, 17, 22), "c2": (185, 28, 28)},
-    "2048":         {"title": "2048",           "c1": (15, 23, 42),  "c2": (37, 99, 235)},
-    "spuzzle":      {"title": "PUZZLE 15",      "c1": (15, 23, 42),  "c2": (14, 165, 233)},
-    "samegame":     {"title": "SAME GAME",      "c1": (15, 23, 42),  "c2": (168, 85, 247)},
-    "dooz":         {"title": "DOOZ 2P",        "c1": (15, 23, 42),  "c2": (59, 130, 246)},
-    "doz4p":        {"title": "DOOZ 4P",        "c1": (15, 23, 42),  "c2": (236, 72, 153)},
+    "hokm":         {"title": "HOKM 4P",        "c1": (127, 17, 22), "c2": (220, 38, 38)},
+    "hokm2p":       {"title": "HOKM 2P",        "c1": (105, 15, 45), "c2": (219, 39, 119)},
+    "2048":         {"title": "2048 PUZZLE",    "c1": (30, 58, 138), "c2": (59, 130, 246)},
+    "spuzzle":      {"title": "PUZZLE 15",      "c1": (12, 74, 110), "c2": (14, 165, 233)},
+    "samegame":     {"title": "COLOR MATCH",    "c1": (88, 28, 135), "c2": (168, 85, 247)},
+    "dooz":         {"title": "RINGS 2P",       "c1": (15, 23, 42),  "c2": (59, 130, 246)},
+    "doz4p":        {"title": "RINGS 4P",       "c1": (80, 7, 36),   "c2": (236, 72, 153)},
     "connect4":     {"title": "CONNECT 4",      "c1": (6, 78, 59),   "c2": (16, 185, 129)},
-    "rps":          {"title": "RPS",            "c1": (15, 23, 42),  "c2": (99, 102, 241)},
-    "memory":       {"title": "MEMORY",         "c1": (15, 23, 42),  "c2": (139, 92, 246)},
-    "typing":       {"title": "TYPING",         "c1": (15, 23, 42),  "c2": (245, 158, 11)},
-    "hangman":      {"title": "WORDS",          "c1": (15, 23, 42),  "c2": (225, 29, 72)},
-    "guess":        {"title": "GUESS NUM",      "c1": (15, 23, 42),  "c2": (16, 185, 129)},
+    "rps":          {"title": "ROCK PAPER",     "c1": (49, 46, 129), "c2": (99, 102, 241)},
+    "memory":       {"title": "MEMORY",         "c1": (76, 29, 149), "c2": (139, 92, 246)},
+    "typing":       {"title": "SPEED TYPE",     "c1": (120, 53, 15), "c2": (245, 158, 11)},
+    "hangman":      {"title": "WORD GUESS",     "c1": (136, 19, 55), "c2": (225, 29, 72)},
+    "guess":        {"title": "NUMBER GUESS",   "c1": (20, 83, 45),  "c2": (34, 197, 94)},
     "gardone_anim": {"title": "LUCKY WHEEL",    "c1": (76, 29, 149), "c2": (217, 70, 239)},
 }
 
 
 def generate_game_banner(game_key: str) -> bytes:
+    """تولید پوستر گرافیکی نئونی در صورتی که هنوز عکسی از پنل ادمین برای بازی آپلود نشده باشد"""
     meta = GAME_META.get(game_key, GAME_META["hub"])
-    w, h = 800, 420
+    w, h = 500, 500
     img = Image.new("RGB", (w, h), meta["c1"])
     draw = ImageDraw.Draw(img)
 
@@ -73,53 +77,79 @@ def generate_game_banner(game_key: str) -> bytes:
         b = int(b1 * (1 - ratio) + b2 * ratio)
         draw.line([(0, y), (w, y)], fill=(r, g, b))
 
-    draw.rounded_rectangle([36, 36, w - 36, h - 36], radius=32, fill=(11, 17, 32), outline=(255, 255, 255), width=3)
-    draw.rounded_rectangle([54, 54, w - 54, 138], radius=22, fill=meta["c2"])
-
-    try:
-        font_big = ImageFont.truetype(str(FONT_PATH), 44)
-        font_med = ImageFont.truetype(str(FONT_PATH), 28)
-        font_sm = ImageFont.truetype(str(FONT_PATH), 22)
-    except Exception:
-        font_big = ImageFont.load_default()
-        font_med = ImageFont.load_default()
-        font_sm = ImageFont.load_default()
-
-    draw.text((w // 2, 96), meta["title"], fill=(255, 255, 255), font=font_big, anchor="mm")
-    draw.text((w // 2, 215), "RHINO™ GAME BOX", fill=(165, 180, 252), font=font_med, anchor="mm")
-    draw.rounded_rectangle([230, 285, w - 230, 350], radius=18, fill=(16, 185, 129))
-    draw.text((w // 2, 317), "PLAY NOW", fill=(255, 255, 255), font=font_sm, anchor="mm")
+    draw.ellipse([60, 60, w - 60, h - 60], outline=(255, 255, 255, 40), width=4)
+    draw.rounded_rectangle([18, 18, w - 18, h - 18], radius=36, outline=(255, 255, 255), width=2)
 
     buf = io.BytesIO()
     img.save(buf, format="PNG")
     return buf.getvalue()
 
 
+async def _get_saved_ui_assets() -> dict:
+    try:
+        from games.demon_tower import get_dt_config
+        raw = await get_dt_config("ui_assets", "{}")
+        return json.loads(raw) if raw else {}
+    except Exception:
+        return {}
+
+
+@app.get("/api/ui_assets")
+async def api_get_ui_assets():
+    """دریافت تمام عکس‌های سفارشی آپلودشده در پنل ادمین + آمار کلی برای نمایش در UI"""
+    assets = await _get_saved_ui_assets()
+    recent_wins = []
+    try:
+        await db.ensure_pool()
+        rows = await db.pool.fetch("""
+            SELECT first_name, username FROM users
+            ORDER BY user_id DESC LIMIT 6
+        """)
+        games_sample = ["HOKM 4P", "DEMON TOWER", "2048", "RINGS 2P", "RPS", "GUESS"]
+        for idx, r in enumerate(rows):
+            recent_wins.append({
+                "name": (r["first_name"] or r["username"] or f"Player {idx+1}")[:12],
+                "game": games_sample[idx % len(games_sample)],
+                "time": f"{idx + 1}m ago",
+            })
+    except Exception:
+        pass
+    return {"ok": True, "assets": assets, "recent_wins": recent_wins}
+
+
 @app.get("/api/custom_bg/{bg_name}")
 async def serve_custom_bg(bg_name: str):
-    if bg_name == "hero" and CUSTOM_HERO_FILE.exists():
+    # ۱. اولویت اول: بررسی عکس آپلودشده توسط ادمین در دیتابیس
+    assets = await _get_saved_ui_assets()
+    b64_data = assets.get(bg_name, "")
+    if b64_data and b64_data.startswith("data:image"):
+        try:
+            header, encoded = b64_data.split(",", 1)
+            mime = header.split(";")[0].replace("data:", "") or "image/jpeg"
+            return Response(content=base64.b64decode(encoded), media_type=mime)
+        except Exception:
+            pass
+
+    # ۲. اولویت دوم: فایل‌های موجود در مخزن گیت‌هاب
+    if bg_name in ("hero", "rhino_hero") and CUSTOM_HERO_FILE.exists():
         return FileResponse(str(CUSTOM_HERO_FILE), media_type="image/png")
-    if bg_name == "menu" and CUSTOM_MENU_BG.exists():
+    if bg_name in ("menu", "menu_bg") and CUSTOM_MENU_BG.exists():
         return FileResponse(str(CUSTOM_MENU_BG), media_type="image/png")
-    if bg_name == "carpet" and CUSTOM_CARPET_BG.exists():
+    if bg_name in ("carpet", "hokm_carpet") and CUSTOM_CARPET_BG.exists():
         return FileResponse(str(CUSTOM_CARPET_BG), media_type="image/png")
     if bg_name == "tower_bg" and CUSTOM_TOWER_BG.exists():
         return FileResponse(str(CUSTOM_TOWER_BG), media_type="image/png")
     if bg_name == "tower_hero" and CUSTOM_TOWER_HERO.exists():
         return FileResponse(str(CUSTOM_TOWER_HERO), media_type="image/png")
-    return Response(status_code=404)
+
+    # ۳. اولویت سوم: تولید پوستر گرافیکی نئونی
+    png_bytes = generate_game_banner(game_key=bg_name)
+    return Response(content=png_bytes, media_type="image/png")
 
 
 @app.get("/api/banner/{game_type}.png")
 async def serve_game_banner(game_type: str):
-    if game_type == "rhino_hero" and CUSTOM_HERO_FILE.exists():
-        return FileResponse(str(CUSTOM_HERO_FILE), media_type="image/png")
-    if game_type == "menu_bg" and CUSTOM_MENU_BG.exists():
-        return FileResponse(str(CUSTOM_MENU_BG), media_type="image/png")
-    if game_type == "hokm_carpet" and CUSTOM_CARPET_BG.exists():
-        return FileResponse(str(CUSTOM_CARPET_BG), media_type="image/png")
-    png_bytes = generate_game_banner(game_key=game_type)
-    return Response(content=png_bytes, media_type="image/png")
+    return await serve_custom_bg(game_type)
 
 
 class WinPayload(BaseModel):
@@ -420,21 +450,22 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
   <script src="https://cdn.tailwindcss.com"></script>
   <style>
     * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+    ::-webkit-scrollbar { width: 0px; height: 0px; }
     html, body {
       width: 100vw;
       height: 100vh;
       margin: 0;
       padding: 0;
       overflow: hidden;
-      background-color: #070b14;
+      background-color: #090514;
       background-image:
-        __MENU_BG__
-        radial-gradient(circle at 20% 15%, rgba(79, 70, 229, 0.28) 0%, transparent 45%),
-        radial-gradient(circle at 80% 85%, rgba(16, 185, 129, 0.22) 0%, transparent 45%);
+        var(--custom-menu-bg, none),
+        radial-gradient(circle at 15% 10%, rgba(124, 58, 237, 0.25) 0%, transparent 45%),
+        radial-gradient(circle at 85% 85%, rgba(219, 39, 119, 0.18) 0%, transparent 45%);
       background-size: cover;
       background-position: center;
       color: #fff;
-      font-family: system-ui, -apple-system, sans-serif;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
     }
     input, textarea, select {
       user-select: text !important;
@@ -443,57 +474,143 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
     #app {
       width: 100vw;
       height: 100vh;
-      padding-top: calc(env(safe-area-inset-top, 14px) + 38px);
-      padding-bottom: env(safe-area-inset-bottom, 8px);
+      padding-top: calc(env(safe-area-inset-top, 10px) + 32px);
+      padding-bottom: env(safe-area-inset-bottom, 6px);
       display: flex;
       flex-direction: column;
       overflow: hidden;
     }
     .glass-panel {
-      background: rgba(15, 23, 42, 0.45);
-      backdrop-filter: blur(16px);
-      -webkit-backdrop-filter: blur(16px);
-      border: 1px solid rgba(255, 255, 255, 0.14);
-      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.35);
+      background: rgba(19, 14, 38, 0.72);
+      backdrop-filter: blur(18px);
+      -webkit-backdrop-filter: blur(18px);
+      border: 1px solid rgba(255, 255, 255, 0.11);
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
     }
     .glass-soft {
-      background: rgba(255, 255, 255, 0.08);
+      background: rgba(255, 255, 255, 0.06);
       backdrop-filter: blur(12px);
       -webkit-backdrop-filter: blur(12px);
-      border: 1px solid rgba(255, 255, 255, 0.14);
+      border: 1px solid rgba(255, 255, 255, 0.1);
     }
     .btn-primary {
-      background: linear-gradient(135deg, rgba(37, 99, 235, 0.85), rgba(79, 70, 229, 0.85));
-      backdrop-filter: blur(8px);
+      background: linear-gradient(135deg, #7c3aed, #4f46e5);
       border: 1px solid rgba(255,255,255,0.22);
+      box-shadow: 0 4px 15px rgba(124, 58, 237, 0.35);
     }
     .btn-success {
-      background: linear-gradient(135deg, rgba(5, 150, 105, 0.88), rgba(16, 185, 129, 0.88));
-      backdrop-filter: blur(8px);
+      background: linear-gradient(135deg, #059669, #10b981);
       border: 1px solid rgba(255,255,255,0.22);
     }
     .btn-danger {
-      background: linear-gradient(135deg, rgba(225, 29, 72, 0.88), rgba(239, 68, 68, 0.88));
-      backdrop-filter: blur(8px);
+      background: linear-gradient(135deg, #e11d48, #ef4444);
       border: 1px solid rgba(255,255,255,0.22);
     }
     .ltr-grid { direction: ltr !important; }
 
+    /* کارت‌های مربعی کازینو-آرکید مشابه تصویر ارسالی */
+    .arcade-card {
+      position: relative;
+      aspect-ratio: 1 / 1.04;
+      border-radius: 24px;
+      overflow: hidden;
+      border: 1.5px solid rgba(168, 85, 247, 0.32);
+      background: #130d26;
+      box-shadow: 0 10px 26px rgba(0, 0, 0, 0.65);
+      transition: transform 0.16s ease, border-color 0.16s ease;
+    }
+    .arcade-card:active {
+      transform: scale(0.96);
+      border-color: rgba(168, 85, 247, 0.85);
+    }
+    .arcade-card-bg {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      transition: transform 0.3s ease;
+    }
+    .arcade-card-overlay {
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(180deg, rgba(10, 6, 24, 0.55) 0%, rgba(10, 6, 24, 0.15) 45%, rgba(10, 6, 24, 0.88) 100%);
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      padding: 14px 12px 11px 12px;
+    }
+    .arcade-title {
+      font-weight: 900;
+      font-size: 1.15rem;
+      line-height: 1.15;
+      letter-spacing: 0.02em;
+      text-transform: uppercase;
+      color: #ffffff;
+      text-shadow: 0 3px 12px rgba(0, 0, 0, 0.9);
+      text-align: right;
+    }
+    .pill-players {
+      background: rgba(15, 23, 42, 0.78);
+      backdrop-filter: blur(6px);
+      border: 1px solid rgba(52, 211, 153, 0.35);
+      color: #34d399;
+      font-size: 10px;
+      font-weight: 900;
+      padding: 2px 7px;
+      border-radius: 999px;
+      display: inline-flex;
+      align-items: center;
+      gap: 3px;
+    }
+    .pill-mode-pve {
+      background: linear-gradient(135deg, #0ea5e9, #2563eb);
+      color: #fff;
+      font-size: 10px;
+      font-weight: 900;
+      padding: 2px 8px;
+      border-radius: 999px;
+    }
+    .pill-mode-slot {
+      background: linear-gradient(135deg, #f59e0b, #d97706);
+      color: #000;
+      font-size: 10px;
+      font-weight: 900;
+      padding: 2px 8px;
+      border-radius: 999px;
+    }
+    .pill-new {
+      background: rgba(88, 28, 135, 0.85);
+      border: 1px solid rgba(192, 132, 252, 0.5);
+      color: #f3e8ff;
+      font-size: 10px;
+      font-weight: 900;
+      padding: 2px 8px;
+      border-radius: 999px;
+    }
+    .bottom-dock {
+      background: rgba(18, 13, 36, 0.88);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      border-radius: 28px;
+      box-shadow: 0 -4px 25px rgba(0, 0, 0, 0.65);
+    }
+
     .tower-bg-wrap {
       background-image:
-        __TOWER_BG__
+        var(--custom-tower-bg, __TOWER_BG__),
         radial-gradient(circle at top, rgba(153, 27, 27, 0.45) 0%, rgba(15, 23, 42, 0.92) 70%);
       background-size: cover;
       background-position: center;
     }
-
     .persian-carpet {
       position: relative;
       width: 100%;
       height: 100%;
       background-color: #781014;
       background-image:
-        __CARPET_BG__
+        var(--custom-carpet-bg, __CARPET_BG__),
         radial-gradient(ellipse at center, rgba(185, 28, 28, 0.52) 0%, rgba(102, 10, 14, 0.94) 68%, #3a0608 100%),
         repeating-linear-gradient(45deg, rgba(245, 158, 11, 0.06) 0px, rgba(245, 158, 11, 0.06) 2px, transparent 2px, transparent 6px);
       background-size: cover;
@@ -559,8 +676,11 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
       return el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT');
     }
 
-    /* ─── ابزار فشرده‌سازی و آپلود مستقیم عکس از گالری گوشی (Base64 Data URL) ─── */
+    /* ─── ابزار فشرده‌سازی و آپلود مستقیم عکس از گالری گوشی ─── */
     window.uploadedImages = {};
+    window.uiAssetsMap = {};
+    window.recentWinsList = [];
+
     window.handleImageUpload = function(inputEl, targetKey, previewImgId) {
       const file = inputEl.files && inputEl.files[0];
       if (!file) return;
@@ -569,14 +689,14 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
         const img = new Image();
         img.onload = function() {
           const canvas = document.createElement('canvas');
-          const maxDim = 520;
+          const maxDim = 560;
           let w = img.width, h = img.height;
           if (w > h && w > maxDim) { h = Math.round(h * maxDim / w); w = maxDim; }
           else if (h >= w && h > maxDim) { w = Math.round(w * maxDim / h); h = maxDim; }
           canvas.width = w; canvas.height = h;
           const ctx = canvas.getContext('2d');
           ctx.drawImage(img, 0, 0, w, h);
-          const dataUrl = canvas.toDataURL('image/jpeg', 0.82);
+          const dataUrl = canvas.toDataURL('image/jpeg', 0.84);
           window.uploadedImages[targetKey] = dataUrl;
           const prev = document.getElementById(previewImgId);
           if (prev) {
@@ -588,6 +708,38 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
       };
       reader.readAsDataURL(file);
     };
+
+    function getAssetImg(key, fallbackUrl = '') {
+      if (window.uiAssetsMap && window.uiAssetsMap[key]) {
+        return window.uiAssetsMap[key];
+      }
+      return fallbackUrl || (`/api/custom_bg/${key}`);
+    }
+
+    function applyDynamicCssBackgrounds() {
+      const rootStyle = document.documentElement.style;
+      if (window.uiAssetsMap?.menu_bg) {
+        rootStyle.setProperty('--custom-menu-bg', `url('${window.uiAssetsMap.menu_bg}')`);
+      }
+      if (window.uiAssetsMap?.hokm_carpet) {
+        rootStyle.setProperty('--custom-carpet-bg', `url('${window.uiAssetsMap.hokm_carpet}')`);
+      }
+      if (window.uiAssetsMap?.tower_bg) {
+        rootStyle.setProperty('--custom-tower-bg', `url('${window.uiAssetsMap.tower_bg}')`);
+      }
+    }
+
+    async function loadUiAssets() {
+      try {
+        const res = await fetch('/api/ui_assets');
+        const data = await res.json();
+        if (data.assets) {
+          window.uiAssetsMap = data.assets;
+          applyDynamicCssBackgrounds();
+        }
+        if (data.recent_wins) window.recentWinsList = data.recent_wins;
+      } catch (e) {}
+    }
 
     const HERO_CUSTOM_IMG = "__HERO_IMAGE__";
     const TOWER_HERO_IMG = "__TOWER_HERO__";
@@ -618,7 +770,8 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
       fa: {
         heroTitle: "گیم باکس راینو",
         heroBody: "به گیم باکس راینو خوش اومدی رفیق\nاینجا کلی بازی خفن رو توی یک ربات برات جمع کردیم\nلذت ببر دوست من",
-        wipBadge: "در حال ساخت",
+        bigWins: "برندگان اخیر",
+        wipBadge: "SOON",
         backMenu: "منو",
         playBtn: "ورود",
         optBot: "🤖 بازی با ربات",
@@ -673,25 +826,26 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
         },
         games: {
           wip1: "شکارچی سیاه‌چال", wip2: "هک گاوصندوق", wip3: "برج شیاطین", wip3Sub: "RPG • طبقات و غول‌ها",
-          hokm: "حکم ۴", hokmSub: "۴ نفره •",
-          hokm2p: "حکم ۲", hokm2pSub: "۲ نفره • تک‌به‌تک",
-          dooz: "دوز ۲", doozSub: "۲ نفره • حلقه رنگی",
-          doz4p: "دوز ۴", doz4pSub: "۴ نفره • حلقه رنگی",
-          connect4: "۴ در ردیف", connect4Sub: "۲ نفره • استراتژیک",
+          hokm: "حکم ۴ نفره", hokmSub: "۴ نفره • فرش ایرانی",
+          hokm2p: "حکم ۲ نفره", hokm2pSub: "۲ نفره • تک‌به‌تک",
+          dooz: "دوز ۲ نفره", doozSub: "۲ نفره • حلقه رنگی",
+          doz4p: "دوز ۴ نفره", doz4pSub: "۴ نفره • حلقه رنگی",
+          connect4: "چهار در ردیف", connect4Sub: "۲ نفره • استراتژیک",
           rps: "سنگ کاغذ قیچی", rpsSub: "۲ نفره • سرعتی",
           guess: "حدس عدد", guessSub: "گروهی • رقابتی",
-          g2048: "۲۰۴۸", g2048Sub: "تک‌نفره • لمسی",
+          g2048: "پازل ۲۰۴۸", g2048Sub: "تک‌نفره • لمسی",
           spuzzle: "پازل ۱۵", spuzzleSub: "تک‌نفره • لمسی",
-          samegame: "جفت‌ها", samegameSub: "تک‌نفره • رنگی",
+          samegame: "جفت‌های رنگی", samegameSub: "تک‌نفره • رنگی",
           memory: "حافظه", memorySub: "۲ نفره • تمرکزی",
-          typing: "تایپ", typingSub: "سرعتی • رکوردی",
+          typing: "تایپ سرعتی", typingSub: "سرعتی • رکوردی",
           hangman: "حدس کلمه", hangmanSub: "فکری • حروف"
         }
       },
       en: {
         heroTitle: "Rhino Game Box",
         heroBody: "Welcome to Rhino Game Box my friend\nAwesome games gathered in one bot for you\nEnjoy my friend",
-        wipBadge: "Soon", backMenu: "Menu", playBtn: "Play",
+        bigWins: "BIG WINS",
+        wipBadge: "SOON", backMenu: "Menu", playBtn: "Play",
         optBot: "🤖 Play with AI Bot", optInvite: "📩 Invite Friends via Bot", optShare: "📤 Share Table Link",
         sendInviteBtn: "Send Invites", enterTableBtn: "Enter Table",
         notStartedWarn: "⚠️ These users haven't started the bot yet:",
@@ -723,14 +877,14 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
           vchRejected: "❌ Rejected (Refunded)", ownerNote: "Owner Note"
         },
         games: {
-          wip1: "Dungeon Heist", wip2: "Cyber Vault", wip3: "Demon Tower", wip3Sub: "RPG • Bosses & Loot",
-          hokm: "Hokm 4P", hokmSub: "4 Players • Cards", hokm2p: "Hokm 2P", hokm2pSub: "2 Players • Duel",
-          dooz: "Rings 2P", doozSub: "2 Players • Color", doz4p: "Rings 4P", doz4pSub: "4 Players • Color",
-          connect4: "Connect 4", connect4Sub: "2 Players • Strategy", rps: "Rock Paper", rpsSub: "2 Players • Duel",
-          guess: "Number Guess", guessSub: "Group • Live", g2048: "2048", g2048Sub: "Solo • Swipe",
-          spuzzle: "Puzzle 15", spuzzleSub: "Solo • Swipe", samegame: "SameGame", samegameSub: "Solo • Match",
-          memory: "Memory", memorySub: "2 Players • Match", typing: "Typing", typingSub: "Speed • Record",
-          hangman: "Word Guess", hangmanSub: "Solo • Letters"
+          wip1: "DUNGEON HEIST", wip2: "CYBER VAULT", wip3: "DEMON TOWER", wip3Sub: "RPG • Bosses & Loot",
+          hokm: "HOKM 4P", hokmSub: "4 Players • Cards", hokm2p: "HOKM 2P", hokm2pSub: "2 Players • Duel",
+          dooz: "RINGS 2P", doozSub: "2 Players • Color", doz4p: "RINGS 4P", doz4pSub: "4 Players • Color",
+          connect4: "CONNECT 4", connect4Sub: "2 Players • Strategy", rps: "ROCK PAPER", rpsSub: "2 Players • Duel",
+          guess: "NUMBER GUESS", guessSub: "Group • Live", g2048: "2048 PUZZLE", g2048Sub: "Solo • Swipe",
+          spuzzle: "PUZZLE 15", spuzzleSub: "Solo • Swipe", samegame: "COLOR MATCH", samegameSub: "Solo • Match",
+          memory: "MEMORY", memorySub: "2 Players • Match", typing: "SPEED TYPE", typingSub: "Speed • Record",
+          hangman: "WORD GUESS", hangmanSub: "Solo • Letters"
         }
       }
     };
@@ -738,11 +892,12 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
     function T() { return I18N[lang] || I18N.fa; }
 
     let currentGame = parsedGame || 'hub';
+    let hubFilter = 'all'; // all | pve | pvp
     const tgUser = tg?.initDataUnsafe?.user || {};
     const realTgUid = tgUser.id || Number(params.get('uid')) || 0;
     const uid = realTgUid || Math.floor(Math.random()*900000 + 100000);
     const isOwner = OWNER_IDS.includes(Number(uid));
-    const myName = tgUser.first_name || 'Player';
+    const myName = tgUser.first_name || 'CEORHINO';
     const myUsername = tgUser.username || '';
     const myPhoto = tgUser.photo_url || '';
 
@@ -764,7 +919,7 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
       return `
         <div class="glass-panel mx-3 mb-2 px-3 py-2 rounded-2xl flex justify-between items-center shrink-0">
           <div class="flex items-center gap-1.5">
-            ${currentGame !== 'hub' ? `<button onclick="nav('hub')" class="btn-danger px-2.5 py-1 rounded-xl text-xs font-extrabold">${T().backMenu}</button>` : `<span class="text-xs font-black text-indigo-300">RHINO™</span>`}
+            ${currentGame !== 'hub' ? `<button onclick="nav('hub')" class="btn-danger px-2.5 py-1 rounded-xl text-xs font-extrabold">${T().backMenu}</button>` : `<span class="text-xs font-black text-purple-400">RHINO™</span>`}
             <span class="text-sm font-black text-white truncate max-w-[140px]">${titleText || T().heroTitle}</span>
           </div>
           <div class="flex items-center gap-1.5">
@@ -786,6 +941,7 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
 
     window.verifyJoinAndRender = async function() {
       const root = document.getElementById('app');
+      await loadUiAssets();
       if (!realTgUid || isOwner) { isJoinVerified = true; return render(); }
       try {
         const res = await fetch('/api/check_join/' + realTgUid);
@@ -831,82 +987,171 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
       render();
     };
 
-    /* ═══════════ صفحه اصلی گیم باکس راینو ═══════════ */
+    window.setHubFilter = function(f) {
+      hubFilter = f;
+      renderHub(document.getElementById('app'));
+    };
+
+    /* ═══════════════════════════════════════════════════════════════════════════
+       صفحه اصلی گیم باکس راینو با طراحی کازینو-آرکید نئونی (مشابه تصویر ارسالی)
+       ═══════════════════════════════════════════════════════════════════════════ */
     function renderHub(root) {
       const G = T().games;
-      const wipGames = [
-        { title: G.wip1, icon: "🏰" },
-        { title: G.wip2, icon: "🔐" }
-      ];
-      const activeGames = [
-        { id: "demontower", title: G.wip3,   badge: G.wip3Sub,     icon: "👹", cls: "btn-danger" },
-        { id: "hokm",     title: G.hokm,     badge: G.hokmSub,     icon: "♠️", cls: "btn-success" },
-        { id: "hokm2p",   title: G.hokm2p,   badge: G.hokm2pSub,   icon: "👑", cls: "btn-success" },
-        { id: "dooz",     title: G.dooz,     badge: G.doozSub,     icon: "🟢", cls: "btn-primary" },
-        { id: "doz4p",    title: G.doz4p,    badge: G.doz4pSub,    icon: "🟣", cls: "btn-primary" },
-        { id: "connect4", title: G.connect4, badge: G.connect4Sub, icon: "🔴", cls: "btn-success" },
-        { id: "rps",      title: G.rps,      badge: G.rpsSub,      icon: "✂️", cls: "btn-primary" },
-        { id: "guess",    title: G.guess,    badge: G.guessSub,    icon: "🎯", cls: "btn-success" },
-        { id: "2048",     title: G.g2048,    badge: G.g2048Sub,    icon: "🧩", cls: "btn-primary" },
-        { id: "spuzzle",  title: G.spuzzle,  badge: G.spuzzleSub,  icon: "🔢", cls: "btn-primary" },
-        { id: "samegame", title: G.samegame, badge: G.samegameSub, icon: "🟦", cls: "btn-primary" },
-        { id: "memory",   title: G.memory,   badge: G.memorySub,   icon: "🧠", cls: "btn-primary" },
-        { id: "typing",   title: G.typing,   badge: G.typingSub,   icon: "⌨️", cls: "btn-primary" },
-        { id: "hangman",  title: G.hangman,  badge: G.hangmanSub,  icon: "🕵️", cls: "btn-primary" }
+      const avatarUrl = myPhoto || '';
+      const initial = (myName || 'R')[0].toUpperCase();
+
+      const allCards = [
+        { id: "demontower", title: G.wip3,     mode: "RPG",  tag: "NEW",  online: 14, cat: "pve", wip: false, c1: "#450a0a", c2: "#dc2626", icon: "👹" },
+        { id: "hokm",       title: G.hokm,     mode: "PVP",  tag: "HOT",  online: 28, cat: "pvp", wip: false, c1: "#7f1d1d", c2: "#b91c1c", icon: "♠️" },
+        { id: "hokm2p",     title: G.hokm2p,   mode: "PVP",  tag: "NEW",  online: 12, cat: "pvp", wip: false, c1: "#500724", c2: "#db2777", icon: "👑" },
+        { id: "dooz",       title: G.dooz,     mode: "PVP",  tag: "NEW",  online: 9,  cat: "pvp", wip: false, c1: "#1e1b4b", c2: "#3b82f6", icon: "🟢" },
+        { id: "doz4p",      title: G.doz4p,    mode: "PVP",  tag: "NEW",  online: 6,  cat: "pvp", wip: false, c1: "#4a044e", c2: "#ec4899", icon: "🟣" },
+        { id: "connect4",   title: G.connect4, mode: "PVP",  tag: "HOT",  online: 11, cat: "pvp", wip: false, c1: "#064e3b", c2: "#10b981", icon: "🔴" },
+        { id: "rps",        title: G.rps,      mode: "PVP",  tag: "NEW",  online: 7,  cat: "pvp", wip: false, c1: "#312e81", c2: "#6366f1", icon: "✂️" },
+        { id: "guess",      title: G.guess,    mode: "PVE",  tag: "LIVE", online: 19, cat: "pvp", wip: false, c1: "#14532d", c2: "#22c55e", icon: "🎯" },
+        { id: "2048",       title: G.g2048,    mode: "PVE",  tag: "NEW",  online: 15, cat: "pve", wip: false, c1: "#1e3a8a", c2: "#2563eb", icon: "🧩" },
+        { id: "spuzzle",    title: G.spuzzle,  mode: "PVE",  tag: "",     online: 5,  cat: "pve", wip: false, c1: "#0c4a6e", c2: "#0ea5e9", icon: "🔢" },
+        { id: "samegame",   title: G.samegame, mode: "PVE",  tag: "",     online: 8,  cat: "pve", wip: false, c1: "#581c87", c2: "#a855f7", icon: "🟦" },
+        { id: "memory",     title: G.memory,   mode: "PVE",  tag: "NEW",  online: 10, cat: "pve", wip: false, c1: "#4c1d95", c2: "#8b5cf6", icon: "🧠" },
+        { id: "typing",     title: G.typing,   mode: "PVE",  tag: "",     online: 4,  cat: "pve", wip: false, c1: "#78350f", c2: "#f59e0b", icon: "⌨️" },
+        { id: "hangman",    title: G.hangman,  mode: "PVE",  tag: "",     online: 9,  cat: "pve", wip: false, c1: "#881337", c2: "#e11d48", icon: "🕵️" },
+        { id: "wip1",       title: G.wip1,     mode: "SLOT", tag: T().wipBadge, online: 0, cat: "pve", wip: true, c1: "#1e1b4b", c2: "#6d28d9", icon: "🏰" },
+        { id: "wip2",       title: G.wip2,     mode: "PVE",  tag: T().wipBadge, online: 0, cat: "pve", wip: true, c1: "#0f172a", c2: "#059669", icon: "🔐" }
       ];
 
-      const wipHtml = wipGames.map(w => `
-        <div class="glass-soft rounded-2xl p-2.5 flex items-center justify-between opacity-80">
-          <div class="flex items-center gap-2 min-w-0">
-            <span class="text-xl">${w.icon}</span>
-            <span class="font-extrabold text-xs text-slate-200 truncate">${w.title}</span>
+      const filteredCards = allCards.filter(c => {
+        if (hubFilter === 'pve') return c.cat === 'pve';
+        if (hubFilter === 'pvp') return c.cat === 'pvp';
+        return true;
+      });
+
+      const winsData = window.recentWinsList?.length ? window.recentWinsList : [
+        { name: myName, game: "DEMON TOWER", time: "1m ago" },
+        { name: "RHINO PRO", game: "HOKM 4P", time: "2m ago" },
+        { name: "KING_88", game: "2048", time: "4m ago" }
+      ];
+
+      const bigWinsHtml = winsData.map((w, i) => `
+        <div class="glass-panel rounded-2xl px-3 py-2 flex items-center gap-2.5 shrink-0 min-w-[165px] border border-purple-500/25">
+          <div class="w-8 h-8 rounded-full bg-gradient-to-br from-purple-600 to-indigo-600 flex items-center justify-center font-black text-xs shrink-0">
+            ${(w.name || 'P')[0]}
           </div>
-          <span class="px-2 py-0.5 rounded-lg bg-amber-500/20 border border-amber-400/40 text-amber-300 text-[10px] font-black shrink-0">🛠️ ${T().wipBadge}</span>
+          <div class="leading-tight truncate">
+            <div class="text-[11px] font-black text-amber-300 truncate">👑 ${w.name}</div>
+            <div class="text-[9px] text-slate-400 font-bold">${w.game} • ${w.time}</div>
+          </div>
+          <span class="text-base ml-auto">${['🧸','🎰','🏆','💎'][i % 4]}</span>
         </div>
       `).join('');
 
-      const gamesHtml = activeGames.map(g => `
-        <button onclick="nav('${g.id}')" class="glass-panel rounded-2xl p-3 flex items-center justify-between active:scale-[0.98] transition">
-          <div class="flex items-center gap-2.5 min-w-0">
-            <div class="w-10 h-10 rounded-xl ${g.cls} flex items-center justify-center text-xl shrink-0">${g.icon}</div>
-            <div class="text-start truncate">
-              <div class="font-black text-sm text-white truncate">${g.title}</div>
-              <div class="text-[10px] text-slate-300 font-bold truncate">${g.badge}</div>
+      const cardsHtml = filteredCards.map(g => {
+        const customImg = getAssetImg(g.id, '');
+        return `
+          <div onclick="${g.wip ? '' : `nav('${g.id}')`}" class="arcade-card cursor-pointer ${g.wip ? 'opacity-80' : ''}">
+            <img src="${customImg}" onerror="this.style.display='none'" class="arcade-card-bg" />
+            <div style="background: radial-gradient(circle at 75% 70%, ${g.c2}55 0%, ${g.c1}ee 85%);" class="absolute inset-0 -z-10 flex items-center justify-end p-3">
+              <span class="text-7xl opacity-45 select-none">${g.icon}</span>
+            </div>
+            <div class="arcade-card-overlay">
+              <div class="arcade-title">${g.title}</div>
+              <div class="flex items-center gap-1.5 flex-wrap ltr-grid">
+                <span class="pill-players">👤 ${g.online}</span>
+                <span class="${g.mode === 'SLOT' ? 'pill-mode-slot' : 'pill-mode-pve'}">${g.mode}</span>
+                ${g.tag ? `<span class="pill-new">${g.tag}</span>` : ''}
+              </div>
             </div>
           </div>
-          <span class="px-2.5 py-1 rounded-xl ${g.cls} text-[11px] font-extrabold shrink-0">${T().playBtn}</span>
-        </button>
-      `).join('');
+        `;
+      }).join('');
+
+      const heroImgSrc = getAssetImg('rhino_hero', HERO_CUSTOM_IMG);
 
       root.innerHTML = `
-        ${renderTopBar(T().heroTitle)}
-        <div class="flex-1 overflow-y-auto px-3 pb-6 flex flex-col gap-3">
-          <div class="glass-panel rounded-3xl overflow-hidden shrink-0">
-            ${HERO_CUSTOM_IMG ? `
-              <img src="${HERO_CUSTOM_IMG}" class="w-full h-40 object-cover border-b border-white/10" />
+        <!-- ۱. هدر پروفایل گیمینگ مشابه اسکرین‌شات -->
+        <div class="glass-panel mx-3 mb-2 px-3 py-2.5 rounded-3xl flex items-center justify-between gap-2 shrink-0 border border-purple-500/25">
+          <div class="flex items-center gap-2.5 min-w-0 flex-1">
+            ${avatarUrl ? `
+              <img src="${avatarUrl}" class="w-11 h-11 rounded-full object-cover border-2 border-purple-500 shrink-0" />
             ` : `
-              <div class="w-full h-32 bg-gradient-to-br from-indigo-900 via-purple-900 to-slate-900 flex flex-col items-center justify-center border-b border-white/10">
-                <div class="text-4xl mb-1">🦏 🎮</div>
-                <div class="text-xs font-black tracking-widest text-indigo-300">RHINO™ TEAM</div>
-              </div>
+              <div class="w-11 h-11 rounded-full bg-gradient-to-br from-purple-600 to-indigo-800 flex items-center justify-center font-black text-base border-2 border-purple-400 shrink-0">${initial}</div>
             `}
-            <div class="p-3.5 text-center">
-              <h1 class="text-lg font-black text-amber-300 mb-1">${T().heroTitle}</h1>
-              <p class="text-xs text-slate-200 font-bold leading-relaxed whitespace-pre-line">${T().heroBody}</p>
+            <div class="min-w-0 flex-1">
+              <div class="flex items-center gap-1.5">
+                <span class="font-black text-sm text-white truncate">${myName}</span>
+                <span class="px-1.5 py-0.5 rounded-md bg-white/10 text-[10px] font-black text-purple-300">1 ^</span>
+              </div>
+              <div class="flex items-center gap-1.5 mt-1">
+                <span class="text-[10px] font-black text-slate-300">1</span>
+                <div class="flex-1 h-2 bg-slate-900/90 rounded-full overflow-hidden border border-white/10">
+                  <div class="w-1/3 h-full bg-gradient-to-r from-purple-500 to-indigo-400 rounded-full"></div>
+                </div>
+                <span class="text-[10px] font-black text-slate-400">2</span>
+              </div>
             </div>
           </div>
 
-          <div class="grid grid-cols-2 gap-2">${wipHtml}</div>
-          <div class="grid grid-cols-2 gap-2">${gamesHtml}</div>
+          <div class="flex items-center gap-1.5 shrink-0">
+            <div class="flex flex-col gap-1 items-end">
+              <div class="px-2.5 py-0.5 rounded-full bg-white text-slate-950 font-black text-[11px] flex items-center gap-1 shadow">
+                <span>0</span><span>🪙</span>
+              </div>
+              <div class="px-2.5 py-0.5 rounded-full bg-slate-800/90 border border-white/15 text-white font-black text-[11px] flex items-center gap-1">
+                <span>16</span><span>🎮</span>
+              </div>
+            </div>
+            <button onclick="nav('demontower')" class="w-10 h-10 rounded-full bg-gradient-to-br from-purple-500 to-indigo-600 flex items-center justify-center text-xl font-black shadow-lg border border-purple-300/40">+</button>
+            ${isOwner ? `
+              <button onclick="nav('tower_admin')" title="پنل مدیریت" class="w-10 h-10 rounded-full glass-soft flex items-center justify-center text-base border border-amber-400/50">👑</button>
+            ` : `
+              <button onclick="cycleLang()" class="w-10 h-10 rounded-full glass-soft flex items-center justify-center text-xs font-black text-amber-300">${lang.toUpperCase()}</button>
+            `}
+          </div>
+        </div>
+
+        <!-- ۲. محتوای اسکرول‌شونده: نوار BIG WINS + بنر معرفی راینو + گرید ۲ ستونی کارت‌های مربعی -->
+        <div class="flex-1 overflow-y-auto px-3 pb-24 flex flex-col gap-3">
+          <!-- نوار BIG WINS -->
+          <div>
+            <div class="flex items-center justify-between px-1 mb-1.5">
+              <div class="flex items-center gap-1 text-[11px] font-black text-orange-400 tracking-wider uppercase">
+                <span>🔥</span><span>${T().bigWins}</span>
+              </div>
+              ${isOwner ? `<button onclick="cycleLang()" class="text-[10px] font-black text-purple-300">🌐 ${lang.toUpperCase()}</button>` : ''}
+            </div>
+            <div class="flex gap-2 overflow-x-auto pb-1">${bigWinsHtml}</div>
+          </div>
+
+          <!-- کارت معرفی گیم باکس راینو (قابل تغییر از پنل ادمین) -->
+          <div class="glass-panel rounded-3xl overflow-hidden shrink-0 border border-purple-500/25">
+            <img src="${heroImgSrc}" onerror="this.style.display='none'" class="w-full h-32 object-cover border-b border-white/10" />
+            <div class="p-3 text-center">
+              <h1 class="text-base font-black text-amber-300 mb-0.5">${T().heroTitle}</h1>
+              <p class="text-[11px] text-slate-200 font-bold leading-relaxed whitespace-pre-line">${T().heroBody}</p>
+            </div>
+          </div>
+
+          <!-- گرید ۲ ستونی بازی‌ها با ظاهر مربعی پوستردار -->
+          <div class="grid grid-cols-2 gap-3">
+            ${cardsHtml}
+          </div>
+        </div>
+
+        <!-- ۳. نوار ناوبری شناور پایین صفحه (Floating Bottom Dock) مشابه اسکرین‌شات -->
+        <div class="fixed bottom-3 left-3 right-3 z-30 bottom-dock px-4 py-2 flex justify-between items-center">
+          <button onclick="setHubFilter('all')" class="${hubFilter==='all' ? 'text-white scale-110' : 'text-slate-400'} text-xl p-2 transition">🏠</button>
+          <button onclick="setHubFilter('pvp')" class="w-12 h-10 rounded-2xl bg-gradient-to-br from-purple-600 to-indigo-600 flex items-center justify-center text-xl shadow-[0_0_18px_rgba(124,58,237,0.7)] border border-purple-300/40">🎮</button>
+          <button onclick="nav('demontower');setTimeout(()=>dtNav('shop'),250)" class="text-slate-400 hover:text-white text-xl p-2 transition">🛍️</button>
+          <button onclick="setHubFilter('pve')" class="${hubFilter==='pve' ? 'text-white scale-110' : 'text-slate-400'} text-xl p-2 transition">☑️</button>
+          <button onclick="nav('demontower');setTimeout(()=>dtNav('account'),250)" class="text-slate-400 hover:text-white text-xl p-2 transition">👤</button>
         </div>
       `;
     }
 
     /* ═══════════════════════════════════════════════════════════════════════════
-       مینی‌اپ مخفی «فرماندهی کل ربات و برج شیاطین» (۱۰ تب کامل ویژه مالک)
+       مینی‌اپ مخفی «فرماندهی کل ربات و برج شیاطین» (۱۱ تب کامل شامل تغییر تمام عکس‌ها)
        ═══════════════════════════════════════════════════════════════════════════ */
     let admState = null;
-    let admTab = 'bot_stats';
+    let admTab = 'ui_assets';
     let admMsg = '';
     let admErr = '';
     let admLookedUpUser = null;
@@ -922,7 +1167,13 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
         admMsg = data.msg || '';
         admErr = data.ok === false ? (data.error || '') : '';
         if (data.looked_up) admLookedUpUser = data.looked_up;
-        if (data.admin_data) admState = data.admin_data;
+        if (data.admin_data) {
+          admState = data.admin_data;
+          if (admState.ui_assets) {
+            window.uiAssetsMap = admState.ui_assets;
+            applyDynamicCssBackgrounds();
+          }
+        }
         drawTowerAdminApp(document.getElementById('app'));
       } catch (e) {}
     }
@@ -930,6 +1181,19 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
     window.admSwitchTab = function(t) {
       admTab = t; admMsg = ''; admErr = '';
       drawTowerAdminApp(document.getElementById('app'));
+    };
+
+    window.admSaveUiAsset = function(assetKey) {
+      const dataUrl = window.uploadedImages['asset_' + assetKey];
+      if (!dataUrl) {
+        if (tg?.showAlert) tg.showAlert('ابتدا یک تصویر از گالری انتخاب کنید!');
+        return;
+      }
+      callTowerAdminApi('save_ui_asset', { asset_key: assetKey, photo: dataUrl });
+    };
+
+    window.admDeleteUiAsset = function(assetKey) {
+      callTowerAdminApi('delete_ui_asset', { asset_key: assetKey });
     };
 
     window.admFillFloorForm = function(fnum) {
@@ -1039,6 +1303,7 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
       if (!admState) return;
 
       const tabs = [
+        { id: 'ui_assets',    lbl: '🖼️ عکس بازی‌ها' },
         { id: 'bot_stats',    lbl: '📊 آمار و همگانی' },
         { id: 'bot_channels', lbl: '🔒 قفل کانال' },
         { id: 'bot_groups',   lbl: '👥 گروه‌ها' },
@@ -1058,8 +1323,71 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
 
       let sectionHtml = '';
 
-      /* ۰-الف. تب آمار کل ربات و ارسال همگانی هیبریدی (دریافت متن در پیوی + تنظیمات و ارسال نهایی در مینی‌اپ) */
-      if (admTab === 'bot_stats') {
+      /* تب ۰: تغییر و آپلود مستقیم تمام عکس‌های بازی‌ها و بک‌گراندهای مینی‌اپ */
+      if (admTab === 'ui_assets') {
+        const assetItems = [
+          { key: 'rhino_hero',  title: '🦏 بنر کارت معرفی گیم باکس راینو' },
+          { key: 'menu_bg',     title: '🌌 پس‌زمینه کل مینی‌اپ (Menu BG)' },
+          { key: 'hokm_carpet', title: '🟥 طرح فرش میز حکم (Hokm Carpet)' },
+          { key: 'tower_hero',  title: '👹 بنر بالای منوی برج شیاطین' },
+          { key: 'tower_bg',    title: '🌋 پس‌زمینه صفحات برج شیاطین' },
+          { key: 'demontower',  title: '🃏 پوستر کارت بازی: برج شیاطین' },
+          { key: 'hokm',        title: '🃏 پوستر کارت بازی: حکم ۴ نفره' },
+          { key: 'hokm2p',      title: '🃏 پوستر کارت بازی: حکم ۲ نفره' },
+          { key: 'dooz',        title: '🃏 پوستر کارت بازی: دوز ۲ نفره' },
+          { key: 'doz4p',       title: '🃏 پوستر کارت بازی: دوز ۴ نفره' },
+          { key: 'connect4',    title: '🃏 پوستر کارت بازی: چهار در ردیف' },
+          { key: 'rps',         title: '🃏 پوستر کارت بازی: سنگ کاغذ قیچی' },
+          { key: 'guess',       title: '🃏 پوستر کارت بازی: حدس عدد' },
+          { key: '2048',        title: '🃏 پوستر کارت بازی: پازل ۲۰۴۸' },
+          { key: 'spuzzle',     title: '🃏 پوستر کارت بازی: پازل ۱۵' },
+          { key: 'samegame',    title: '🃏 پوستر کارت بازی: جفت‌های رنگی' },
+          { key: 'memory',      title: '🃏 پوستر کارت بازی: حافظه' },
+          { key: 'typing',      title: '🃏 پوستر کارت بازی: تایپ سرعتی' },
+          { key: 'hangman',     title: '🃏 پوستر کارت بازی: حدس کلمه' },
+          { key: 'wip1',        title: '🃏 پوستر کارت بازی: شکارچی سیاه‌چال' },
+          { key: 'wip2',        title: '🃏 پوستر کارت بازی: هک گاوصندوق' }
+        ];
+
+        const savedMap = admState.ui_assets || {};
+        const cardsListHtml = assetItems.map(item => {
+          const curImg = savedMap[item.key] || `/api/custom_bg/${item.key}`;
+          const hasCustom = Boolean(savedMap[item.key]);
+          return `
+            <div class="glass-soft p-3 rounded-2xl flex flex-col gap-2 border ${hasCustom ? 'border-emerald-400/50' : 'border-white/10'}">
+              <div class="flex items-center justify-between gap-2">
+                <div class="flex items-center gap-2.5 min-w-0">
+                  <img id="prev_asset_${item.key}" src="${curImg}" class="w-14 h-14 rounded-xl object-cover border border-purple-400/40 shrink-0" />
+                  <div class="min-w-0">
+                    <div class="font-black text-xs text-white truncate">${item.title}</div>
+                    <div class="text-[10px] ${hasCustom ? 'text-emerald-300' : 'text-slate-400'} font-bold">
+                      ${hasCustom ? '✅ عکس سفارشی فعال است' : '⚪ تصویر پیش‌فرض'}
+                    </div>
+                  </div>
+                </div>
+                ${hasCustom ? `
+                  <button onclick="admDeleteUiAsset('${item.key}')" class="btn-danger px-2.5 py-1.5 rounded-xl text-[10px] font-bold shrink-0">حذف</button>
+                ` : ''}
+              </div>
+              <div class="flex items-center gap-2 pt-1 border-t border-white/10">
+                <input type="file" accept="image/*" onchange="handleImageUpload(this, 'asset_${item.key}', 'prev_asset_${item.key}')" class="flex-1 text-[10px] text-slate-300" />
+                <button onclick="admSaveUiAsset('${item.key}')" class="btn-success px-3.5 py-1.5 rounded-xl text-[11px] font-black shrink-0">💾 ذخیره</button>
+              </div>
+            </div>
+          `;
+        }).join('');
+
+        sectionHtml = `
+          <div class="glass-panel p-4 rounded-3xl space-y-3 text-xs">
+            <h3 class="font-black text-sm text-amber-300 text-center">🖼️ مدیریت و تغییر تمام عکس‌های مینی‌اپ</h3>
+            <p class="text-[11px] text-slate-300 text-center">برای هر بازی یا پس‌زمینه، عکس دلخواهتان را از گالری انتخاب و روی «ذخیره» بزنید تا بلافاصله در کل مینی‌اپ تغییر کند:</p>
+            <div class="flex flex-col gap-2.5">${cardsListHtml}</div>
+          </div>
+        `;
+      }
+
+      /* ۰-الف. تب آمار کل ربات و ارسال همگانی هیبریدی */
+      else if (admTab === 'bot_stats') {
         const st = admState.bot_stats || {};
         const draft = admState.bc_draft || null;
 
@@ -1076,7 +1404,6 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
             <div class="border-t border-white/10 pt-3 space-y-2.5">
               <h4 class="font-black text-sm text-indigo-300 text-center">📢 ارسال پیام همگانی (با حفظ ایموجی پریمیوم)</h4>
 
-              <!-- مرحله ۱: دکمه ارسال پیام به پیوی ربات به جای باکس تکست -->
               <div class="glass-soft p-3 rounded-2xl text-center space-y-2 border ${draft ? 'border-emerald-400/50' : 'border-amber-400/40'}">
                 ${draft ? `
                   <div class="text-emerald-300 font-black text-xs">✅ پیام همگانی شما در پیوی دریافت و آماده ارسال است!</div>
@@ -1093,7 +1420,6 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
                 `}
               </div>
 
-              <!-- مرحله ۲: تنظیمات مقصد، دکمه شیشه‌ای و ارسال نهایی از داخل مینی‌اپ -->
               <div class="space-y-2 pt-1">
                 <label class="block text-[11px] text-slate-300 font-bold">۱. انتخاب مقصد ارسال:</label>
                 <select id="bc_target" class="w-full p-2.5 rounded-xl bg-slate-900 border border-white/20 text-white font-bold text-center">
@@ -1116,7 +1442,7 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
         `;
       }
 
-      /* ۰-ب. تب مدیریت کانال‌های عضویت اجباری (Forced Join) */
+      /* ۰-ب. تب مدیریت کانال‌های عضویت اجباری */
       else if (admTab === 'bot_channels') {
         const chRows = (admState.forced_channels || []).map(c => `
           <div class="glass-soft p-3 rounded-2xl flex justify-between items-center text-xs">
@@ -1131,7 +1457,6 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
         sectionHtml = `
           <div class="glass-panel p-4 rounded-3xl space-y-2.5 text-xs">
             <h3 class="font-black text-sm text-amber-300 text-center">🔒 افزودن کانال به قفل عضویت اجباری</h3>
-            <p class="text-[11px] text-slate-300 text-center">ابتدا ربات را در کانال مورد نظر ادمین کنید، سپس مشخصاتش را وارد نمایید:</p>
             <div>
               <label class="block text-[11px] text-slate-300 mb-1">یوزرنیم کانال (با @) یا آیدی عددی (-100...):</label>
               <input id="fc_cid" type="text" placeholder="مثلاً: @RHINOBOT_TM" class="w-full p-2.5 rounded-xl glass-soft text-center font-black text-white" />
@@ -1139,7 +1464,7 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
             <div class="grid grid-cols-2 gap-2">
               <div>
                 <label class="block text-[11px] text-slate-300 mb-1">عنوان نمایشی دکمه:</label>
-                <input id="fc_title" type="text" placeholder="مثلاً: کانال رسمی راینو" class="w-full p-2.5 rounded-xl glass-soft text-center text-white" />
+                <input id="fc_title" type="text" placeholder="کانال رسمی راینو" class="w-full p-2.5 rounded-xl glass-soft text-center text-white" />
               </div>
               <div>
                 <label class="block text-[11px] text-slate-300 mb-1">یوزرنیم بدون @ (جهت لینک):</label>
@@ -1158,7 +1483,7 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
         `;
       }
 
-      /* ۰-ج. تب لیست گروه‌ها، دریافت لینک ورود و خروج ربات از گروه */
+      /* ۰-ج. تب لیست گروه‌ها */
       else if (admTab === 'bot_groups') {
         const gRows = (admState.groups_list || []).map(g => `
           <div class="glass-soft p-3 rounded-2xl flex justify-between items-center gap-2 text-xs">
@@ -1181,7 +1506,7 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
         `;
       }
 
-      /* ۱. تب طبقات و غول‌ها (فرم خانه‌به‌خانه + آپلود مستقیم عکس) */
+      /* ۱. تب طبقات و غول‌ها */
       else if (admTab === 'floors') {
         const fList = (admState.floors || []).map(f => `
           <div class="glass-soft p-2.5 rounded-2xl flex items-center justify-between gap-2 text-xs">
@@ -1536,7 +1861,7 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
           ${admMsg ? `<div class="p-3 rounded-2xl bg-emerald-600/35 border border-emerald-400 text-xs font-extrabold text-center mb-2.5 whitespace-pre-line">${admMsg}</div>` : ''}
           ${admErr ? `<div class="p-3 rounded-2xl bg-rose-600/40 border border-rose-400 text-xs font-extrabold text-center mb-2.5 whitespace-pre-line">${admErr}</div>` : ''}
           ${sectionHtml}
-          <button onclick="nav('demontower')" class="btn-primary w-full py-3 rounded-2xl font-black text-xs mt-3">👹 ورود به محیط بازی برج شیاطین</button>
+          <button onclick="nav('hub')" class="btn-primary w-full py-3 rounded-2xl font-black text-xs mt-3">🏠 مشاهده منوی اصلی با تغییرات جدید</button>
         </div>
       `;
     }
@@ -1628,13 +1953,10 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
       let bodyHtml = '';
 
       if (dtTab === 'main') {
+        const tHero = getAssetImg('tower_hero', TOWER_HERO_IMG || '/api/banner/demontower.png');
         bodyHtml = `
           <div class="glass-panel rounded-3xl overflow-hidden mb-3 shrink-0">
-            ${TOWER_HERO_IMG ? `
-              <img src="${TOWER_HERO_IMG}" class="w-full h-36 object-cover border-b border-white/10" />
-            ` : `
-              <img src="/api/banner/demontower.png" class="w-full h-36 object-cover border-b border-white/10" />
-            `}
+            <img src="${tHero}" class="w-full h-36 object-cover border-b border-white/10" />
             <div class="p-3 flex justify-between items-center text-xs font-extrabold">
               <span class="text-amber-300">🪙 ${p.coins.toLocaleString()}</span>
               <span class="text-emerald-300">❤️ ${p.hp}/${p.max_hp}</span>
@@ -2947,8 +3269,8 @@ async def serve_entry(request: Request, full_path: str):
         .replace("__HERO_IMAGE__", hero_img)
         .replace("__TOWER_HERO__", tower_hero)
         .replace("__MENU_BG__", f"url('{menu_bg}')," if menu_bg else "")
-        .replace("__CARPET_BG__", f"url('{carpet_bg}')," if carpet_bg else "")
-        .replace("__TOWER_BG__", f"url('{tower_bg}')," if tower_bg else "")
+        .replace("__CARPET_BG__", f"url('{carpet_bg}')" if carpet_bg else "none")
+        .replace("__TOWER_BG__", f"url('{tower_bg}')" if tower_bg else "none")
         .replace("__BOT_USERNAME__", get_bot_username())
         .replace("__SHORT_NAME__", short_name)
     )
