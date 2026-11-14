@@ -431,20 +431,21 @@ async def main():
     async def _on_successful_payment(msg: Message):
         payload_str = msg.successful_payment.invoice_payload or ""
 
-        if payload_str.startswith("dtpack_"):
-            from games.demon_tower import STAR_PACKAGES, get_or_create_player
+        if payload_str.startswith("sptopup_"):
             parts = payload_str.split("_")
-            pack_key = f"{parts[1]}_{parts[2]}"
-            pack = STAR_PACKAGES.get(pack_key)
-            if pack:
-                await get_or_create_player(msg.from_user.id)
+            if len(parts) >= 3:
+                stars_added = int(parts[1])
+                target_uid = int(parts[2])
+                from social_platform import ensure_social_tables, get_or_create_sp_profile
+                await ensure_social_tables()
+                await get_or_create_sp_profile(target_uid)
                 await db.pool.execute(
-                    "UPDATE dt_players SET coins=coins+$1, xp=xp+$2 WHERE user_id=$3",
-                    pack["coins"], pack["xp"], msg.from_user.id
+                    "UPDATE sp_profiles SET stars_balance=stars_balance+$1 WHERE user_id=$2",
+                    stars_added, target_uid
                 )
                 await msg.answer(
-                    f"🎉 <b>خرید شما در برج شیاطین با موفقیت انجام شد!</b>\n"
-                    f"🪙 +{pack['coins']:,} سکه | ⭐ +{pack['xp']:,} XP به حساب شما اضافه شد.",
+                    f"⚡ <b>کیف پول شما با موفقیت شارژ شد!</b>\n"
+                    f"⭐ مقدار <b>+{stars_added} استارز</b> به کیف پول شما اضافه شد. اکنون می‌توانید در بخش Wallet آن را به سکه تبدیل کنید.",
                     parse_mode=ParseMode.HTML,
                 )
                 return
