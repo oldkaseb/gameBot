@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""webapp/backend/main.py — پلتفرم کامل راینو: اتاق‌های صوتی، کازینو، کیف پول استارز/سکه، پروفایل VIP و گیم باکس"""
+"""webapp/backend/main.py — پلتفرم کامل راینو: اتاق‌های صوتی، کازینو، کیف پول استارز/سکه، قاب PNG پروفایل و گیم باکس"""
 
 import base64
 import io
@@ -629,22 +629,25 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
     window.uiAssetsMap = {};
     window.recentWinsList = [];
 
+    /* آپلودر هوشمند با حفظ کامل شفافیت (Transparency) برای فایل‌های PNG توخالی */
     window.handleImageUpload = function(inputEl, targetKey, previewImgId) {
       const file = inputEl.files && inputEl.files[0];
       if (!file) return;
+      const isTransparentType = file.type === 'image/png' || file.type === 'image/webp' || targetKey === 'store_item_photo';
       const reader = new FileReader();
       reader.onload = function(ev) {
         const img = new Image();
         img.onload = function() {
           const canvas = document.createElement('canvas');
-          const maxDim = 560;
+          const maxDim = 520;
           let w = img.width, h = img.height;
           if (w > h && w > maxDim) { h = Math.round(h * maxDim / w); w = maxDim; }
           else if (h >= w && h > maxDim) { w = Math.round(w * maxDim / h); h = maxDim; }
           canvas.width = w; canvas.height = h;
           const ctx = canvas.getContext('2d');
+          ctx.clearRect(0, 0, w, h);
           ctx.drawImage(img, 0, 0, w, h);
-          const dataUrl = canvas.toDataURL('image/jpeg', 0.84);
+          const dataUrl = isTransparentType ? canvas.toDataURL('image/png') : canvas.toDataURL('image/jpeg', 0.84);
           window.uploadedImages[targetKey] = dataUrl;
           const prev = document.getElementById(previewImgId);
           if (prev) {
@@ -655,6 +658,26 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
         img.src = ev.target.result;
       };
       reader.readAsDataURL(file);
+    };
+
+    /* کامپوننت سراسری نمایش آواتار به همراه قاب PNG توخالی در کل مینی‌اپ */
+    window.renderAvatarWithFrame = function(photoUrl, nameStr, sizeCls, ringPhoto, ringCss, extraBorderCls = 'border border-purple-400/60') {
+      const initial = ((nameStr || 'U')[0] || 'U').toUpperCase();
+      const shadowStyle = (!ringPhoto && ringCss) ? ('box-shadow:' + ringCss + ';') : '';
+      const innerAvatar = photoUrl
+        ? `<img src="${photoUrl}" style="${shadowStyle}" class="w-full h-full rounded-full object-cover ${ringPhoto ? '' : extraBorderCls}" />`
+        : `<div style="${shadowStyle}" class="w-full h-full rounded-full bg-gradient-to-br from-purple-700 to-indigo-900 flex items-center justify-center font-black text-white ${ringPhoto ? '' : extraBorderCls}">${initial}</div>`;
+
+      const frameOverlay = ringPhoto
+        ? `<img src="${ringPhoto}" class="absolute inset-0 w-full h-full object-contain pointer-events-none z-10" style="transform: scale(1.28);" />`
+        : '';
+
+      return `
+        <div class="relative inline-flex items-center justify-center shrink-0 ${sizeCls}" style="overflow: visible;">
+          ${innerAvatar}
+          ${frameOverlay}
+        </div>
+      `;
     };
 
     function getAssetImg(key, fallbackUrl = '') {
@@ -1014,8 +1037,6 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
       const me = spState?.me || {};
       const avatarUrl = me.photo || myPhoto || '';
       const displayName = me.display_name || myName;
-      const initial = (displayName || 'R')[0].toUpperCase();
-      const ringStyle = me.ring_css ? ('box-shadow:' + me.ring_css + ';') : '';
       const lvl = me.level || 1;
       const xpPct = Math.min(100, Math.round(((me.xp || 0) % 200) / 2));
 
@@ -1087,12 +1108,8 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
       root.innerHTML = `
         ${renderMinimizedFloatingWidget()}
         <div class="glass-panel mx-3 mb-2 px-3 py-2.5 rounded-3xl flex items-center justify-between gap-2 shrink-0 border border-purple-500/25">
-          <div onclick="openUserProfileModal(${uid})" class="flex items-center gap-2.5 min-w-0 flex-1 cursor-pointer">
-            ${avatarUrl ? `
-              <img src="${avatarUrl}" style="${ringStyle}" class="w-11 h-11 rounded-full object-cover border-2 border-purple-400 shrink-0" />
-            ` : `
-              <div style="${ringStyle}" class="w-11 h-11 rounded-full bg-gradient-to-br from-purple-600 to-indigo-800 flex items-center justify-center font-black text-base border-2 border-purple-400 shrink-0">${initial}</div>
-            `}
+          <div onclick="openUserProfileModal(${uid})" class="flex items-center gap-3 min-w-0 flex-1 cursor-pointer py-0.5 pr-1">
+            ${window.renderAvatarWithFrame(avatarUrl, displayName, 'w-11 h-11 text-base', me.ring_photo, me.ring_css, 'border-2 border-purple-400')}
             <div class="min-w-0 flex-1">
               <div class="flex items-center gap-1">
                 <span class="font-black text-sm text-white truncate">${displayName}</span>
@@ -1541,17 +1558,16 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
       for (let i = 1; i <= mc; i++) {
         const occ = (r.seats || {})[String(i)];
         const isLockedSeat = (r.locked_seats || []).includes(i);
-        const occRingStyle = occ?.ring_css ? ('box-shadow:' + occ.ring_css + ';') : '';
         const occUid = occ ? Number(occ.uid) : 0;
         const seatLabel = occ ? ((occ.badge ? occ.badge.split(' ')[0] + ' ' : '') + occ.name) : String(i);
 
         seatsHtml += `
-          <div class="flex flex-col items-center gap-1">
+          <div class="flex flex-col items-center gap-1.5">
             <button type="button" onclick="callSocialApi('room_op',{room_id:${r.room_id},op:'take_seat',seat_idx:'${i}'})"
-              style="${occRingStyle}"
-              class="${seatSize} rounded-full ${occ ? 'bg-indigo-950 border-2 border-emerald-400' : 'bg-white/10 border border-white/25'} flex items-center justify-center relative overflow-hidden active:scale-95 transition">
-              ${occ ? (occ.photo ? `<img src="${occ.photo}" class="w-full h-full object-cover" />` : `<span class="font-black">${(occ.name||'P')[0]}</span>`) : (isLockedSeat ? '🔒' : '➕')}
-              ${occ?.muted ? `<span class="absolute bottom-0 right-0 bg-rose-600 text-[9px] rounded-full px-1">🔇</span>` : ''}
+              style="${(!occ?.ring_photo && occ?.ring_css) ? ('box-shadow:' + occ.ring_css + ';') : ''}"
+              class="${seatSize} rounded-full ${occ ? 'bg-indigo-950' : 'bg-white/10 border border-white/25'} flex items-center justify-center relative active:scale-95 transition">
+              ${occ ? window.renderAvatarWithFrame(occ.photo, occ.name, 'w-full h-full', occ.ring_photo, occ.ring_css, 'border-2 border-emerald-400') : (isLockedSeat ? '🔒' : '➕')}
+              ${occ?.muted ? `<span class="absolute -bottom-0.5 -right-0.5 z-20 bg-rose-600 text-[9px] rounded-full px-1">🔇</span>` : ''}
             </button>
             <div onclick="window.vrSeatLabelClick(${r.room_id}, ${i}, ${occUid}, ${isRoomOwner})" class="text-[10px] font-bold text-slate-200 truncate max-w-[68px] cursor-pointer">
               ${seatLabel}
@@ -1560,10 +1576,11 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
         `;
       }
 
-      const membersAvatars = (r.visible_members || []).slice(0, 6).map(m => {
-        const mRing = m.ring_css ? ('box-shadow:' + m.ring_css + ';') : '';
-        return `<img onclick="openUserProfileModal(${m.uid})" src="${m.photo || '/api/banner/hub.png'}" style="${mRing}" title="${m.name}" class="w-7 h-7 rounded-full object-cover border border-amber-400/60 cursor-pointer" />`;
-      }).join('');
+      const membersAvatars = (r.visible_members || []).slice(0, 6).map(m => `
+        <div onclick="openUserProfileModal(${m.uid})" title="${m.name}" class="cursor-pointer px-0.5">
+          ${window.renderAvatarWithFrame(m.photo, m.name, 'w-7 h-7 text-[10px]', m.ring_photo, m.ring_css)}
+        </div>
+      `).join('');
 
       const chatsHtml = (r.chats || []).map(c => c.sys ? `
         <div class="px-3 py-1.5 rounded-2xl ${c.gift ? 'bg-amber-500/25 border border-amber-400/50 text-amber-200' : 'bg-teal-950/60 border border-teal-500/25 text-teal-300'} text-[11px] font-bold">
@@ -1665,8 +1682,9 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
                 <div class="font-black text-xs mb-2">Room Members (${r.online_count || 1})</div>
                 <div class="flex gap-2 flex-wrap">
                   ${(r.visible_members || []).map(m => `
-                    <div onclick="openUserProfileModal(${m.uid})" class="flex items-center gap-1 bg-white px-2.5 py-1 rounded-full text-xs font-bold shadow-sm cursor-pointer">
-                      <span>👤 ${m.name}</span><span class="text-[10px] text-purple-600">${m.badge||''}</span>
+                    <div onclick="openUserProfileModal(${m.uid})" class="flex items-center gap-1.5 bg-white px-2.5 py-1 rounded-full text-xs font-bold shadow-sm cursor-pointer">
+                      ${window.renderAvatarWithFrame(m.photo, m.name, 'w-5 h-5 text-[8px]', m.ring_photo, m.ring_css)}
+                      <span>${m.name}</span><span class="text-[10px] text-purple-600">${m.badge||''}</span>
                     </div>
                   `).join('')}
                 </div>
@@ -1690,7 +1708,7 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
               <div class="grid grid-cols-4 gap-2 text-center text-xs">
                 ${gifts.map(g => `
                   <button type="button" onclick="callSocialApi('room_op',{room_id:${r.room_id},op:'send_gift',gift_id:${g.id}});vrSheet=''" class="glass-soft p-2.5 rounded-2xl flex flex-col items-center gap-1 hover:border-amber-400">
-                    <span class="text-2xl">${g.icon}</span>
+                    ${g.photo ? `<img src="${g.photo}" class="w-9 h-9 object-contain mx-auto" />` : `<span class="text-2xl">${g.icon}</span>`}
                     <span class="font-bold text-[10px] truncate w-full">${g.name}</span>
                     <span class="text-[10px] text-amber-300 font-black">${g.price_coins} 🪙</span>
                   </button>
@@ -1717,7 +1735,7 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
             </div>
 
             <div class="flex items-center gap-1.5">
-              <div class="flex -space-x-2 overflow-hidden">${membersAvatars}</div>
+              <div class="flex items-center gap-0.5">${membersAvatars}</div>
               <span class="px-2 py-1 rounded-xl glass-soft text-[11px] font-black">👥 ${r.online_count || 1}</span>
               <button type="button" onclick="vrOpenExitPrompt()" class="w-8 h-8 rounded-full glass-panel flex items-center justify-center text-sm font-black">⏻</button>
             </div>
@@ -1739,8 +1757,8 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
             </div>
           ` : ''}
 
-          <div class="my-auto py-2 overflow-y-auto max-h-[44vh] flex justify-center">
-            <div class="grid ${gridCols} gap-3 justify-items-center w-full">
+          <div class="my-auto py-3 overflow-y-auto max-h-[44vh] flex justify-center">
+            <div class="grid ${gridCols} gap-3.5 justify-items-center w-full">
               ${seatsHtml}
             </div>
           </div>
@@ -1770,7 +1788,7 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
       `;
     }
 
-    /* ─── پروفایل اختصاصی کاربر با کارت‌های رنگی تلگرام + نمایش حلقه و اشتراک + اتاق صوتی ─── */
+    /* ─── پروفایل اختصاصی کاربر با کارت‌های رنگی تلگرام + نمایش قاب PNG و اشتراک + اتاق صوتی ─── */
     function renderSpProfile(root) {
       if (!spState) { callSocialApi('state'); return; }
       const me = spState.me;
@@ -1778,7 +1796,6 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
       const isMe = Number(p.user_id) === Number(uid);
       const themes = spState.profile_themes || [];
       const curTheme = themes.find(t => t.id === p.card_theme) || themes[0];
-      const pRingStyle = p.ring_css ? ('box-shadow:' + p.ring_css + ';') : '';
 
       const themeSelectorHtml = isMe ? themes.map(t => `
         <button type="button" onclick="callSocialApi('save_profile',{card_theme:'${t.id}'})" style="background:${t.css}" class="px-2.5 py-2 rounded-xl text-[10px] font-black border ${p.card_theme===t.id ? 'border-white scale-105' : 'border-white/20 opacity-80'} flex items-center justify-between gap-1">
@@ -1788,9 +1805,9 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
       `).join('') : '';
 
       const visitorsHtml = isMe ? (p.visitors_log || []).map(v => `
-        <div onclick="openUserProfileModal(${v.uid})" class="glass-soft p-2 rounded-xl flex items-center justify-between text-xs cursor-pointer">
-          <div class="flex items-center gap-2">
-            <img src="${v.photo || '/api/banner/hub.png'}" class="w-8 h-8 rounded-full object-cover" />
+        <div onclick="openUserProfileModal(${v.uid})" class="glass-soft p-2.5 rounded-xl flex items-center justify-between text-xs cursor-pointer">
+          <div class="flex items-center gap-2.5">
+            ${window.renderAvatarWithFrame(v.photo, v.name, 'w-9 h-9 text-xs', v.ring_photo, v.ring_css)}
             <span class="font-bold">${v.name} <b class="text-amber-300">${v.badge||''}</b></span>
           </div>
           <span class="text-[10px] text-slate-400">${v.time}</span>
@@ -1804,14 +1821,10 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
           ${spErr ? `<div class="p-3 rounded-2xl bg-rose-600/40 border border-rose-400 text-xs font-bold text-center">${spErr}</div>` : ''}
 
           <div style="background: ${curTheme?.css || '#3b0764'};" class="p-5 rounded-3xl border border-white/25 shadow-2xl text-center relative overflow-hidden">
-            <div class="relative inline-block mb-3">
-              ${p.photo ? `
-                <img src="${p.photo}" style="${pRingStyle}" class="w-24 h-24 rounded-full object-cover mx-auto border-2 border-white" />
-              ` : `
-                <div style="${pRingStyle}" class="w-24 h-24 rounded-full bg-slate-900 flex items-center justify-center text-3xl font-black mx-auto border-2 border-white">${(p.display_name||'U')[0]}</div>
-              `}
+            <div class="relative inline-block my-2">
+              ${window.renderAvatarWithFrame(p.photo, p.display_name, 'w-24 h-24 text-3xl', p.ring_photo, p.ring_css, 'border-2 border-white')}
             </div>
-            <div class="text-lg font-black text-white flex items-center justify-center gap-1.5">
+            <div class="text-lg font-black text-white flex items-center justify-center gap-1.5 mt-1">
               <span>${p.display_name}</span>
               ${p.sub_badge ? `<span class="px-2.5 py-0.5 rounded-full bg-black/55 border border-amber-300 text-amber-300 text-xs font-black">${p.sub_badge}</span>` : ''}
             </div>
@@ -1885,7 +1898,7 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
       `;
     }
 
-    /* ─── فروشگاه جامع (اشتراک‌های Pro/Plus/Ultra + حلقه‌های دور پروفایل + گیفت‌ها) ─── */
+    /* ─── فروشگاه جامع (اشتراک‌های Pro/Plus/Ultra + حلقه‌های PNG دور پروفایل + گیفت‌ها) ─── */
     function renderSpStore(root) {
       if (!spState) { callSocialApi('state'); return; }
       const me = spState.me;
@@ -1926,9 +1939,9 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
           const btnText = equipped ? 'فعال ✓' : (owned ? 'پوشیدن' : ('خرید (' + r.price_coins + ' 🪙)'));
           return `
             <div class="glass-panel p-3.5 rounded-3xl flex items-center justify-between gap-3 border ${equipped ? 'border-emerald-400' : 'border-white/10'}">
-              <div class="flex items-center gap-3">
-                <div style="box-shadow:${r.ring_css}" class="w-14 h-14 rounded-full bg-slate-900 flex items-center justify-center text-2xl shrink-0 border border-white/30">
-                  ${r.icon || '⭕'}
+              <div class="flex items-center gap-3.5">
+                <div class="p-1">
+                  ${window.renderAvatarWithFrame(me.photo || myPhoto, me.display_name || myName, 'w-14 h-14 text-lg', r.photo, r.ring_css)}
                 </div>
                 <div>
                   <div class="font-black text-xs text-white">${r.name}</div>
@@ -1944,7 +1957,7 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
       } else {
         contentHtml = `<div class="grid grid-cols-2 gap-2.5">` + gifts.map(g => `
           <div class="glass-panel p-3.5 rounded-3xl text-center space-y-1.5">
-            <div class="text-4xl">${g.icon}</div>
+            ${g.photo ? `<img src="${g.photo}" class="w-12 h-12 object-contain mx-auto" />` : `<div class="text-4xl">${g.icon}</div>`}
             <div class="font-black text-xs text-white">${g.name}</div>
             <div class="text-xs text-amber-300 font-extrabold">${g.price_coins.toLocaleString()} 🪙</div>
             <div class="text-[10px] text-slate-400">قابل ارسال در تمام اتاق‌های صوتی</div>
@@ -1976,7 +1989,7 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
     }
 
     /* ═══════════════════════════════════════════════════════════════════════════
-       پنل مدیریت کل پلتفرم راینو (مستقل و بدون هیچ‌گونه خطای سینتکس)
+       پنل مدیریت کل پلتفرم راینو (با آپلود مستقیم قاب PNG توخالی در فروشگاه)
        ═══════════════════════════════════════════════════════════════════════════ */
     let admState = null;
     let admTab = 'ui_assets';
@@ -2246,28 +2259,41 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
         const items = admState.store_items || [];
         sectionHtml = `
           <div class="glass-panel p-4 rounded-3xl space-y-2.5 text-xs">
-            <h3 class="font-black text-sm text-amber-300 text-center">🛍️ افزودن گیفت یا حلقه پروفایل جدید به فروشگاه</h3>
+            <h3 class="font-black text-sm text-amber-300 text-center">🛍️ افزودن قاب PNG دور پروفایل یا گیفت جدید</h3>
             <div class="grid grid-cols-2 gap-2">
               <select id="st_cat" class="p-2.5 rounded-xl bg-slate-900 border border-white/20 text-white font-bold">
+                <option value="ring">⭕ حلقه دور پروفایل (PNG توخالی)</option>
                 <option value="gift">🎁 گیفت اتاق صوتی</option>
-                <option value="ring">⭕ حلقه دور پروفایل</option>
               </select>
-              <input id="st_name" type="text" placeholder="نام آیتم..." class="p-2.5 rounded-xl glass-soft text-white font-bold text-center" />
+              <input id="st_name" type="text" placeholder="نام حلقه یا گیفت..." class="p-2.5 rounded-xl glass-soft text-white font-bold text-center" />
             </div>
+
+            <div class="glass-soft p-3 rounded-2xl text-center space-y-2 border border-purple-400/40">
+              <label class="block text-[11px] text-amber-300 font-black">🖼️ آپلود فایل PNG توخالی (Transparent) از گالری:</label>
+              <input type="file" accept="image/png,image/webp,image/*" onchange="handleImageUpload(this, 'store_item_photo', 'prev_store_item_photo')" class="w-full text-[10px] text-slate-300" />
+              <div class="relative w-16 h-16 mx-auto mt-2 flex items-center justify-center">
+                <div class="w-12 h-12 rounded-full bg-slate-800 flex items-center justify-center text-xs font-bold border border-white/20">👤</div>
+                <img id="prev_store_item_photo" class="hidden absolute inset-0 w-full h-full object-contain pointer-events-none" style="transform: scale(1.25);" />
+              </div>
+            </div>
+
             <div class="grid grid-cols-2 gap-2">
-              <input id="st_icon" type="text" placeholder="ایموجی (مثلاً 👑 یا 🚀)" class="p-2.5 rounded-xl glass-soft text-white text-center" />
-              <input id="st_coins" type="number" value="1500" placeholder="قیمت به سکه" class="p-2.5 rounded-xl glass-soft text-white font-bold text-center" />
+              <input id="st_icon" type="text" value="⭕" placeholder="ایموجی جایگزین" class="p-2.5 rounded-xl glass-soft text-white text-center" />
+              <input id="st_coins" type="number" value="2000" placeholder="قیمت به سکه" class="p-2.5 rounded-xl glass-soft text-white font-bold text-center" />
             </div>
-            <input id="st_css" type="text" placeholder="کد استایل حلقه (مثلاً: 0 0 0 3.5px #fbbf24, 0 0 18px #f59e0b)" class="w-full p-2.5 rounded-xl glass-soft text-white text-center ltr-grid" />
-            <button type="button" onclick="callTowerAdminApi('save_store_item',{category:document.getElementById('st_cat').value,name:document.getElementById('st_name').value,icon:document.getElementById('st_icon').value,price_coins:Number(document.getElementById('st_coins').value||1000),ring_css:document.getElementById('st_css').value})" class="btn-success w-full py-3 rounded-2xl font-black">
-              ➕ افزودن به فروشگاه
+            <input id="st_css" type="text" placeholder="یا کد سایه CSS (در صورت نداشتن عکس PNG)" class="w-full p-2.5 rounded-xl glass-soft text-white text-center ltr-grid text-[10px]" />
+            <button type="button" onclick="callTowerAdminApi('save_store_item',{category:document.getElementById('st_cat').value,name:document.getElementById('st_name').value,icon:document.getElementById('st_icon').value,photo:window.uploadedImages['store_item_photo']||'',price_coins:Number(document.getElementById('st_coins').value||1500),ring_css:document.getElementById('st_css').value});window.uploadedImages['store_item_photo']='';" class="btn-success w-full py-3 rounded-2xl font-black">
+              ➕ ذخیره و افزودن به فروشگاه
             </button>
           </div>
           <div class="glass-panel p-3.5 rounded-3xl space-y-2 mt-3 text-xs">
             ${items.map(it => `
-              <div class="glass-soft p-2.5 rounded-2xl flex justify-between items-center">
-                <span>${it.icon} <b>${it.name}</b> (${it.category}) — ${it.price_coins} 🪙</span>
-                <button type="button" onclick="callTowerAdminApi('delete_store_item',{item_id:${it.id}})" class="btn-danger px-2.5 py-1 rounded-xl text-[10px] font-bold">حذف</button>
+              <div class="glass-soft p-2.5 rounded-2xl flex justify-between items-center gap-2">
+                <div class="flex items-center gap-2.5 min-w-0">
+                  ${it.category === 'ring' ? window.renderAvatarWithFrame('', 'U', 'w-10 h-10 text-xs', it.photo, it.ring_css) : (it.photo ? `<img src="${it.photo}" class="w-10 h-10 rounded-xl object-contain" />` : `<span class="text-2xl">${it.icon}</span>`)}
+                  <span class="truncate"><b>${it.name}</b> (${it.category}) — ${it.price_coins} 🪙</span>
+                </div>
+                <button type="button" onclick="callTowerAdminApi('delete_store_item',{item_id:${it.id}})" class="btn-danger px-2.5 py-1 rounded-xl text-[10px] font-bold shrink-0">حذف</button>
               </div>
             `).join('')}
           </div>
