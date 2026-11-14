@@ -2011,36 +2011,62 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
       }
     }
 
+    window.admSwitchTab = function(t) {
+      admTab = t;
+      admMsg = '';
+      admErr = '';
+      currentGame = 'tower_admin';
+      if (!admState) {
+        admState = { bot_stats: {}, ui_assets: {}, users_list: [], store_items: [], forced_channels: [], groups_list: [] };
+      }
+      drawTowerAdminApp(document.getElementById('app'));
+    };
+
+    window.admSaveUiAsset = function(assetKey) {
+      const dataUrl = window.uploadedImages['asset_' + assetKey];
+      if (!dataUrl) {
+        if (tg?.showAlert) tg.showAlert('ابتدا یک تصویر از گالری انتخاب کنید!');
+        return;
+      }
+      callTowerAdminApi('save_ui_asset', { asset_key: assetKey, photo: dataUrl });
+    };
+
+    window.admDeleteUiAsset = function(assetKey) {
+      callTowerAdminApi('delete_ui_asset', { asset_key: assetKey });
+    };
+
     function startTowerAdminApp(root) {
       if (!isOwner) {
         root.innerHTML = `<div class="p-8 text-center"><div class="glass-panel p-6 rounded-3xl text-rose-400 font-black">⛔ دسترسی غیرمجاز (UID: ${uid})</div></div>`;
         return;
       }
-      if (admState) {
-        drawTowerAdminApp(root);
-      } else {
-        root.innerHTML = `
-          ${renderTopBar('👑 فرماندهی کل پلتفرم')}
-          <div class="p-6 text-center"><div class="glass-panel p-6 rounded-3xl font-bold">⏳ در حال دریافت اطلاعات پنل مدیریت...</div></div>
-        `;
+      if (!admState) {
+        admState = { bot_stats: {}, ui_assets: {}, users_list: [], store_items: [], forced_channels: [], groups_list: [] };
       }
+      drawTowerAdminApp(root);
       callTowerAdminApi('state');
     }
 
     function drawTowerAdminApp(root) {
-      if (!root || currentGame !== 'tower_admin') return;
-      if (!admState) return;
+      if (!root) root = document.getElementById('app');
+      if (!root) return;
+      currentGame = 'tower_admin';
+      if (!admState) {
+        admState = { bot_stats: {}, ui_assets: {}, users_list: [], store_items: [], forced_channels: [], groups_list: [] };
+      }
 
       const tabs = [
         { id: 'ui_assets',    lbl: '🖼️ عکس بازی‌ها' },
         { id: 'bot_stats',    lbl: '📊 آمار و همگانی' },
         { id: 'users',        lbl: '👤 کاربران و شارژ' },
-        { id: 'store_mgr',    lbl: '🛍️ مدیریت فروشگاه' },
+        { id: 'store_mgr',    lbl: '🛍️ فروشگاه' },
         { id: 'bot_channels', lbl: '🔒 قفل کانال' },
         { id: 'bot_groups',   lbl: '👥 گروه‌ها' }
       ];
+
+      // چیدمان شبکه‌ای ۳ ستونی (بدون اسکرول افقی) تا کلیک روی تمام تب‌ها در همه گوشی‌ها فوری کار کند
       const tabsHtml = tabs.map(t => `
-        <button onclick="admSwitchTab('${t.id}')" class="px-3 py-2 rounded-xl text-xs font-black shrink-0 ${admTab === t.id ? 'btn-primary text-white' : 'glass-soft text-slate-300'}">
+        <button type="button" onclick="window.admSwitchTab('${t.id}')" class="py-2.5 px-2 rounded-xl text-[11px] font-black transition active:scale-95 ${admTab === t.id ? 'btn-primary text-white ring-2 ring-purple-300/50' : 'glass-soft text-slate-300'}">
           ${t.lbl}
         </button>
       `).join('');
@@ -2276,7 +2302,7 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
       root.innerHTML = `
         ${renderTopBar('👑 فرماندهی کل پلتفرم')}
         <div class="flex-1 overflow-y-auto px-3 pb-24 flex flex-col">
-          <div class="flex gap-1.5 overflow-x-auto pb-2 mb-2 shrink-0">${tabsHtml}</div>
+          <div class="grid grid-cols-3 gap-1.5 mb-3 shrink-0">${tabsHtml}</div>
           ${admMsg ? `<div class="p-3 rounded-2xl bg-emerald-600/35 border border-emerald-400 text-xs font-extrabold text-center mb-2.5 whitespace-pre-line">${admMsg}</div>` : ''}
           ${admErr ? `<div class="p-3 rounded-2xl bg-rose-600/40 border border-rose-400 text-xs font-extrabold text-center mb-2.5 whitespace-pre-line">${admErr}</div>` : ''}
           ${sectionHtml}
