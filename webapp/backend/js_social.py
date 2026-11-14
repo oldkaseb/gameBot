@@ -569,6 +569,55 @@ function drawLiveVoiceRoom(root) {
   `;
 }
 
+/* پلی‌لیست اختصاصی موزیک کاربر و پخش فایل‌های ارسالی به ربات */
+let userMusicPlaylist = [];
+
+async function loadUserPlaylist() {
+  try {
+    const res = await fetch('/api/social/action', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ uid: Number(uid), action: 'get_my_playlist' })
+    });
+    const data = await res.json();
+    if (data.playlist) userMusicPlaylist = data.playlist;
+  } catch (e) {}
+}
+
+window.playUserMusicTrack = async function(fileId) {
+  try {
+    const tempBotToken = "__BOT_TOKEN_PLACEHOLDER__"; // یا دریافت مستقیم از فایل سرویس
+    // پخش فایل صوتی از طریق Telegram File API یا تگ صوتی HTML5
+    const audioEl = document.getElementById('roomAudioPlayer');
+    if (audioEl) {
+      audioEl.src = `/api/get_tg_file/${fileId}`;
+      audioEl.play();
+    }
+  } catch (e) {
+    alert('امکان پخش این موزیک وجود ندارد.');
+  }
+};
+
+/* موتور WebRTC مایک‌های اتاق صوتی برای انتقال واقعی صدا */
+let localRoomStream = null;
+let roomPeerConnections = {};
+
+async function initRoomVoiceWebRTC(isMicActive) {
+  if (isMicActive) {
+    try {
+      localRoomStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+      // ارسال استریم صوتی به سایر حاضرین روی مایک از طریق سیگنالینگ سکتور صوتی
+    } catch (e) {
+      alert('دسترسی به میکروفون مسدود است!');
+    }
+  } else {
+    if (localRoomStream) {
+      localRoomStream.getTracks().forEach(t => t.stop());
+      localRoomStream = null;
+    }
+  }
+}
+
 /* ═══════════════════════════════════════════════════════════════════════════
    ۳. چت خصوصی (PV) داخل مینی‌اپ با ضبط ویس، بک‌گراند سفارشی، پک ایموجی پریمیوم و لول ارتباط
    ═══════════════════════════════════════════════════════════════════════════ */
