@@ -1195,35 +1195,78 @@ async def handle_platform_admin_api(payload: dict) -> dict:
 
 
 async def _collect_platform_admin_state() -> dict:
-    users_cnt = await db.pool.fetchval("SELECT COUNT(*) FROM users") or 0
-    groups_cnt = await db.pool.fetchval("SELECT COUNT(*) FROM groups") or 0
-    rooms_cnt = await db.pool.fetchval("SELECT COUNT(*) FROM sp_voice_rooms") or 0
-    vip_cnt = await db.pool.fetchval("SELECT COUNT(*) FROM sp_profiles WHERE sub_tier != 'free'") or 0
-
-    ui_assets_raw = await get_sp_config("ui_assets", "{}")
+    await ensure_social_tables()
+    users_cnt, groups_cnt, rooms_cnt, vip_cnt = 0, 0, 0, 0
     try:
-        ui_assets = json.loads(ui_assets_raw)
+        users_cnt = await db.pool.fetchval("SELECT COUNT(*) FROM users") or 0
+    except Exception:
+        pass
+    try:
+        groups_cnt = await db.pool.fetchval("SELECT COUNT(*) FROM groups") or 0
+    except Exception:
+        pass
+    try:
+        rooms_cnt = await db.pool.fetchval("SELECT COUNT(*) FROM sp_voice_rooms") or 0
+    except Exception:
+        pass
+    try:
+        vip_cnt = await db.pool.fetchval("SELECT COUNT(*) FROM sp_profiles WHERE sub_tier != 'free'") or 0
+    except Exception:
+        pass
+
+    ui_assets = {}
+    try:
+        ui_assets_raw = await get_sp_config("ui_assets", "{}")
+        if ui_assets_raw:
+            ui_assets = json.loads(ui_assets_raw)
     except Exception:
         ui_assets = {}
 
-    bc_draft_raw = await get_sp_config("bc_draft", "")
-    bc_draft = json.loads(bc_draft_raw) if bc_draft_raw else None
+    bc_draft = None
+    try:
+        bc_draft_raw = await get_sp_config("bc_draft", "")
+        if bc_draft_raw:
+            bc_draft = json.loads(bc_draft_raw)
+    except Exception:
+        bc_draft = None
 
-    forced_channels = [dict(r) for r in await db.pool.fetch("SELECT chat_id, title, username FROM forced_channels")]
-    groups_list = [dict(r) for r in await db.pool.fetch("SELECT chat_id, title FROM groups LIMIT 50")]
-    store_items = [dict(r) for r in await db.pool.fetch("SELECT * FROM sp_store_items ORDER BY id DESC")]
+    forced_channels = []
+    try:
+        ch_rows = await db.pool.fetch("SELECT chat_id, title, username FROM forced_channels")
+        forced_channels = [dict(r) for r in ch_rows]
+    except Exception:
+        pass
 
-    u_rows = await db.pool.fetch("""
-        SELECT
-            u.user_id, u.first_name, u.username, u.language,
-            u.is_banned AS global_banned, u.is_admin AS is_bot_admin,
-            COALESCE(sp.coins, 1000) AS coins,
-            COALESCE(sp.stars_balance, 0) AS stars_balance,
-            COALESCE(sp.sub_tier, 'free') AS sub_tier
-        FROM users u
-        LEFT JOIN sp_profiles sp ON u.user_id = sp.user_id
-        ORDER BY u.user_id DESC LIMIT 200
-    """)
+    groups_list = []
+    try:
+        g_rows = await db.pool.fetch("SELECT chat_id, title FROM groups LIMIT 50")
+        groups_list = [dict(r) for r in g_rows]
+    except Exception:
+        pass
+
+    store_items = []
+    try:
+        st_rows = await db.pool.fetch("SELECT * FROM sp_store_items ORDER BY id DESC")
+        store_items = [dict(r) for r in st_rows]
+    except Exception:
+        pass
+
+    users_list = []
+    try:
+        u_rows = await db.pool.fetch("""
+            SELECT
+                u.user_id, u.first_name, u.username, u.language,
+                u.is_banned AS global_banned, u.is_admin AS is_bot_admin,
+                COALESCE(sp.coins, 1000) AS coins,
+                COALESCE(sp.stars_balance, 0) AS stars_balance,
+                COALESCE(sp.sub_tier, 'free') AS sub_tier
+            FROM users u
+            LEFT JOIN sp_profiles sp ON u.user_id = sp.user_id
+            ORDER BY u.user_id DESC LIMIT 200
+        """)
+        users_list = [dict(r) for r in u_rows]
+    except Exception:
+        pass
 
     return {
         "bot_stats": {"users": users_cnt, "groups": groups_cnt, "rooms": rooms_cnt, "vips": vip_cnt},
@@ -1232,5 +1275,6 @@ async def _collect_platform_admin_state() -> dict:
         "forced_channels": forced_channels,
         "groups_list": groups_list,
         "store_items": store_items,
-        "users_list": [dict(r) for r in u_rows],
+        "users_list": users_list,
     }
+
