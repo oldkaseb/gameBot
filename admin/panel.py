@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""admin/panel.py — دریافت پیام همگانی در پیوی با حفظ و پیش‌نمایش ۱۰۰٪ واقعی ایموجی‌های پریمیوم و کاستوم"""
+"""admin/panel.py — هدایت مالک به مینی‌اپ فرماندهی + دریافت پیام همگانی با ایموجی پریمیوم در پیوی"""
 
 import json
 import os
@@ -11,7 +11,7 @@ from aiogram.filters import Command, BaseFilter
 
 from emojis import E, render_emojis
 from utils.premium import success, danger, kb
-from games.demon_tower import get_dt_config, set_dt_config
+from social_platform import get_sp_config, set_sp_config
 
 router = Router(name="admin_panel")
 OWNER_IDS = {7662192190, 6041119040}
@@ -19,28 +19,26 @@ MINI_APP_URL = os.environ.get("MINI_APP_URL", "https://games.rhinokaseb.abrdns.c
 
 
 class IsWaitingBroadcastFilter(BaseFilter):
-    """بررسی اینکه آیا مالک در حالت ارسال پیام همگانی به پیوی ربات است یا خیر"""
     async def __call__(self, msg: Message) -> bool:
         if not msg.from_user or msg.from_user.id not in OWNER_IDS:
             return False
         if msg.chat.type != ChatType.PRIVATE:
             return False
-        waiting = await get_dt_config(f"bc_waiting_{msg.from_user.id}", "0")
-        return waiting == "1"
+        try:
+            waiting = await get_sp_config(f"bc_waiting_{msg.from_user.id}", "0")
+            return waiting == "1"
+        except Exception:
+            return False
 
 
 def _admin_miniapp_kb(uid: int):
     url = f"{MINI_APP_URL}/?game=tower_admin&uid={uid}"
     return kb([
-        [success(f"{E.CROWN} ورود به مینی‌اپ فرماندهی کل ربات", web_app_url=url)],
+        [success(f"{E.CROWN} ورود به مینی‌اپ فرماندهی کل پلتفرم", web_app_url=url)],
     ])
 
 
 def _extract_html_with_custom_emojis(msg: Message) -> str:
-    """
-    استخراج متن یا کپشن پیام به صورت HTML کامل شامل تگ‌های <tg-emoji emoji-id="...">
-    و تبدیل تگ‌های [E:...] به ایموجی پریمیوم تلگرام.
-    """
     raw_html = getattr(msg, "html_text", None) or msg.text or msg.caption or ""
     if "[E:" in raw_html:
         try:
@@ -55,7 +53,7 @@ async def capture_owner_broadcast_message(msg: Message):
     uid = msg.from_user.id
 
     if msg.text and msg.text.strip() in ("/cancel", "لغو", "انصراف"):
-        await set_dt_config(f"bc_waiting_{uid}", "0")
+        await set_sp_config(f"bc_waiting_{uid}", "0")
         await msg.reply("❌ دریافت پیام همگانی لغو شد.", reply_markup=_admin_miniapp_kb(uid))
         return
 
@@ -63,7 +61,6 @@ async def capture_owner_broadcast_message(msg: Message):
     full_html = _extract_html_with_custom_emojis(msg)
     has_shortcode = "[E:" in raw_plain
 
-    # شمارش تعداد ایموجی‌های پریمیوم/کاستوم تشخیص‌داده‌شده در پیام
     all_ents = (msg.entities or []) + (msg.caption_entities or [])
     custom_emoji_count = sum(1 for ent in all_ents if ent.type == "custom_emoji")
     if has_shortcode:
@@ -81,10 +78,9 @@ async def capture_owner_broadcast_message(msg: Message):
         "saved_at": time.strftime("%H:%M:%S"),
     }
 
-    await set_dt_config("bc_draft", json.dumps(draft_data))
-    await set_dt_config(f"bc_waiting_{uid}", "0")
+    await set_sp_config("bc_draft", json.dumps(draft_data))
+    await set_sp_config(f"bc_waiting_{uid}", "0")
 
-    # ۱. ارسال پیش‌نمایش زنده و واقعی با ایموجی‌های پریمیوم در پیوی
     try:
         if has_shortcode and msg.text:
             await msg.bot.send_message(
@@ -101,12 +97,10 @@ async def capture_owner_broadcast_message(msg: Message):
     except Exception:
         pass
 
-    # ۲. ارسال دکمه بازگشت به مینی‌اپ برای تنظیم مقصد، دکمه شیشه‌ای و ارسال نهایی
     admin_url = f"{MINI_APP_URL}/?game=tower_admin&uid={uid}"
     await msg.reply(
         f"{E.CHECK} <b>پیش‌نمایش واقعی پیام شما در بالا رندر شد!</b>\n"
-        f"{E.SPARK} تعداد ایموجی پریمیوم ثبت‌شده در پیام: <b>{custom_emoji_count} عدد</b>\n\n"
-        f"<i>(توجه: در داخل کادر مینی‌اپ فقط خلاصه متن نمایش داده می‌شود، اما در زمان ارسال همگانی دقیقاً همین پیام پریمیوم بالا برای همه ارسال خواهد شد)</i>\n\n"
+        f"{E.SPARK} تعداد ایموجی پریمیوم ثبت‌شده: <b>{custom_emoji_count} عدد</b>\n\n"
         f"حالا روی دکمه زیر بزنید و از داخل مینی‌اپ ارسال نهایی را انجام دهید:",
         reply_markup=kb([
             [success("👑 بازگشت به مینی‌اپ و ارسال نهایی", web_app_url=admin_url)]
@@ -121,10 +115,10 @@ async def capture_owner_broadcast_message(msg: Message):
 async def cmd_admin_panel(msg: Message):
     if msg.from_user.id not in OWNER_IDS:
         return
-    await set_dt_config(f"bc_waiting_{msg.from_user.id}", "0")
+    await set_sp_config(f"bc_waiting_{msg.from_user.id}", "0")
     await msg.answer(
-        f"{E.CROWN}{E.SPARK} <b>مینی‌اپ فرماندهی و مدیریت کل ربات راینو</b>\n\n"
-        f"تمام بخش‌های مدیریتی ربات، لیست کامل کاربران، ارسال همگانی و پنل برج شیاطین در مینی‌اپ زیر قرار دارند:",
+        f"{E.CROWN}{E.SPARK} <b>مینی‌اپ فرماندهی و مدیریت کل پلتفرم راینو</b>\n\n"
+        f"تمام بخش‌های مدیریتی ربات، لیست کامل کاربران، ارسال همگانی، فروشگاه و تغییر عکس‌های مینی‌اپ در پنل زیر قرار دارند:",
         reply_markup=_admin_miniapp_kb(msg.from_user.id),
         parse_mode=ParseMode.HTML,
     )
@@ -134,7 +128,7 @@ async def cmd_admin_panel(msg: Message):
 async def cb_cancel_bc_capture(cb: CallbackQuery):
     if cb.from_user.id not in OWNER_IDS:
         return
-    await set_dt_config(f"bc_waiting_{cb.from_user.id}", "0")
+    await set_sp_config(f"bc_waiting_{cb.from_user.id}", "0")
     await cb.answer("لغو شد.")
     await cb.message.edit_text(
         "❌ دریافت پیام همگانی لغو شد.",
@@ -151,7 +145,7 @@ async def cb_admin_panel(cb: CallbackQuery):
     await cb.answer()
     try:
         await cb.message.edit_text(
-            f"{E.CROWN}{E.SPARK} <b>فرماندهی و مدیریت کل ربات راینو</b>\n\n"
+            f"{E.CROWN}{E.SPARK} <b>فرماندهی و مدیریت کل پلتفرم راینو</b>\n\n"
             f"برای ورود به پنل مدیریت کل روی دکمه زیر بزنید:",
             reply_markup=_admin_miniapp_kb(cb.from_user.id),
             parse_mode=ParseMode.HTML,
