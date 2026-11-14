@@ -1799,7 +1799,7 @@ async def handle_platform_admin_api(payload: dict) -> dict:
         prof = await get_or_create_sp_profile(t_uid)
         u_main = await db.get_user(t_uid)
         prof["global_banned"] = bool(u_main["is_banned"]) if u_main else prof["is_banned"]
-        prof["is_bot_admin"] = bool(u_main["is_admin"]) if u_main else False
+        prof["is_bot_admin"] = await db.is_admin(t_uid)
         return {"ok": True, "looked_up": prof, "admin_data": await _collect_platform_admin_state()}
 
     elif action == "charge_user":
@@ -1911,7 +1911,10 @@ async def _collect_platform_admin_state() -> dict:
         u_rows = await db.pool.fetch("""
             SELECT
                 u.user_id, u.first_name, u.username, u.language,
-                u.is_banned AS global_banned, u.is_admin AS is_bot_admin,
+                u.is_banned AS global_banned,
+                EXISTS (
+                    SELECT 1 FROM admins a WHERE a.user_id = u.user_id
+                    ) AS is_bot_admin,
                 COALESCE(sp.coins, 1000) AS coins,
                 COALESCE(sp.stars_balance, 0) AS stars_balance,
                 COALESCE(sp.sub_tier, 'free') AS sub_tier
