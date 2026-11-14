@@ -173,13 +173,14 @@ async def ensure_social_tables():
             );
         """)
 
-        # اطمینان از وجود ستون‌های جدید در صورت ساخته شدن جدول در نسخه قبلی
         for col_sql in (
             "ALTER TABLE sp_profiles ADD COLUMN IF NOT EXISTS coins BIGINT DEFAULT 1000",
             "ALTER TABLE sp_profiles ADD COLUMN IF NOT EXISTS stars_balance BIGINT DEFAULT 0",
             "ALTER TABLE sp_profiles ADD COLUMN IF NOT EXISTS xp BIGINT DEFAULT 0",
             "ALTER TABLE sp_profiles ADD COLUMN IF NOT EXISTS level INT DEFAULT 1",
             "ALTER TABLE sp_profiles ADD COLUMN IF NOT EXISTS is_banned BOOLEAN DEFAULT FALSE",
+            "ALTER TABLE sp_store_items ADD COLUMN IF NOT EXISTS photo TEXT DEFAULT ''",
+            "ALTER TABLE sp_store_items ADD COLUMN IF NOT EXISTS ring_css TEXT DEFAULT ''",
         ):
             try:
                 await conn.execute(col_sql)
@@ -274,11 +275,16 @@ async def get_or_create_sp_profile(uid: int, name: str = "", username: str = "",
     tier_info = SUB_TIERS.get(prof["sub_tier"], SUB_TIERS["free"])
 
     ring_css = ""
+    ring_photo = ""
     ring_name = ""
     if prof.get("avatar_ring_id"):
-        r_row = await db.pool.fetchrow("SELECT name, ring_css FROM sp_store_items WHERE id=$1", int(prof["avatar_ring_id"]))
+        r_row = await db.pool.fetchrow(
+            "SELECT name, ring_css, photo FROM sp_store_items WHERE id=$1",
+            int(prof["avatar_ring_id"]),
+        )
         if r_row:
             ring_css = r_row["ring_css"] or ""
+            ring_photo = r_row["photo"] or ""
             ring_name = r_row["name"] or ""
 
     room_row = await db.pool.fetchrow("SELECT * FROM sp_voice_rooms WHERE owner_id=$1", uid)
@@ -302,6 +308,7 @@ async def get_or_create_sp_profile(uid: int, name: str = "", username: str = "",
         "card_theme": prof["card_theme"] or "purple",
         "avatar_ring_id": int(prof.get("avatar_ring_id") or 0),
         "ring_css": ring_css,
+        "ring_photo": ring_photo,
         "ring_name": ring_name,
         "sub_tier": prof["sub_tier"],
         "sub_title": tier_info["title"],
@@ -414,7 +421,6 @@ async def handle_social_api(payload: dict) -> dict:
         sub_op = str(payload.get("sub_op") or "bet")
         bet = int(payload.get("bet") or 100)
 
-        # الف) بازی BOMBS (مین‌روب ۲۵ خانه‌ای کازینو)
         if game == "bombs":
             if sub_op == "start":
                 mines_cnt = int(payload.get("mines") or 5)
@@ -490,7 +496,6 @@ async def handle_social_api(payload: dict) -> dict:
                     "state": await _collect_social_state(uid),
                 }
 
-        # ب) بازی CRASH (موشک انفجار با ضریب هدف)
         elif game == "crash":
             target_mult = float(payload.get("target_mult") or 2.0)
             target_mult = max(1.1, min(100.0, round(target_mult, 2)))
@@ -523,7 +528,6 @@ async def handle_social_api(payload: dict) -> dict:
                 "state": await _collect_social_state(uid),
             }
 
-        # ج) بازی HELL PICKAXE و ROYAL SLOT
         elif game in ("pickaxe", "slot"):
             if bet < 10 or bet > my_prof["coins"]:
                 return {"ok": False, "error": "موجودی سکه کافی نیست!", "state": await _collect_social_state(uid)}
@@ -575,6 +579,8 @@ async def handle_social_api(payload: dict) -> dict:
                     "uid": uid,
                     "name": my_prof["display_name"],
                     "photo": my_prof["photo"],
+                    "ring_photo": my_prof["ring_photo"],
+                    "ring_css": my_prof["ring_css"],
                     "badge": my_prof["sub_badge"],
                     "time": time.strftime("%H:%M"),
                 })
@@ -693,6 +699,7 @@ async def handle_social_api(payload: dict) -> dict:
             "photo": my_prof["photo"],
             "badge": my_prof["sub_badge"],
             "ring_css": my_prof["ring_css"],
+            "ring_photo": my_prof["ring_photo"],
             "is_ghost": is_ghost_entry,
             "last_seen": now,
         }
@@ -723,6 +730,7 @@ async def handle_social_api(payload: dict) -> dict:
         if uid in rt["members"]:
             rt["members"][uid]["last_seen"] = now
             rt["members"][uid]["ring_css"] = my_prof["ring_css"]
+            rt["members"][uid]["ring_photo"] = my_prof["ring_photo"]
             rt["members"][uid]["badge"] = my_prof["sub_badge"]
 
         if op == "take_seat":
@@ -749,6 +757,7 @@ async def handle_social_api(payload: dict) -> dict:
                 "photo": my_prof["photo"],
                 "badge": my_prof["sub_badge"],
                 "ring_css": my_prof["ring_css"],
+                "ring_photo": my_prof["ring_photo"],
                 "muted": False,
             }
 
@@ -856,10 +865,10 @@ async def handle_social_api(payload: dict) -> dict:
             "state": await _collect_social_state(uid),
         }
 
-    # ─── ۸. خرید قطعی اشتراک Pro / Plus / Ultra (با سکه، موجودی استارز کیف پول، یا پرداخت مستقیم استارز) ───
+    # ─── ۸. خرید قطعی اشتراک Pro / Plus / Ultra ───
     elif action == "buy_subscription":
         tier_id = str(payload.get("tier_id") or "pro").lower()
-        pay_method = str(payload.get("pay_method") or "coins")  # coins | wallet_stars | direct_stars
+        pay_method = str(payload.get("pay_method") or "coins")
         tier = SUB_TIERS.get(tier_id)
         if not tier or tier_id == "free":
             return {"ok": False, "error": "اشتراک نامعتبر است!", "state": await _collect_social_state(uid)}
@@ -918,11 +927,19 @@ async def handle_social_api(payload: dict) -> dict:
             finally:
                 await temp_bot.session.close()
 
-    # ─── ۹. خرید و تجهیز قطعی حلقه دور آواتار (Ring) ───
+    # ─── ۹. خرید و تجهیز قطعی حلقه دور آواتار (شامل PNG توخالی و CSS) ───
     elif action == "buy_or_equip_ring":
         ring_id = int(payload.get("ring_id") or 0)
         if ring_id == 0:
             await db.pool.execute("UPDATE sp_profiles SET avatar_ring_id=0 WHERE user_id=$1", uid)
+            for rm in live_rooms_runtime.values():
+                if uid in rm["members"]:
+                    rm["members"][uid]["ring_css"] = ""
+                    rm["members"][uid]["ring_photo"] = ""
+                for s in rm["seats"].values():
+                    if s and int(s.get("uid", 0)) == uid:
+                        s["ring_css"] = ""
+                        s["ring_photo"] = ""
             return {"ok": True, "msg": "حلقه دور پروفایل برداشته شد.", "state": await _collect_social_state(uid)}
 
         r_row = await db.pool.fetchrow("SELECT * FROM sp_store_items WHERE id=$1 AND category='ring'", ring_id)
@@ -932,14 +949,15 @@ async def handle_social_api(payload: dict) -> dict:
         owned = [int(x) for x in my_prof["owned_rings"]]
         if ring_id in owned:
             await db.pool.execute("UPDATE sp_profiles SET avatar_ring_id=$1 WHERE user_id=$2", ring_id, uid)
-            # بروزرسانی فوری حلقه در اتاق صوتی در صورت حضور
             for rm in live_rooms_runtime.values():
                 if uid in rm["members"]:
-                    rm["members"][uid]["ring_css"] = r_row["ring_css"]
+                    rm["members"][uid]["ring_css"] = r_row["ring_css"] or ""
+                    rm["members"][uid]["ring_photo"] = r_row["photo"] or ""
                 for s in rm["seats"].values():
                     if s and int(s.get("uid", 0)) == uid:
-                        s["ring_css"] = r_row["ring_css"]
-            return {"ok": True, "msg": f"✅ «{r_row['name']}» دور آواتار شما فعال شد!", "state": await _collect_social_state(uid)}
+                        s["ring_css"] = r_row["ring_css"] or ""
+                        s["ring_photo"] = r_row["photo"] or ""
+            return {"ok": True, "msg": f"✅ قاب «{r_row['name']}» دور آواتار شما فعال شد!", "state": await _collect_social_state(uid)}
 
         if my_prof["coins"] < r_row["price_coins"]:
             return {
@@ -955,13 +973,15 @@ async def handle_social_api(payload: dict) -> dict:
         )
         for rm in live_rooms_runtime.values():
             if uid in rm["members"]:
-                rm["members"][uid]["ring_css"] = r_row["ring_css"]
+                rm["members"][uid]["ring_css"] = r_row["ring_css"] or ""
+                rm["members"][uid]["ring_photo"] = r_row["photo"] or ""
             for s in rm["seats"].values():
                 if s and int(s.get("uid", 0)) == uid:
-                    s["ring_css"] = r_row["ring_css"]
+                    s["ring_css"] = r_row["ring_css"] or ""
+                    s["ring_photo"] = r_row["photo"] or ""
         return {
             "ok": True,
-            "msg": f"🎉 «{r_row['name']}» خریداری شد و هم‌اکنون دور آواتار شما قرار گرفت!",
+            "msg": f"🎉 قاب «{r_row['name']}» خریداری شد و هم‌اکنون دور آواتار شما قرار گرفت!",
             "state": await _collect_social_state(uid),
         }
 
@@ -1147,17 +1167,18 @@ async def handle_platform_admin_api(payload: dict) -> dict:
         return {"ok": True, "msg": f"وضعیت مسدودیت {t_uid} تغییر کرد.", "looked_up": prof, "admin_data": await _collect_platform_admin_state()}
 
     elif action == "save_store_item":
-        cat = str(payload.get("category") or "gift")
+        cat = str(payload.get("category") or "ring")
         name = str(payload.get("name") or "آیتم جدید").strip()
-        icon = str(payload.get("icon") or "🎁").strip()
-        ring_css = str(payload.get("ring_css") or "0 0 0 3.5px #fbbf24, 0 0 18px #f59e0b").strip() if cat == "ring" else ""
-        p_coins = int(payload.get("price_coins") or 1000)
+        icon = str(payload.get("icon") or "⭕").strip()
+        photo = str(payload.get("photo") or "").strip()
+        ring_css = str(payload.get("ring_css") or "").strip() if cat == "ring" else ""
+        p_coins = int(payload.get("price_coins") or 1500)
         p_stars = int(payload.get("price_stars") or 20)
         await db.pool.execute(
-            "INSERT INTO sp_store_items (category, name, icon, ring_css, price_coins, price_stars) VALUES ($1,$2,$3,$4,$5,$6)",
-            cat, name, icon, ring_css, p_coins, p_stars
+            "INSERT INTO sp_store_items (category, name, icon, photo, ring_css, price_coins, price_stars) VALUES ($1,$2,$3,$4,$5,$6,$7)",
+            cat, name, icon, photo, ring_css, p_coins, p_stars
         )
-        msg_out = f"✅ آیتم «{name}» به فروشگاه اضافه شد!"
+        msg_out = f"✅ آیتم «{name}» با موفقیت به فروشگاه اضافه شد!"
 
     elif action == "delete_store_item":
         item_id = int(payload.get("item_id") or 0)
@@ -1277,4 +1298,3 @@ async def _collect_platform_admin_state() -> dict:
         "store_items": store_items,
         "users_list": users_list,
     }
-
