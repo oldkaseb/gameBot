@@ -809,7 +809,7 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
     function T() { return I18N[lang] || I18N.fa; }
 
     let currentGame = parsedGame || 'hub';
-    let hubFilter = 'all'; // all | casino | pvp
+    let hubFilter = 'all';
     const tgUser = tg?.initDataUnsafe?.user || {};
     const realTgUid = tgUser.id || Number(params.get('uid')) || 0;
     const uid = realTgUid || Math.floor(Math.random()*900000 + 100000);
@@ -824,7 +824,6 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
     let isJoinVerified = false;
     let lobbyState = { game: '', maxPlayers: 2, rpsTargetWins: 3, step: 'options', inviteWarning: '', inviteSuccess: '' };
 
-    // وضعیت کلی پلتفرم اجتماعی، کیف پول و کازینو
     let spState = null;
     let activeVoiceRoom = null;
     let minimizedVoiceRoom = null;
@@ -832,7 +831,7 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
     let spMsg = '';
     let spErr = '';
     let vrSheet = '';
-    let storeTab = 'subs'; // subs | rings | gifts
+    let storeTab = 'subs';
     let bombsState = null;
     let crashLastResult = null;
     let pickaxeLastResult = null;
@@ -849,19 +848,19 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
     function renderBottomNav() {
       return `
         <div class="fixed bottom-3 left-3 right-3 z-30 bottom-dock px-3 py-2 flex justify-around items-center">
-          <button onclick="nav('hub')" class="${currentGame==='hub' ? 'text-purple-400 scale-110' : 'text-slate-300'} flex flex-col items-center gap-0.5 text-[10px] font-black transition">
+          <button type="button" onclick="nav('hub')" class="${currentGame==='hub' ? 'text-purple-400 scale-110' : 'text-slate-300'} flex flex-col items-center gap-0.5 text-[10px] font-black transition">
             <span class="text-lg">🏠</span><span>Home</span>
           </button>
-          <button onclick="nav('voice_hub')" class="${currentGame==='voice_hub' ? 'text-amber-300 scale-110' : 'text-slate-300'} flex flex-col items-center gap-0.5 text-[10px] font-black transition">
+          <button type="button" onclick="nav('voice_hub')" class="${currentGame==='voice_hub' ? 'text-amber-300 scale-110' : 'text-slate-300'} flex flex-col items-center gap-0.5 text-[10px] font-black transition">
             <span class="text-lg">🎙️</span><span>Rooms</span>
           </button>
-          <button onclick="nav('sp_wallet')" class="w-12 h-10 rounded-2xl bg-gradient-to-br from-purple-600 to-indigo-600 flex items-center justify-center text-xl shadow-[0_0_18px_rgba(124,58,237,0.75)] border border-purple-300/40">
+          <button type="button" onclick="nav('sp_wallet')" class="w-12 h-10 rounded-2xl bg-gradient-to-br from-purple-600 to-indigo-600 flex items-center justify-center text-xl shadow-[0_0_18px_rgba(124,58,237,0.75)] border border-purple-300/40">
             🪙
           </button>
-          <button onclick="nav('sp_store')" class="${currentGame==='sp_store' ? 'text-emerald-300 scale-110' : 'text-slate-300'} flex flex-col items-center gap-0.5 text-[10px] font-black transition">
+          <button type="button" onclick="nav('sp_store')" class="${currentGame==='sp_store' ? 'text-emerald-300 scale-110' : 'text-slate-300'} flex flex-col items-center gap-0.5 text-[10px] font-black transition">
             <span class="text-lg">🛍️</span><span>Store</span>
           </button>
-          <button onclick="openUserProfileModal(${uid})" class="${currentGame==='sp_profile' ? 'text-sky-300 scale-110' : 'text-slate-300'} flex flex-col items-center gap-0.5 text-[10px] font-black transition">
+          <button type="button" onclick="openUserProfileModal(${uid})" class="${currentGame==='sp_profile' ? 'text-sky-300 scale-110' : 'text-slate-300'} flex flex-col items-center gap-0.5 text-[10px] font-black transition">
             <span class="text-lg">👤</span><span>Profile</span>
           </button>
         </div>
@@ -874,18 +873,18 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
       return `
         <div class="glass-panel mx-3 mb-2 px-3 py-2 rounded-2xl flex justify-between items-center shrink-0">
           <div class="flex items-center gap-1.5">
-            ${currentGame !== 'hub' ? `<button onclick="nav('hub')" class="btn-danger px-2.5 py-1 rounded-xl text-xs font-extrabold">${T().backMenu}</button>` : `<span class="text-xs font-black text-purple-400">RHINO™</span>`}
+            ${currentGame !== 'hub' ? `<button type="button" onclick="nav('hub')" class="btn-danger px-2.5 py-1 rounded-xl text-xs font-extrabold">${T().backMenu}</button>` : `<span class="text-xs font-black text-purple-400">RHINO™</span>`}
             <span class="text-sm font-black text-white truncate max-w-[125px]">${titleText || T().heroTitle}</span>
           </div>
           <div class="flex items-center gap-1.5">
-            <button onclick="nav('sp_wallet')" class="glass-soft px-2 py-1 rounded-xl text-[11px] font-black text-amber-300 flex items-center gap-1">
+            <button type="button" onclick="nav('sp_wallet')" class="glass-soft px-2 py-1 rounded-xl text-[11px] font-black text-amber-300 flex items-center gap-1">
               <span>🪙 ${(me.coins ?? 1000).toLocaleString()}</span>
               <span class="text-purple-300">| ⭐ ${me.stars_balance ?? 0}</span>
             </button>
             ${isOwner && currentGame !== 'tower_admin' ? `
-              <button onclick="nav('tower_admin')" class="btn-primary px-2 py-1 rounded-xl text-[11px] font-black text-amber-200">👑</button>
+              <button type="button" onclick="nav('tower_admin')" class="btn-primary px-2 py-1 rounded-xl text-[11px] font-black text-amber-200">👑</button>
             ` : ''}
-            <button onclick="cycleLang()" class="glass-soft px-2 py-1 rounded-xl text-[10px] font-extrabold text-amber-300">
+            <button type="button" onclick="cycleLang()" class="glass-soft px-2 py-1 rounded-xl text-[10px] font-extrabold text-amber-300">
               ${langFlags[lang] || 'FA'}
             </button>
           </div>
@@ -1008,7 +1007,7 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
     };
 
     /* ═══════════════════════════════════════════════════════════════════════════
-       صفحه اصلی پلتفرم راینو (کازینو + اتاق‌های صوتی + بازی‌ها مشابه اسکرین‌شات)
+       صفحه اصلی پلتفرم راینو (کازینو + اتاق‌های صوتی + بازی‌ها)
        ═══════════════════════════════════════════════════════════════════════════ */
     function renderHub(root) {
       const G = T().games;
@@ -1016,7 +1015,7 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
       const avatarUrl = me.photo || myPhoto || '';
       const displayName = me.display_name || myName;
       const initial = (displayName || 'R')[0].toUpperCase();
-      const ringStyle = me.ring_css ? `box-shadow: ${me.ring_css};` : '';
+      const ringStyle = me.ring_css ? ('box-shadow:' + me.ring_css + ';') : '';
       const lvl = me.level || 1;
       const xpPct = Math.min(100, Math.round(((me.xp || 0) % 200) / 2));
 
@@ -1087,7 +1086,6 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
 
       root.innerHTML = `
         ${renderMinimizedFloatingWidget()}
-        <!-- ۱. هدر پروفایل گیمینگ با حلقه دور آواتار، نشان اشتراک و کیف پول دوگانه -->
         <div class="glass-panel mx-3 mb-2 px-3 py-2.5 rounded-3xl flex items-center justify-between gap-2 shrink-0 border border-purple-500/25">
           <div onclick="openUserProfileModal(${uid})" class="flex items-center gap-2.5 min-w-0 flex-1 cursor-pointer">
             ${avatarUrl ? `
@@ -1119,14 +1117,13 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
                 <span>${me.stars_balance ?? 0}</span><span>⭐</span>
               </div>
             </div>
-            <button onclick="nav('sp_wallet')" title="شارژ و تبدیل کیف پول" class="w-10 h-10 rounded-full bg-gradient-to-br from-purple-500 to-indigo-600 flex items-center justify-center text-xl font-black shadow-lg border border-purple-300/40">+</button>
+            <button type="button" onclick="nav('sp_wallet')" title="شارژ و تبدیل کیف پول" class="w-10 h-10 rounded-full bg-gradient-to-br from-purple-500 to-indigo-600 flex items-center justify-center text-xl font-black shadow-lg border border-purple-300/40">+</button>
             ${isOwner ? `
-              <button onclick="nav('tower_admin')" title="پنل مدیریت" class="w-10 h-10 rounded-full glass-soft flex items-center justify-center text-base border border-amber-400/50">👑</button>
+              <button type="button" onclick="nav('tower_admin')" title="پنل مدیریت" class="w-10 h-10 rounded-full glass-soft flex items-center justify-center text-base border border-amber-400/50">👑</button>
             ` : ''}
           </div>
         </div>
 
-        <!-- ۲. نوار BIG WINS + فیلتر سریع + گرید ۲ ستونی کارت‌ها -->
         <div class="flex-1 overflow-y-auto px-3 pb-24 flex flex-col gap-3">
           <div>
             <div class="flex items-center justify-between px-1 mb-1.5">
@@ -1134,9 +1131,9 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
                 <span>🔥</span><span>${T().bigWins}</span>
               </div>
               <div class="flex gap-1.5 text-[10px] font-black">
-                <button onclick="setHubFilter('all')" class="px-2 py-0.5 rounded-lg ${hubFilter==='all'?'btn-primary':'glass-soft'}">همه</button>
-                <button onclick="setHubFilter('casino')" class="px-2 py-0.5 rounded-lg ${hubFilter==='casino'?'btn-primary':'glass-soft'}">🎰 کازینو</button>
-                <button onclick="setHubFilter('pvp')" class="px-2 py-0.5 rounded-lg ${hubFilter==='pvp'?'btn-primary':'glass-soft'}">🎙️ روم و گروهی</button>
+                <button type="button" onclick="setHubFilter('all')" class="px-2 py-0.5 rounded-lg ${hubFilter==='all'?'btn-primary':'glass-soft'}">همه</button>
+                <button type="button" onclick="setHubFilter('casino')" class="px-2 py-0.5 rounded-lg ${hubFilter==='casino'?'btn-primary':'glass-soft'}">🎰 کازینو</button>
+                <button type="button" onclick="setHubFilter('pvp')" class="px-2 py-0.5 rounded-lg ${hubFilter==='pvp'?'btn-primary':'glass-soft'}">🎙️ روم و گروهی</button>
               </div>
             </div>
             <div class="flex gap-2 overflow-x-auto pb-1">${bigWinsHtml}</div>
@@ -1166,7 +1163,7 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
             <div class="font-black text-xs text-white">${pk.title}</div>
             <div class="text-[10px] text-emerald-300 font-bold">معادل ${((pk.stars + pk.bonus_stars) * rate).toLocaleString()} 🪙 سکه کازینو</div>
           </div>
-          <button onclick="callSocialApi('create_topup_invoice',{pack_id:'${pk.id}'})" class="btn-primary px-3.5 py-2 rounded-xl text-xs font-black shrink-0">
+          <button type="button" onclick="callSocialApi('create_topup_invoice',{pack_id:'${pk.id}'})" class="btn-primary px-3.5 py-2 rounded-xl text-xs font-black shrink-0">
             ⭐ ${pk.stars} Stars
           </button>
         </div>
@@ -1178,7 +1175,6 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
           ${spMsg ? `<div class="p-3 rounded-2xl bg-emerald-600/35 border border-emerald-400 font-bold text-center">${spMsg}</div>` : ''}
           ${spErr ? `<div class="p-3 rounded-2xl bg-rose-600/40 border border-rose-400 font-bold text-center">${spErr}</div>` : ''}
 
-          <!-- کارت موجودی دوگانه -->
           <div class="glass-panel p-4 rounded-3xl grid grid-cols-2 gap-3 text-center border border-purple-400/40">
             <div class="glass-soft p-3 rounded-2xl">
               <div class="text-slate-400 text-[10px] font-bold">موجودی استارز کیف پول</div>
@@ -1190,18 +1186,16 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
             </div>
           </div>
 
-          <!-- بخش ۱: تبدیل استارز به سکه -->
           <div class="glass-panel p-4 rounded-3xl space-y-2.5 border border-emerald-400/30">
             <h3 class="font-black text-sm text-emerald-300 text-center">🔄 تبدیل استارز به سکه کازینو (هر ۱ ⭐ = ${rate} 🪙)</h3>
             <div class="flex gap-2">
               <input id="conv_stars_inp" type="number" value="${me.stars_balance > 0 ? me.stars_balance : 10}" min="1" placeholder="تعداد استارز..." class="flex-1 p-3 rounded-xl glass-soft text-center font-black text-sm text-white" />
-              <button onclick="callSocialApi('convert_stars_to_coins',{stars:Number(document.getElementById('conv_stars_inp').value||0)})" class="btn-success px-5 rounded-xl font-black text-xs">
+              <button type="button" onclick="callSocialApi('convert_stars_to_coins',{stars:Number(document.getElementById('conv_stars_inp').value||0)})" class="btn-success px-5 rounded-xl font-black text-xs">
                 ⚡ تبدیل به سکه
               </button>
             </div>
           </div>
 
-          <!-- بخش ۲: شارژ کیف پول با Telegram Stars -->
           <div class="glass-panel p-4 rounded-3xl space-y-2.5">
             <h3 class="font-black text-sm text-amber-300 text-center">⭐ شارژ کیف پول با استارز تلگرام</h3>
             <div class="flex flex-col gap-2">${packsHtml}</div>
@@ -1215,7 +1209,6 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
        ۴ بازی کازینویی (CRASH, BOMBS, HELL PICKAXE, ROYAL SLOT)
        ═══════════════════════════════════════════════════════════════════════════ */
     function renderCrashGame(root) {
-      const me = spState?.me || {};
       const r = crashLastResult;
       root.innerHTML = `
         ${renderTopBar('🚀 CRASH • انفجار موشک')}
@@ -1223,7 +1216,7 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
           <div class="glass-panel p-6 rounded-3xl text-center relative overflow-hidden border border-pink-500/40 my-auto">
             <div class="text-6xl mb-3 ${r ? (r.won ? 'animate-bounce' : '') : ''}">${r ? (r.won ? '🚀💎' : '💥🔥') : '🚀'}</div>
             <div class="text-4xl font-black ${r ? (r.won ? 'text-emerald-400' : 'text-rose-400') : 'text-amber-300'} mb-1 ltr-grid">
-              ${r ? `${r.crash_point.toFixed(2)}x` : '1.00x'}
+              ${r ? (r.crash_point.toFixed(2) + 'x') : '1.00x'}
             </div>
             <div class="text-xs font-bold text-slate-300">
               ${spMsg || spErr || 'مبلغ شرط و ضریب خروج خودکار (Target Cashout) را مشخص کنید:'}
@@ -1242,12 +1235,12 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
               </div>
             </div>
             <div class="grid grid-cols-4 gap-1.5 text-[11px] font-black">
-              <button onclick="document.getElementById('cr_mult').value='1.5'" class="glass-soft py-1.5 rounded-lg">1.5x</button>
-              <button onclick="document.getElementById('cr_mult').value='2.0'" class="glass-soft py-1.5 rounded-lg">2.0x</button>
-              <button onclick="document.getElementById('cr_mult').value='3.0'" class="glass-soft py-1.5 rounded-lg">3.0x</button>
-              <button onclick="document.getElementById('cr_mult').value='5.0'" class="glass-soft py-1.5 rounded-lg">5.0x</button>
+              <button type="button" onclick="document.getElementById('cr_mult').value='1.5'" class="glass-soft py-1.5 rounded-lg">1.5x</button>
+              <button type="button" onclick="document.getElementById('cr_mult').value='2.0'" class="glass-soft py-1.5 rounded-lg">2.0x</button>
+              <button type="button" onclick="document.getElementById('cr_mult').value='3.0'" class="glass-soft py-1.5 rounded-lg">3.0x</button>
+              <button type="button" onclick="document.getElementById('cr_mult').value='5.0'" class="glass-soft py-1.5 rounded-lg">5.0x</button>
             </div>
-            <button onclick="callSocialApi('casino_play',{game:'crash',bet:Number(document.getElementById('cr_bet').value||100),target_mult:Number(document.getElementById('cr_mult').value||2)})" class="btn-primary w-full py-4 rounded-2xl font-black text-base">
+            <button type="button" onclick="callSocialApi('casino_play',{game:'crash',bet:Number(document.getElementById('cr_bet').value||100),target_mult:Number(document.getElementById('cr_mult').value||2)})" class="btn-primary w-full py-4 rounded-2xl font-black text-base">
               🚀 پرتاب موشک و ثبت شرط
             </button>
           </div>
@@ -1269,7 +1262,7 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
         else if (b.game_over && isBomb) { content = '💣'; cls = 'bg-rose-950/70 border border-rose-500/40'; }
 
         gridHtml += `
-          <button ${!b.active || isRev ? 'disabled' : ''} onclick="callSocialApi('casino_play',{game:'bombs',sub_op:'pick',cell:${i}})"
+          <button type="button" ${!b.active || isRev ? 'disabled' : ''} onclick="callSocialApi('casino_play',{game:'bombs',sub_op:'pick',cell:${i}})"
             class="aspect-square rounded-2xl font-black text-xl flex items-center justify-center transition ${cls}">
             ${content}
           </button>
@@ -1293,7 +1286,7 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
 
           <div class="glass-panel p-3.5 rounded-3xl space-y-2.5">
             ${b.active ? `
-              <button onclick="callSocialApi('casino_play',{game:'bombs',sub_op:'cashout'})" class="btn-success w-full py-4 rounded-2xl font-black text-sm">
+              <button type="button" onclick="callSocialApi('casino_play',{game:'bombs',sub_op:'cashout'})" class="btn-success w-full py-4 rounded-2xl font-black text-sm">
                 💰 برداشت جایزه (${(b.potential_win || b.bet).toLocaleString()} 🪙)
               </button>
             ` : `
@@ -1309,7 +1302,7 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
                   </select>
                 </div>
               </div>
-              <button onclick="callSocialApi('casino_play',{game:'bombs',sub_op:'start',bet:Number(document.getElementById('bm_bet').value||200),mines:Number(document.getElementById('bm_mines').value||5)})" class="btn-primary w-full py-3.5 rounded-2xl font-black text-sm">
+              <button type="button" onclick="callSocialApi('casino_play',{game:'bombs',sub_op:'start',bet:Number(document.getElementById('bm_bet').value||200),mines:Number(document.getElementById('bm_mines').value||5)})" class="btn-primary w-full py-3.5 rounded-2xl font-black text-sm">
                 💣 شروع بازی و کاشت بمب‌ها
               </button>
             `}
@@ -1327,14 +1320,14 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
         <div class="flex-1 overflow-y-auto px-3 pb-24 flex flex-col justify-between gap-3">
           <div class="glass-panel p-6 rounded-3xl text-center my-auto space-y-3 border border-amber-400/40">
             <div class="text-6xl">${isPick ? '⛏️💎' : (res?.reels ? res.reels.join(' ') : '🎰 7️⃣ 💎')}</div>
-            <div class="text-2xl font-black text-amber-300">${res ? `${res.mult}x` : 'آماده شانس‌آزمایی!'}</div>
+            <div class="text-2xl font-black text-amber-300">${res ? (res.mult + 'x') : 'آماده شانس‌آزمایی!'}</div>
             <div class="text-xs font-bold text-slate-200">${spMsg || spErr || (isPick ? 'با کلنگ دوزخی سنگ معدن را بشکن و تا ۱۲ برابر سکه ببر!' : 'گردونه سلطنتی را بچرخان و تا ۱۵ برابر سکه برنده شو!')}</div>
           </div>
 
           <div class="glass-panel p-4 rounded-3xl space-y-3 text-xs">
             <label class="block text-[11px] text-slate-300 font-bold text-center">🪙 مبلغ شرط (سکه):</label>
             <input id="ps_bet" type="number" value="200" min="10" class="w-full p-3 rounded-xl glass-soft text-center font-black text-lg text-amber-300" />
-            <button onclick="callSocialApi('casino_play',{game:'${mode}',bet:Number(document.getElementById('ps_bet').value||200)})" class="btn-primary w-full py-4 rounded-2xl font-black text-base">
+            <button type="button" onclick="callSocialApi('casino_play',{game:'${mode}',bet:Number(document.getElementById('ps_bet').value||200)})" class="btn-primary w-full py-4 rounded-2xl font-black text-base">
               ${isPick ? '⛏️ ضربه با کلنگ دوزخی' : '🎰 چرخش اسلات سلطنتی'}
             </button>
           </div>
@@ -1412,7 +1405,7 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
         <div class="flex-1 overflow-y-auto px-3 pb-24">
           <div class="flex justify-between items-center mb-3">
             <span class="text-xs font-black text-slate-300">اتاق‌های صوتی فعال (${rooms.length})</span>
-            <button onclick="vrSheet='edit_room';renderVoiceHub(document.getElementById('app'))" class="btn-primary px-3.5 py-2 rounded-xl text-xs font-black">
+            <button type="button" onclick="vrSheet='edit_room';renderVoiceHub(document.getElementById('app'))" class="btn-primary px-3.5 py-2 rounded-xl text-xs font-black">
               ${me.room ? '⚙️ ویرایش اتاق من' : '➕ ساخت اتاق صوتی'}
             </button>
           </div>
@@ -1489,8 +1482,8 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
             </div>
 
             <div class="grid grid-cols-2 gap-2 pt-2">
-              <button onclick="vrSheet='';callSocialApi('save_my_room',{title:document.getElementById('rm_title').value,description:document.getElementById('rm_desc').value,room_photo:window.uploadedImages['my_room_photo']||'',mic_count:Number(document.getElementById('rm_mics').value),category:document.getElementById('rm_cat').value,is_locked:document.getElementById('rm_lock').checked,pin_code:document.getElementById('rm_pin')?.value||''})" class="btn-success py-3 rounded-2xl font-black">💾 ذخیره و ورود</button>
-              <button onclick="vrSheet='';render()" class="btn-danger py-3 rounded-2xl font-bold">انصراف</button>
+              <button type="button" onclick="vrSheet='';callSocialApi('save_my_room',{title:document.getElementById('rm_title').value,description:document.getElementById('rm_desc').value,room_photo:window.uploadedImages['my_room_photo']||'',mic_count:Number(document.getElementById('rm_mics').value),category:document.getElementById('rm_cat').value,is_locked:document.getElementById('rm_lock').checked,pin_code:document.getElementById('rm_pin')?.value||''})" class="btn-success py-3 rounded-2xl font-black">💾 ذخیره و ورود</button>
+              <button type="button" onclick="vrSheet='';render()" class="btn-danger py-3 rounded-2xl font-bold">انصراف</button>
             </div>
           </div>
         </div>
@@ -1518,6 +1511,14 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
       }, 3500);
     }
 
+    window.vrSeatLabelClick = function(roomId, seatIdx, occUid, isRoomOwner) {
+      if (occUid) {
+        openUserProfileModal(occUid);
+      } else if (isRoomOwner) {
+        callSocialApi('room_op', { room_id: roomId, op: 'toggle_seat_lock', seat_idx: seatIdx });
+      }
+    };
+
     function drawLiveVoiceRoom(root) {
       if (!root || currentGame !== 'voice_room_live' || !activeVoiceRoom) return;
       const r = activeVoiceRoom;
@@ -1540,24 +1541,29 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
       for (let i = 1; i <= mc; i++) {
         const occ = (r.seats || {})[String(i)];
         const isLockedSeat = (r.locked_seats || []).includes(i);
+        const occRingStyle = occ?.ring_css ? ('box-shadow:' + occ.ring_css + ';') : '';
+        const occUid = occ ? Number(occ.uid) : 0;
+        const seatLabel = occ ? ((occ.badge ? occ.badge.split(' ')[0] + ' ' : '') + occ.name) : String(i);
+
         seatsHtml += `
           <div class="flex flex-col items-center gap-1">
-            <button onclick="callSocialApi('room_op',{room_id:${r.room_id},op:'take_seat',seat_idx:'${i}'})"
-              style="${occ?.ring_css ? `box-shadow:${occ.ring_css};` : ''}"
+            <button type="button" onclick="callSocialApi('room_op',{room_id:${r.room_id},op:'take_seat',seat_idx:'${i}'})"
+              style="${occRingStyle}"
               class="${seatSize} rounded-full ${occ ? 'bg-indigo-950 border-2 border-emerald-400' : 'bg-white/10 border border-white/25'} flex items-center justify-center relative overflow-hidden active:scale-95 transition">
               ${occ ? (occ.photo ? `<img src="${occ.photo}" class="w-full h-full object-cover" />` : `<span class="font-black">${(occ.name||'P')[0]}</span>`) : (isLockedSeat ? '🔒' : '➕')}
               ${occ?.muted ? `<span class="absolute bottom-0 right-0 bg-rose-600 text-[9px] rounded-full px-1">🔇</span>` : ''}
             </button>
-            <div onclick="${occ ? `openUserProfileModal(${occ.uid})` : (isRoomOwner ? `callSocialApi('room_op',{room_id:${r.room_id},op:'toggle_seat_lock',seat_idx:${i}})` : '')}" class="text-[10px] font-bold text-slate-200 truncate max-w-[68px] cursor-pointer">
-              ${occ ? `${occ.badge ? occ.badge.split(' ')[0] : ''}${occ.name}` : `${i}`}
+            <div onclick="window.vrSeatLabelClick(${r.room_id}, ${i}, ${occUid}, ${isRoomOwner})" class="text-[10px] font-bold text-slate-200 truncate max-w-[68px] cursor-pointer">
+              ${seatLabel}
             </div>
           </div>
         `;
       }
 
-      const membersAvatars = (r.visible_members || []).slice(0, 6).map(m => `
-        <img onclick="openUserProfileModal(${m.uid})" src="${m.photo || '/api/banner/hub.png'}" style="${m.ring_css ? `box-shadow:${m.ring_css};` : ''}" title="${m.name}" class="w-7 h-7 rounded-full object-cover border border-amber-400/60 cursor-pointer" />
-      `).join('');
+      const membersAvatars = (r.visible_members || []).slice(0, 6).map(m => {
+        const mRing = m.ring_css ? ('box-shadow:' + m.ring_css + ';') : '';
+        return `<img onclick="openUserProfileModal(${m.uid})" src="${m.photo || '/api/banner/hub.png'}" style="${mRing}" title="${m.name}" class="w-7 h-7 rounded-full object-cover border border-amber-400/60 cursor-pointer" />`;
+      }).join('');
 
       const chatsHtml = (r.chats || []).map(c => c.sys ? `
         <div class="px-3 py-1.5 rounded-2xl ${c.gift ? 'bg-amber-500/25 border border-amber-400/50 text-amber-200' : 'bg-teal-950/60 border border-teal-500/25 text-teal-300'} text-[11px] font-bold">
@@ -1577,11 +1583,11 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
         modalSheetHtml = `
           <div onclick="vrSheet='';drawLiveVoiceRoom(document.getElementById('app'))" class="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex flex-col items-center justify-center gap-10">
             <div class="flex flex-col items-center gap-2">
-              <button onclick="event.stopPropagation();vrKeepMinimized()" class="w-20 h-20 rounded-full bg-gradient-to-br from-emerald-400 to-teal-500 flex items-center justify-center text-3xl shadow-[0_0_25px_#10b981]">🗗</button>
+              <button type="button" onclick="event.stopPropagation();vrKeepMinimized()" class="w-20 h-20 rounded-full bg-gradient-to-br from-emerald-400 to-teal-500 flex items-center justify-center text-3xl shadow-[0_0_25px_#10b981]">🗗</button>
               <span class="font-black text-sm">Keep</span>
             </div>
             <div class="flex flex-col items-center gap-2">
-              <button onclick="event.stopPropagation();callSocialApi('room_op',{room_id:${r.room_id},op:'leave_room'})" class="w-20 h-20 rounded-full bg-gradient-to-br from-rose-500 to-red-600 flex items-center justify-center text-3xl shadow-[0_0_25px_#f43f5e]">⏻</button>
+              <button type="button" onclick="event.stopPropagation();callSocialApi('room_op',{room_id:${r.room_id},op:'leave_room'})" class="w-20 h-20 rounded-full bg-gradient-to-br from-rose-500 to-red-600 flex items-center justify-center text-3xl shadow-[0_0_25px_#f43f5e]">⏻</button>
               <span class="font-black text-sm">Exit</span>
             </div>
           </div>
@@ -1592,17 +1598,17 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
             <div onclick="event.stopPropagation()" class="glass-panel rounded-t-3xl p-4 space-y-4 border-t border-purple-400/40">
               <div class="flex justify-between items-center border-b border-white/10 pb-2 text-xs font-black">
                 <span class="text-amber-300">🎛️ Room Management & Tools</span>
-                <button onclick="vrSheet='';drawLiveVoiceRoom(document.getElementById('app'))" class="text-slate-400">✖</button>
+                <button type="button" onclick="vrSheet='';drawLiveVoiceRoom(document.getElementById('app'))" class="text-slate-400">✖</button>
               </div>
               <div class="grid grid-cols-4 gap-3 text-center text-[11px] font-bold">
-                <button onclick="vrSheet='modes';drawLiveVoiceRoom(document.getElementById('app'))" class="glass-soft p-3 rounded-2xl flex flex-col items-center gap-1"><span class="text-xl">🎙️</span><span>Room Mode</span></button>
-                <button onclick="callSocialApi('room_op',{room_id:${r.room_id},op:'toggle_lock_room'});vrSheet=''" class="glass-soft p-3 rounded-2xl flex flex-col items-center gap-1"><span class="text-xl">${r.is_locked ? '🔓' : '🔒'}</span><span>${r.is_locked ? 'Unlock' : 'Lock Room'}</span></button>
-                <button onclick="callSocialApi('room_op',{room_id:${r.room_id},op:'toggle_auto_lock_mics'});vrSheet=''" class="glass-soft p-3 rounded-2xl flex flex-col items-center gap-1"><span class="text-xl">💺</span><span>Mic Lock</span></button>
-                <button onclick="callSocialApi('room_op',{room_id:${r.room_id},op:'clear_chat'});vrSheet=''" class="glass-soft p-3 rounded-2xl flex flex-col items-center gap-1"><span class="text-xl">🧹</span><span>Delete Chat</span></button>
-                <button onclick="callSocialApi('room_op',{room_id:${r.room_id},op:'toggle_music'});vrSheet=''" class="glass-soft p-3 rounded-2xl flex flex-col items-center gap-1"><span class="text-xl">🎵</span><span>Music</span></button>
-                <button onclick="callSocialApi('room_op',{room_id:${r.room_id},op:'toggle_pk'});vrSheet=''" class="glass-soft p-3 rounded-2xl flex flex-col items-center gap-1"><span class="text-xl">⚔️</span><span>PK Battle</span></button>
-                <button onclick="callSocialApi('room_op',{room_id:${r.room_id},op:'change_bg',bg_theme:'royal_stage'});vrSheet=''" class="glass-soft p-3 rounded-2xl flex flex-col items-center gap-1"><span class="text-xl">🌌</span><span>Stage BG</span></button>
-                <button onclick="vrSheet='';nav('sp_store')" class="glass-soft p-3 rounded-2xl flex flex-col items-center gap-1"><span class="text-xl">🛍️</span><span>VIP Store</span></button>
+                <button type="button" onclick="vrSheet='modes';drawLiveVoiceRoom(document.getElementById('app'))" class="glass-soft p-3 rounded-2xl flex flex-col items-center gap-1"><span class="text-xl">🎙️</span><span>Room Mode</span></button>
+                <button type="button" onclick="callSocialApi('room_op',{room_id:${r.room_id},op:'toggle_lock_room'});vrSheet=''" class="glass-soft p-3 rounded-2xl flex flex-col items-center gap-1"><span class="text-xl">${r.is_locked ? '🔓' : '🔒'}</span><span>${r.is_locked ? 'Unlock' : 'Lock Room'}</span></button>
+                <button type="button" onclick="callSocialApi('room_op',{room_id:${r.room_id},op:'toggle_auto_lock_mics'});vrSheet=''" class="glass-soft p-3 rounded-2xl flex flex-col items-center gap-1"><span class="text-xl">💺</span><span>Mic Lock</span></button>
+                <button type="button" onclick="callSocialApi('room_op',{room_id:${r.room_id},op:'clear_chat'});vrSheet=''" class="glass-soft p-3 rounded-2xl flex flex-col items-center gap-1"><span class="text-xl">🧹</span><span>Delete Chat</span></button>
+                <button type="button" onclick="callSocialApi('room_op',{room_id:${r.room_id},op:'toggle_music'});vrSheet=''" class="glass-soft p-3 rounded-2xl flex flex-col items-center gap-1"><span class="text-xl">🎵</span><span>Music</span></button>
+                <button type="button" onclick="callSocialApi('room_op',{room_id:${r.room_id},op:'toggle_pk'});vrSheet=''" class="glass-soft p-3 rounded-2xl flex flex-col items-center gap-1"><span class="text-xl">⚔️</span><span>PK Battle</span></button>
+                <button type="button" onclick="callSocialApi('room_op',{room_id:${r.room_id},op:'change_bg',bg_theme:'royal_stage'});vrSheet=''" class="glass-soft p-3 rounded-2xl flex flex-col items-center gap-1"><span class="text-xl">🌌</span><span>Stage BG</span></button>
+                <button type="button" onclick="vrSheet='';nav('sp_store')" class="glass-soft p-3 rounded-2xl flex flex-col items-center gap-1"><span class="text-xl">🛍️</span><span>VIP Store</span></button>
               </div>
             </div>
           </div>
@@ -1627,7 +1633,7 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
               <h3 class="text-sm font-black text-center text-amber-300">🎙️ انتخاب چیدمان میکروفون‌های اتاق</h3>
               <div class="grid grid-cols-3 gap-2.5 text-xs">
                 ${micOptions.map(m => `
-                  <button onclick="callSocialApi('room_op',{room_id:${r.room_id},op:'change_layout',mic_count:${m.n},mic_mode:'${m.mode}'});vrSheet=''"
+                  <button type="button" onclick="callSocialApi('room_op',{room_id:${r.room_id},op:'change_layout',mic_count:${m.n},mic_mode:'${m.mode}'});vrSheet=''"
                     class="p-3 rounded-2xl border ${r.mic_count===m.n ? 'border-purple-400 bg-purple-950/60' : 'border-white/10 bg-white/5'} flex flex-col items-center gap-1.5">
                     <span class="px-2 py-0.5 rounded-full bg-sky-500/20 text-sky-300 text-[9px] font-black">${m.mode.toUpperCase()}</span>
                     <span class="font-black text-white">${m.lbl}</span>
@@ -1643,7 +1649,7 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
             <div onclick="event.stopPropagation()" class="bg-white text-slate-900 rounded-t-3xl p-5 space-y-4 max-h-[80vh] overflow-y-auto">
               <div class="flex justify-between items-center">
                 <h3 class="font-black text-base">Room Details</h3>
-                <button onclick="openUserProfileModal(${r.owner_id})" class="text-xs font-bold text-purple-700">👤 مشاهده پروفایل مالک اتاق</button>
+                <button type="button" onclick="openUserProfileModal(${r.owner_id})" class="text-xs font-bold text-purple-700">👤 مشاهده پروفایل مالک اتاق</button>
               </div>
               <div class="flex items-center justify-between bg-slate-100 p-3 rounded-2xl">
                 <div class="flex items-center gap-3">
@@ -1679,11 +1685,11 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
             <div onclick="event.stopPropagation()" class="glass-panel rounded-t-3xl p-4 space-y-3 border-t border-amber-400/40">
               <div class="flex justify-between items-center text-xs font-black">
                 <span class="text-amber-300">🎁 ارسال هدیه در اتاق (موجودی: ${(me.coins||0).toLocaleString()} 🪙)</span>
-                <button onclick="vrSheet='';drawLiveVoiceRoom(document.getElementById('app'))">✖</button>
+                <button type="button" onclick="vrSheet='';drawLiveVoiceRoom(document.getElementById('app'))">✖</button>
               </div>
               <div class="grid grid-cols-4 gap-2 text-center text-xs">
                 ${gifts.map(g => `
-                  <button onclick="callSocialApi('room_op',{room_id:${r.room_id},op:'send_gift',gift_id:${g.id}});vrSheet=''" class="glass-soft p-2.5 rounded-2xl flex flex-col items-center gap-1 hover:border-amber-400">
+                  <button type="button" onclick="callSocialApi('room_op',{room_id:${r.room_id},op:'send_gift',gift_id:${g.id}});vrSheet=''" class="glass-soft p-2.5 rounded-2xl flex flex-col items-center gap-1 hover:border-amber-400">
                     <span class="text-2xl">${g.icon}</span>
                     <span class="font-bold text-[10px] truncate w-full">${g.name}</span>
                     <span class="text-[10px] text-amber-300 font-black">${g.price_coins} 🪙</span>
@@ -1713,7 +1719,7 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
             <div class="flex items-center gap-1.5">
               <div class="flex -space-x-2 overflow-hidden">${membersAvatars}</div>
               <span class="px-2 py-1 rounded-xl glass-soft text-[11px] font-black">👥 ${r.online_count || 1}</span>
-              <button onclick="vrOpenExitPrompt()" class="w-8 h-8 rounded-full glass-panel flex items-center justify-center text-sm font-black">⏻</button>
+              <button type="button" onclick="vrOpenExitPrompt()" class="w-8 h-8 rounded-full glass-panel flex items-center justify-center text-sm font-black">⏻</button>
             </div>
           </div>
 
@@ -1749,16 +1755,16 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
           <div class="flex items-center gap-1.5 shrink-0 pt-1">
             <div class="flex-1 flex items-center gap-1 glass-panel rounded-full px-3 py-1.5">
               <input id="vrChatInp" type="text" placeholder="Say something..." onkeydown="if(event.key==='Enter'){callSocialApi('room_op',{room_id:${r.room_id},op:'chat',text:this.value});this.value='';}" class="flex-1 bg-transparent text-xs text-white outline-none" />
-              <button onclick="const el=document.getElementById('vrChatInp');if(el.value){callSocialApi('room_op',{room_id:${r.room_id},op:'chat',text:el.value});el.value='';}" class="text-purple-300 font-black text-xs">ارسال</button>
+              <button type="button" onclick="const el=document.getElementById('vrChatInp');if(el.value){callSocialApi('room_op',{room_id:${r.room_id},op:'chat',text:el.value});el.value='';}" class="text-purple-300 font-black text-xs">ارسال</button>
             </div>
 
             ${imSeated ? `
-              <button onclick="callSocialApi('room_op',{room_id:${r.room_id},op:'toggle_my_mic'})" class="w-10 h-10 rounded-full btn-success flex items-center justify-center text-base">🎙️</button>
-              <button onclick="callSocialApi('room_op',{room_id:${r.room_id},op:'leave_seat'})" class="w-10 h-10 rounded-full btn-danger flex items-center justify-center text-xs font-bold">⬇️</button>
+              <button type="button" onclick="callSocialApi('room_op',{room_id:${r.room_id},op:'toggle_my_mic'})" class="w-10 h-10 rounded-full btn-success flex items-center justify-center text-base">🎙️</button>
+              <button type="button" onclick="callSocialApi('room_op',{room_id:${r.room_id},op:'leave_seat'})" class="w-10 h-10 rounded-full btn-danger flex items-center justify-center text-xs font-bold">⬇️</button>
             ` : ''}
 
-            <button onclick="vrSheet='manage';drawLiveVoiceRoom(document.getElementById('app'))" class="w-10 h-10 rounded-full glass-panel flex items-center justify-center text-base">🎛️</button>
-            <button onclick="vrSheet='gifts';drawLiveVoiceRoom(document.getElementById('app'))" class="w-10 h-10 rounded-full bg-gradient-to-br from-amber-400 to-rose-500 flex items-center justify-center text-base shadow-lg">🎁</button>
+            <button type="button" onclick="vrSheet='manage';drawLiveVoiceRoom(document.getElementById('app'))" class="w-10 h-10 rounded-full glass-panel flex items-center justify-center text-base">🎛️</button>
+            <button type="button" onclick="vrSheet='gifts';drawLiveVoiceRoom(document.getElementById('app'))" class="w-10 h-10 rounded-full bg-gradient-to-br from-amber-400 to-rose-500 flex items-center justify-center text-base shadow-lg">🎁</button>
           </div>
         </div>
       `;
@@ -1772,9 +1778,10 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
       const isMe = Number(p.user_id) === Number(uid);
       const themes = spState.profile_themes || [];
       const curTheme = themes.find(t => t.id === p.card_theme) || themes[0];
+      const pRingStyle = p.ring_css ? ('box-shadow:' + p.ring_css + ';') : '';
 
       const themeSelectorHtml = isMe ? themes.map(t => `
-        <button onclick="callSocialApi('save_profile',{card_theme:'${t.id}'})" style="background:${t.css}" class="px-2.5 py-2 rounded-xl text-[10px] font-black border ${p.card_theme===t.id ? 'border-white scale-105' : 'border-white/20 opacity-80'} flex items-center justify-between gap-1">
+        <button type="button" onclick="callSocialApi('save_profile',{card_theme:'${t.id}'})" style="background:${t.css}" class="px-2.5 py-2 rounded-xl text-[10px] font-black border ${p.card_theme===t.id ? 'border-white scale-105' : 'border-white/20 opacity-80'} flex items-center justify-between gap-1">
           <span>${t.title}</span>
           ${t.tier !== 'free' ? `<span class="px-1 rounded bg-black/50 text-amber-300 text-[8px]">${t.tier.toUpperCase()}</span>` : ''}
         </button>
@@ -1799,9 +1806,9 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
           <div style="background: ${curTheme?.css || '#3b0764'};" class="p-5 rounded-3xl border border-white/25 shadow-2xl text-center relative overflow-hidden">
             <div class="relative inline-block mb-3">
               ${p.photo ? `
-                <img src="${p.photo}" style="${p.ring_css ? `box-shadow:${p.ring_css};` : ''}" class="w-24 h-24 rounded-full object-cover mx-auto border-2 border-white" />
+                <img src="${p.photo}" style="${pRingStyle}" class="w-24 h-24 rounded-full object-cover mx-auto border-2 border-white" />
               ` : `
-                <div style="${p.ring_css ? `box-shadow:${p.ring_css};` : ''}" class="w-24 h-24 rounded-full bg-slate-900 flex items-center justify-center text-3xl font-black mx-auto border-2 border-white">${(p.display_name||'U')[0]}</div>
+                <div style="${pRingStyle}" class="w-24 h-24 rounded-full bg-slate-900 flex items-center justify-center text-3xl font-black mx-auto border-2 border-white">${(p.display_name||'U')[0]}</div>
               `}
             </div>
             <div class="text-lg font-black text-white flex items-center justify-center gap-1.5">
@@ -1809,7 +1816,7 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
               ${p.sub_badge ? `<span class="px-2.5 py-0.5 rounded-full bg-black/55 border border-amber-300 text-amber-300 text-xs font-black">${p.sub_badge}</span>` : ''}
             </div>
             <div class="text-xs text-white/80 font-mono mb-2">
-              ID: ${p.user_id} ${p.username ? '• @'+p.username : ''} ${p.ring_name ? `• ⭕ ${p.ring_name}` : ''}
+              ID: ${p.user_id} ${p.username ? ('• @' + p.username) : ''} ${p.ring_name ? ('• ⭕ ' + p.ring_name) : ''}
             </div>
             <p class="text-xs text-white/95 bg-black/30 p-2.5 rounded-2xl max-w-xs mx-auto">${p.bio}</p>
 
@@ -1820,7 +1827,6 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
             </div>
           </div>
 
-          <!-- نمایش اتاق صوتی شخص در داخل پروفایلش -->
           <div class="glass-panel p-4 rounded-3xl">
             <h4 class="text-xs font-black text-amber-300 mb-2">🎙️ اتاق صوتی اختصاصی ${isMe ? 'شما' : p.display_name}</h4>
             ${p.room ? `
@@ -1833,11 +1839,11 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
                     <div class="text-[10px] text-emerald-300 font-bold">👥 ${p.room.online_count || 1} نفر داخل اتاق • Lv.${p.room.level || 1}</div>
                   </div>
                 </div>
-                <button class="btn-success px-3 py-2 rounded-xl text-xs font-black shrink-0">ورود ◀</button>
+                <button type="button" class="btn-success px-3 py-2 rounded-xl text-xs font-black shrink-0">ورود ◀</button>
               </div>
             ` : `
               <div class="text-center text-xs text-slate-400 py-2">
-                ${isMe ? `<button onclick="openMyVoiceRoomQuick()" class="btn-primary px-4 py-2.5 rounded-xl font-black">➕ ساخت اتاق صوتی شخصی</button>` : 'این کاربر هنوز اتاق صوتی نساخته است.'}
+                ${isMe ? `<button type="button" onclick="openMyVoiceRoomQuick()" class="btn-primary px-4 py-2.5 rounded-xl font-black">➕ ساخت اتاق صوتی شخصی</button>` : 'این کاربر هنوز اتاق صوتی نساخته است.'}
               </div>
             `}
           </div>
@@ -1861,7 +1867,7 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
                   <input id="sp_ghost_chk" type="checkbox" ${p.ghost_mode ? 'checked' : ''} ${!p.can_ghost_join ? 'disabled' : ''} class="w-4 h-4" />
                 </div>
 
-                <button onclick="callSocialApi('save_profile',{display_name:document.getElementById('sp_name_inp').value,bio:document.getElementById('sp_bio_inp').value,card_theme:'${p.card_theme}',stealth_mode:document.getElementById('sp_stealth_chk').checked,ghost_mode:document.getElementById('sp_ghost_chk').checked})" class="btn-success w-full py-3 rounded-2xl font-black">
+                <button type="button" onclick="callSocialApi('save_profile',{display_name:document.getElementById('sp_name_inp').value,bio:document.getElementById('sp_bio_inp').value,card_theme:'${p.card_theme}',stealth_mode:document.getElementById('sp_stealth_chk').checked,ghost_mode:document.getElementById('sp_ghost_chk').checked})" class="btn-success w-full py-3 rounded-2xl font-black">
                   💾 ذخیره تغییرات پروفایل
                 </button>
               </div>
@@ -1872,7 +1878,7 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
               <div class="flex flex-col gap-1.5">${visitorsHtml || '<div class="text-center text-slate-400">هنوز کسی از پروفایل شما بازدید نکرده است.</div>'}</div>
             </div>
           ` : `
-            <button onclick="viewedProfileData=null;renderSpProfile(document.getElementById('app'))" class="btn-primary w-full py-3 rounded-2xl font-black text-xs">🔙 بازگشت به پروفایل خودم</button>
+            <button type="button" onclick="viewedProfileData=null;renderSpProfile(document.getElementById('app'))" class="btn-primary w-full py-3 rounded-2xl font-black text-xs">🔙 بازگشت به پروفایل خودم</button>
           `}
         </div>
         ${renderBottomNav()}
@@ -1901,10 +1907,10 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
                 ${s.perks.map(pk => `<li>✅ ${pk}</li>`).join('')}
               </ul>
               <div class="grid grid-cols-2 gap-2 pt-2">
-                <button onclick="callSocialApi('buy_subscription',{tier_id:'${s.id}',pay_method:'coins'})" class="btn-success py-3 rounded-xl font-black text-xs">
+                <button type="button" onclick="callSocialApi('buy_subscription',{tier_id:'${s.id}',pay_method:'coins'})" class="btn-success py-3 rounded-xl font-black text-xs">
                   🪙 خرید با ${s.coins.toLocaleString()} سکه
                 </button>
-                <button onclick="callSocialApi('buy_subscription',{tier_id:'${s.id}',pay_method:'direct_stars'})" class="btn-primary py-3 rounded-xl font-black text-xs">
+                <button type="button" onclick="callSocialApi('buy_subscription',{tier_id:'${s.id}',pay_method:'direct_stars'})" class="btn-primary py-3 rounded-xl font-black text-xs">
                   ⭐ خرید با ${s.stars} استارز
                 </button>
               </div>
@@ -1913,10 +1919,11 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
         }).join('');
       } else if (storeTab === 'rings') {
         contentHtml = `
-          ${me.avatar_ring_id ? `<button onclick="callSocialApi('buy_or_equip_ring',{ring_id:0})" class="btn-danger w-full py-2.5 rounded-2xl text-xs font-black mb-2">❌ برداشتن حلقه فعلی از دور آواتار</button>` : ''}
+          ${me.avatar_ring_id ? `<button type="button" onclick="callSocialApi('buy_or_equip_ring',{ring_id:0})" class="btn-danger w-full py-2.5 rounded-2xl text-xs font-black mb-2">❌ برداشتن حلقه فعلی از دور آواتار</button>` : ''}
         ` + rings.map(r => {
           const owned = (me.owned_rings || []).includes(Number(r.id));
           const equipped = Number(me.avatar_ring_id) === Number(r.id);
+          const btnText = equipped ? 'فعال ✓' : (owned ? 'پوشیدن' : ('خرید (' + r.price_coins + ' 🪙)'));
           return `
             <div class="glass-panel p-3.5 rounded-3xl flex items-center justify-between gap-3 border ${equipped ? 'border-emerald-400' : 'border-white/10'}">
               <div class="flex items-center gap-3">
@@ -1928,8 +1935,8 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
                   <div class="text-[11px] text-amber-300 font-bold">${r.price_coins.toLocaleString()} 🪙</div>
                 </div>
               </div>
-              <button onclick="callSocialApi('buy_or_equip_ring',{ring_id:${r.id}})" class="${equipped ? 'btn-success' : (owned ? 'btn-primary' : 'btn-danger')} px-4 py-2.5 rounded-xl text-xs font-black shrink-0">
-                ${equipped ? 'فعال ✓' : (owned ? 'پوشیدن' : `خرید (${r.price_coins} 🪙)`)}
+              <button type="button" onclick="callSocialApi('buy_or_equip_ring',{ring_id:${r.id}})" class="${equipped ? 'btn-success' : (owned ? 'btn-primary' : 'btn-danger')} px-4 py-2.5 rounded-xl text-xs font-black shrink-0">
+                ${btnText}
               </button>
             </div>
           `;
@@ -1954,9 +1961,9 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
           </div>
 
           <div class="grid grid-cols-3 gap-2 text-xs font-black">
-            <button onclick="storeTab='subs';renderSpStore(document.getElementById('app'))" class="py-2.5 rounded-xl ${storeTab==='subs' ? 'btn-primary' : 'glass-soft'}">💎 اشتراک VIP</button>
-            <button onclick="storeTab='rings';renderSpStore(document.getElementById('app'))" class="py-2.5 rounded-xl ${storeTab==='rings' ? 'btn-primary' : 'glass-soft'}">⭕ حلقه آواتار</button>
-            <button onclick="storeTab='gifts';renderSpStore(document.getElementById('app'))" class="py-2.5 rounded-xl ${storeTab==='gifts' ? 'btn-primary' : 'glass-soft'}">🎁 گیفت‌ها</button>
+            <button type="button" onclick="storeTab='subs';renderSpStore(document.getElementById('app'))" class="py-2.5 rounded-xl ${storeTab==='subs' ? 'btn-primary' : 'glass-soft'}">💎 اشتراک VIP</button>
+            <button type="button" onclick="storeTab='rings';renderSpStore(document.getElementById('app'))" class="py-2.5 rounded-xl ${storeTab==='rings' ? 'btn-primary' : 'glass-soft'}">⭕ حلقه آواتار</button>
+            <button type="button" onclick="storeTab='gifts';renderSpStore(document.getElementById('app'))" class="py-2.5 rounded-xl ${storeTab==='gifts' ? 'btn-primary' : 'glass-soft'}">🎁 گیفت‌ها</button>
           </div>
 
           ${spMsg ? `<div class="p-3 rounded-2xl bg-emerald-600/35 border border-emerald-400 text-xs font-bold text-center">${spMsg}</div>` : ''}
@@ -1969,7 +1976,7 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
     }
 
     /* ═══════════════════════════════════════════════════════════════════════════
-       پنل مدیریت کل پلتفرم راینو (مستقل از برج شیاطین)
+       پنل مدیریت کل پلتفرم راینو (مستقل و بدون هیچ‌گونه خطای سینتکس)
        ═══════════════════════════════════════════════════════════════════════════ */
     let admState = null;
     let admTab = 'ui_assets';
@@ -1986,7 +1993,7 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
         });
         if (!res.ok) {
           const errTxt = await res.text();
-          admErr = `خطای سرور (${res.status}): ${errTxt.slice(0, 120)}`;
+          admErr = 'خطای سرور (' + res.status + '): ' + errTxt.slice(0, 120);
           if (!admState) admState = { bot_stats: {}, ui_assets: {}, users_list: [], store_items: [], forced_channels: [], groups_list: [] };
           drawTowerAdminApp(document.getElementById('app'));
           return;
@@ -2064,7 +2071,6 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
         { id: 'bot_groups',   lbl: '👥 گروه‌ها' }
       ];
 
-      // چیدمان شبکه‌ای ۳ ستونی (بدون اسکرول افقی) تا کلیک روی تمام تب‌ها در همه گوشی‌ها فوری کار کند
       const tabsHtml = tabs.map(t => `
         <button type="button" onclick="window.admSwitchTab('${t.id}')" class="py-2.5 px-2 rounded-xl text-[11px] font-black transition active:scale-95 ${admTab === t.id ? 'btn-primary text-white ring-2 ring-purple-300/50' : 'glass-soft text-slate-300'}">
           ${t.lbl}
@@ -2099,7 +2105,7 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
 
         const savedMap = admState.ui_assets || {};
         const cardsListHtml = assetItems.map(item => {
-          const curImg = savedMap[item.key] || `/api/custom_bg/${item.key}`;
+          const curImg = savedMap[item.key] || ('/api/custom_bg/' + item.key);
           const hasCustom = Boolean(savedMap[item.key]);
           return `
             <div class="glass-soft p-3 rounded-2xl flex flex-col gap-2 border ${hasCustom ? 'border-emerald-400/50' : 'border-white/10'}">
@@ -2113,11 +2119,11 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
                     </div>
                   </div>
                 </div>
-                ${hasCustom ? `<button onclick="admDeleteUiAsset('${item.key}')" class="btn-danger px-2.5 py-1.5 rounded-xl text-[10px] font-bold shrink-0">حذف</button>` : ''}
+                ${hasCustom ? `<button type="button" onclick="admDeleteUiAsset('${item.key}')" class="btn-danger px-2.5 py-1.5 rounded-xl text-[10px] font-bold shrink-0">حذف</button>` : ''}
               </div>
               <div class="flex items-center gap-2 pt-1 border-t border-white/10">
                 <input type="file" accept="image/*" onchange="handleImageUpload(this, 'asset_${item.key}', 'prev_asset_${item.key}')" class="flex-1 text-[10px] text-slate-300" />
-                <button onclick="admSaveUiAsset('${item.key}')" class="btn-success px-3.5 py-1.5 rounded-xl text-[11px] font-black shrink-0">💾 ذخیره</button>
+                <button type="button" onclick="admSaveUiAsset('${item.key}')" class="btn-success px-3.5 py-1.5 rounded-xl text-[11px] font-black shrink-0">💾 ذخیره</button>
               </div>
             </div>
           `;
@@ -2151,11 +2157,11 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
                   <div class="text-emerald-300 font-black text-xs">✅ پیام همگانی شما در پیوی دریافت و آماده ارسال است!</div>
                   <div class="p-2 rounded-xl bg-black/40 text-slate-200 text-[11px] truncate">«${draft.preview}»</div>
                   <div class="grid grid-cols-2 gap-2 pt-1">
-                    <button onclick="callTowerAdminApi('bot_arm_bc_capture');setTimeout(()=>tg?.close?.(),700)" class="btn-primary py-2 rounded-xl font-bold text-[11px]">🔄 تغییر پیام در پیوی</button>
-                    <button onclick="callTowerAdminApi('bot_clear_bc_draft')" class="btn-danger py-2 rounded-xl font-bold text-[11px]">🗑️ پاک کردن پیام</button>
+                    <button type="button" onclick="callTowerAdminApi('bot_arm_bc_capture');setTimeout(()=>tg?.close?.(),700)" class="btn-primary py-2 rounded-xl font-bold text-[11px]">🔄 تغییر پیام در پیوی</button>
+                    <button type="button" onclick="callTowerAdminApi('bot_clear_bc_draft')" class="btn-danger py-2 rounded-xl font-bold text-[11px]">🗑️ پاک کردن پیام</button>
                   </div>
                 ` : `
-                  <button onclick="callTowerAdminApi('bot_arm_bc_capture');setTimeout(()=>tg?.close?.(),700)" class="btn-primary w-full py-3.5 rounded-2xl font-black text-xs border border-amber-400/50">
+                  <button type="button" onclick="callTowerAdminApi('bot_arm_bc_capture');setTimeout(()=>tg?.close?.(),700)" class="btn-primary w-full py-3.5 rounded-2xl font-black text-xs border border-amber-400/50">
                     📝 ثبت پیام همگانی در پیوی ربات (با ایموجی پریمیوم)
                   </button>
                 `}
@@ -2169,7 +2175,7 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
                 <input id="bc_btxt" type="text" placeholder="متن دکمه شیشه‌ای (اختیاری)" class="p-2.5 rounded-xl glass-soft text-white text-center" />
                 <input id="bc_burl" type="text" placeholder="لینک (https://...)" class="p-2.5 rounded-xl glass-soft text-white text-center" />
               </div>
-              <button onclick="callTowerAdminApi('bot_broadcast',{target_type:document.getElementById('bc_target').value,btn_text:document.getElementById('bc_btxt').value,btn_url:document.getElementById('bc_burl').value})" ${!draft ? 'disabled' : ''} class="${draft ? 'btn-success' : 'bg-slate-800 opacity-50'} w-full py-4 rounded-2xl font-black text-sm">
+              <button type="button" onclick="callTowerAdminApi('bot_broadcast',{target_type:document.getElementById('bc_target').value,btn_text:document.getElementById('bc_btxt').value,btn_url:document.getElementById('bc_burl').value})" ${!draft ? 'disabled' : ''} class="${draft ? 'btn-success' : 'bg-slate-800 opacity-50'} w-full py-4 rounded-2xl font-black text-sm">
                 🚀 شروع ارسال همگانی نهایی
               </button>
             </div>
@@ -2180,22 +2186,25 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
       else if (admTab === 'users') {
         const u = admLookedUpUser;
         const allUsers = admState.users_list || [];
-        const usersRowsHtml = allUsers.map((usr, idx) => `
-          <div onclick="callTowerAdminApi('Lookup_user',{target_uid:${usr.user_id}})" class="glass-soft p-3 rounded-2xl flex items-center justify-between gap-2 text-xs cursor-pointer hover:border-amber-400/50">
-            <div class="text-right space-y-0.5 min-w-0">
-              <div class="font-black text-white truncate">${idx + 1}. ${usr.first_name || 'بدون نام'} ${usr.username ? `(@${usr.username})` : ''}</div>
-              <div class="text-[10px] text-slate-300 font-mono">ID: ${usr.user_id} | 💎 ${(usr.sub_tier||'free').toUpperCase()} | 🪙 ${Number(usr.coins||0).toLocaleString()} | ⭐ ${usr.stars_balance||0}</div>
+        const usersRowsHtml = allUsers.map((usr, idx) => {
+          const unamePart = usr.username ? ('(@' + usr.username + ')') : '';
+          return `
+            <div onclick="callTowerAdminApi('Lookup_user',{target_uid:${usr.user_id}})" class="glass-soft p-3 rounded-2xl flex items-center justify-between gap-2 text-xs cursor-pointer hover:border-amber-400/50">
+              <div class="text-right space-y-0.5 min-w-0">
+                <div class="font-black text-white truncate">${idx + 1}. ${usr.first_name || 'بدون نام'} ${unamePart}</div>
+                <div class="text-[10px] text-slate-300 font-mono">ID: ${usr.user_id} | 💎 ${(usr.sub_tier||'free').toUpperCase()} | 🪙 ${Number(usr.coins||0).toLocaleString()} | ⭐ ${usr.stars_balance||0}</div>
+              </div>
+              <button type="button" class="btn-primary px-2.5 py-1.5 rounded-xl text-[10px] font-black shrink-0">مدیریت ◀</button>
             </div>
-            <button class="btn-primary px-2.5 py-1.5 rounded-xl text-[10px] font-black shrink-0">مدیریت ◀</button>
-          </div>
-        `).join('');
+          `;
+        }).join('');
 
         sectionHtml = `
           <div class="glass-panel p-4 rounded-3xl space-y-3 text-xs">
             <h3 class="font-black text-sm text-amber-300 text-center">🔍 جستجو، شارژ سکه/استارز و اهدای اشتراک VIP</h3>
             <div class="flex gap-2">
               <input id="au_uid" type="number" value="${u ? u.user_id : ''}" placeholder="آیدی عددی کاربر..." class="flex-1 p-2.5 rounded-xl glass-soft text-center font-black text-white" />
-              <button onclick="callTowerAdminApi('Lookup_user',{target_uid:Number(document.getElementById('au_uid').value)})" class="btn-primary px-4 rounded-xl font-black">جستجو</button>
+              <button type="button" onclick="callTowerAdminApi('Lookup_user',{target_uid:Number(document.getElementById('au_uid').value)})" class="btn-primary px-4 rounded-xl font-black">جستجو</button>
             </div>
 
             ${u ? `
@@ -2219,8 +2228,8 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
                   </select>
                 </div>
                 <div class="grid grid-cols-2 gap-2 pt-1">
-                  <button onclick="callTowerAdminApi('charge_user',{target_uid:${u.user_id},add_coins:Number(document.getElementById('au_addc').value||0),add_stars:Number(document.getElementById('au_adds').value||0),set_tier:document.getElementById('au_tier').value})" class="btn-success py-2.5 rounded-xl font-black">⚡ اعمال تغییرات</button>
-                  <button onclick="callTowerAdminApi('bot_global_ban',{target_id:${u.user_id},ban:${!u.global_banned}})" class="btn-danger py-2.5 rounded-xl font-black">${u.global_banned ? '🟢 رفع مسدودیت' : '⛔ مسدود کردن'}</button>
+                  <button type="button" onclick="callTowerAdminApi('charge_user',{target_uid:${u.user_id},add_coins:Number(document.getElementById('au_addc').value||0),add_stars:Number(document.getElementById('au_adds').value||0),set_tier:document.getElementById('au_tier').value})" class="btn-success py-2.5 rounded-xl font-black">⚡ اعمال تغییرات</button>
+                  <button type="button" onclick="callTowerAdminApi('bot_global_ban',{target_id:${u.user_id},ban:${!u.global_banned}})" class="btn-danger py-2.5 rounded-xl font-black">${u.global_banned ? '🟢 رفع مسدودیت' : '⛔ مسدود کردن'}</button>
                 </div>
               </div>
             ` : ''}
@@ -2250,7 +2259,7 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
               <input id="st_coins" type="number" value="1500" placeholder="قیمت به سکه" class="p-2.5 rounded-xl glass-soft text-white font-bold text-center" />
             </div>
             <input id="st_css" type="text" placeholder="کد استایل حلقه (مثلاً: 0 0 0 3.5px #fbbf24, 0 0 18px #f59e0b)" class="w-full p-2.5 rounded-xl glass-soft text-white text-center ltr-grid" />
-            <button onclick="callTowerAdminApi('save_store_item',{category:document.getElementById('st_cat').value,name:document.getElementById('st_name').value,icon:document.getElementById('st_icon').value,price_coins:Number(document.getElementById('st_coins').value||1000),ring_css:document.getElementById('st_css').value})" class="btn-success w-full py-3 rounded-2xl font-black">
+            <button type="button" onclick="callTowerAdminApi('save_store_item',{category:document.getElementById('st_cat').value,name:document.getElementById('st_name').value,icon:document.getElementById('st_icon').value,price_coins:Number(document.getElementById('st_coins').value||1000),ring_css:document.getElementById('st_css').value})" class="btn-success w-full py-3 rounded-2xl font-black">
               ➕ افزودن به فروشگاه
             </button>
           </div>
@@ -2258,7 +2267,7 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
             ${items.map(it => `
               <div class="glass-soft p-2.5 rounded-2xl flex justify-between items-center">
                 <span>${it.icon} <b>${it.name}</b> (${it.category}) — ${it.price_coins} 🪙</span>
-                <button onclick="callTowerAdminApi('delete_store_item',{item_id:${it.id}})" class="btn-danger px-2.5 py-1 rounded-xl text-[10px] font-bold">حذف</button>
+                <button type="button" onclick="callTowerAdminApi('delete_store_item',{item_id:${it.id}})" class="btn-danger px-2.5 py-1 rounded-xl text-[10px] font-bold">حذف</button>
               </div>
             `).join('')}
           </div>
@@ -2269,7 +2278,7 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
         const chRows = (admState.forced_channels || []).map(c => `
           <div class="glass-soft p-3 rounded-2xl flex justify-between items-center text-xs">
             <div><div class="font-black text-amber-300">${c.title || c.chat_id}</div><div class="text-[10px] text-slate-300">${c.chat_id}</div></div>
-            <button onclick="callTowerAdminApi('bot_del_channel',{chat_id:'${c.chat_id}'})" class="btn-danger px-3 py-1.5 rounded-xl text-[10px] font-black">حذف</button>
+            <button type="button" onclick="callTowerAdminApi('bot_del_channel',{chat_id:'${c.chat_id}'})" class="btn-danger px-3 py-1.5 rounded-xl text-[10px] font-black">حذف</button>
           </div>
         `).join('');
         sectionHtml = `
@@ -2280,7 +2289,7 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
               <input id="fc_title" type="text" placeholder="عنوان دکمه" class="w-full p-2.5 rounded-xl glass-soft text-center text-white" />
               <input id="fc_uname" type="text" placeholder="یوزرنیم بدون @" class="w-full p-2.5 rounded-xl glass-soft text-center text-white" />
             </div>
-            <button onclick="callTowerAdminApi('bot_add_channel',{chat_id:document.getElementById('fc_cid').value,title:document.getElementById('fc_title').value,username:document.getElementById('fc_uname').value})" class="btn-success w-full py-3 rounded-2xl font-black">➕ افزودن کانال</button>
+            <button type="button" onclick="callTowerAdminApi('bot_add_channel',{chat_id:document.getElementById('fc_cid').value,title:document.getElementById('fc_title').value,username:document.getElementById('fc_uname').value})" class="btn-success w-full py-3 rounded-2xl font-black">➕ افزودن کانال</button>
             <div class="flex flex-col gap-2 pt-2">${chRows}</div>
           </div>
         `;
@@ -2291,8 +2300,8 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
           <div class="glass-soft p-3 rounded-2xl flex justify-between items-center gap-2 text-xs">
             <div class="truncate"><div class="font-black text-white truncate">${g.title || 'Group'}</div><div class="text-[10px] text-slate-400 font-mono">${g.chat_id}</div></div>
             <div class="flex gap-1 shrink-0">
-              <button onclick="callTowerAdminApi('bot_group_link',{chat_id:${g.chat_id}})" class="btn-primary px-2.5 py-1.5 rounded-xl text-[10px] font-bold">🔗 لینک</button>
-              <button onclick="callTowerAdminApi('bot_leave_group',{chat_id:${g.chat_id}})" class="btn-danger px-2.5 py-1.5 rounded-xl text-[10px] font-bold">🚪 خروج</button>
+              <button type="button" onclick="callTowerAdminApi('bot_group_link',{chat_id:${g.chat_id}})" class="btn-primary px-2.5 py-1.5 rounded-xl text-[10px] font-bold">🔗 لینک</button>
+              <button type="button" onclick="callTowerAdminApi('bot_leave_group',{chat_id:${g.chat_id}})" class="btn-danger px-2.5 py-1.5 rounded-xl text-[10px] font-bold">🚪 خروج</button>
             </div>
           </div>
         `).join('');
@@ -2525,7 +2534,7 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
                 ${seat.mic_on ? '<span class="text-emerald-400">🎙️</span>' : ''}
               </div>
               <div class="text-[9px] text-amber-200/80 font-bold">
-                🃏 ${seat.cards_left} ${seat.is_turn ? `(${seat.timer_sec}s)` : ''}
+                🃏 ${seat.cards_left} ${seat.is_turn ? ('(' + seat.timer_sec + 's)') : ''}
               </div>
             </div>
           </div>
@@ -3091,7 +3100,7 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
     function initTyping() { targetSentence = sentences[Math.floor(Math.random()*sentences.length)]; typeStart = Date.now(); typeMsg = ''; }
     window.checkTyping = function() {
       const val = document.getElementById('typeInput').value.trim();
-      if (val === targetSentence) typeMsg = `🏆 ${((Date.now() - typeStart)/1000).toFixed(1)}s`; else typeMsg = '❌';
+      if (val === targetSentence) typeMsg = '🏆 ' + ((Date.now() - typeStart)/1000).toFixed(1) + 's'; else typeMsg = '❌';
       renderTyping(document.getElementById('app'));
     };
     function renderTyping(root) {
@@ -3160,10 +3169,10 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
           slot.innerText = allNames[Math.floor(Math.random() * allNames.length)];
           elapsed += 70;
           if (elapsed >= 1600) {
-            clearInterval(timer); idx++; slot.innerText = `🥇 ${target}`;
+            clearInterval(timer); idx++; slot.innerText = '🥇 ' + target;
             const row = document.createElement('div');
             row.className = "p-2 rounded-xl glass-soft font-bold text-emerald-300";
-            row.innerText = `#${idx} - ${target}`;
+            row.innerText = '#' + idx + ' - ' + target;
             wBox.appendChild(row);
             setTimeout(nextWinner, 1200);
           }
