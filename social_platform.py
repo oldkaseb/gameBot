@@ -289,6 +289,14 @@ async def ensure_social_tables():
                 voice_data TEXT DEFAULT '',
                 created_at DOUBLE PRECISION DEFAULT 0
             );
+            
+            CREATE TABLE IF NOT EXISTS sp_user_music (
+                id SERIAL PRIMARY KEY,
+                user_id BIGINT,
+                file_id TEXT,
+                title TEXT DEFAULT 'موزیک من',
+                duration INT DEFAULT 0
+            );
         """)
 
         alter_queries = [
@@ -717,18 +725,27 @@ async def handle_social_api(payload: dict) -> dict:
         try:
             inv_link = await temp_bot.create_invoice_link(
                 title=pack["title"],
-                description=f"شارژ کیف پول به مقدار {total_stars} استارز (معادل {total_stars * STARS_TO_COINS_RATE:,} سکه)",
+                description=f"شارژ کیف پول به مقدار {total_stars} استارز",
                 payload=f"sptopup_{total_stars}_{uid}",
                 provider_token="",
                 currency="XTR",
-                prices=[LabeledPrice(label="Stars", amount=pack["stars"])],
+                prices=[LabeledPrice(label="Stars", amount=int(pack["stars"]))],
             )
             return {"ok": True, "invoice_link": inv_link, "state": await _collect_social_state(uid)}
         except Exception as e:
-            return {"ok": False, "error": str(e), "state": await _collect_social_state(uid)}
+            return {"ok": False, "error": f"خطای درگاه تلگرام: {str(e)}", "state": await _collect_social_state(uid)}
         finally:
             await temp_bot.session.close()
 
+    elif action == "get_my_playlist":
+        rows = await db.pool.fetch("SELECT * FROM sp_user_music WHERE user_id=$1 ORDER BY id DESC", uid)
+        return {"ok": True, "playlist": [dict(r) for r in rows], "state": await _collect_social_state(uid)}
+
+    elif action == "delete_my_music":
+        m_id = int(payload.get("music_id") or 0)
+        await db.pool.execute("DELETE FROM sp_user_music WHERE id=$1 AND user_id=$2", m_id, uid)
+        rows = await db.pool.fetch("SELECT * FROM sp_user_music WHERE user_id=$1 ORDER BY id DESC", uid)
+        return {"ok": True, "playlist": [dict(r) for r in rows], "state": await _collect_social_state(uid)}
     elif action == "convert_stars_to_coins":
         stars_amt = int(payload.get("stars") or 0)
         if stars_amt <= 0:
