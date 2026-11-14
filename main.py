@@ -5,6 +5,7 @@ import asyncio
 import html
 import logging
 import os
+import time
 
 from aiogram import BaseMiddleware, Bot, Dispatcher, F
 from aiogram.client.default import DefaultBotProperties
@@ -148,12 +149,12 @@ async def _build_pm_welcome(uid: int, name: str):
     text = (
         f"{E.WAVE}{E.SPARK} <b>گیم باکس راینو — {t('pm_welcome_title', lang, name=safe_n)}</b>\n\n"
         f"به گیم باکس راینو خوش اومدی رفیق!\n"
-        f"اینجا کلی بازی خفن رو توی یک ربات برات جمع کردیم. لذت ببر دوست من!\n\n"
+        f"اینجا کلی بازی خفن و اتاق‌های صوتی رو توی یک ربات برات جمع کردیم. لذت ببر دوست من!\n\n"
         f"{E.HEART} {t('pm_welcome_donate_hint', lang)}"
     )
     rows = [
         [success(
-            f"{E.GAME} لیست بازی‌ها (ورود به گیم باکس)",
+            f"{E.GAME} ورود به مینی‌اپ (بازی‌ها و اتاق‌های صوتی)",
             web_app_url=f"{MINI_APP_URL}/?uid={uid}&lang={lang}",
         )],
         [success(
@@ -209,7 +210,6 @@ async def cmd_start(message: Message, command=None):
         )
         user = await db.get_user(uid)
 
-    # تشخیص خودکار زبان از زبان برنامه تلگرام کاربر در اولین استارت
     user_lang = user["language"] if user else None
     if not user_lang:
         tg_code = (getattr(message.from_user, "language_code", None) or "fa").split("-")[0].lower()
@@ -346,7 +346,7 @@ async def main():
     me = await bot.get_me()
     set_bot_username(me.username or "RhinoGamesBot")
     log.info(f"Bot connected: @{get_bot_username()}")
-    
+
     dp.include_router(admin_router)
     register_all_games(dp)
     dp.include_router(anon_router)
@@ -430,6 +430,7 @@ async def main():
     @dp.message(F.successful_payment)
     async def _on_successful_payment(msg: Message):
         payload_str = msg.successful_payment.invoice_payload or ""
+
         if payload_str.startswith("dtpack_"):
             from games.demon_tower import STAR_PACKAGES, get_or_create_player
             parts = payload_str.split("_")
@@ -447,24 +448,28 @@ async def main():
                     parse_mode=ParseMode.HTML,
                 )
                 return
+
+        if payload_str.startswith("spsub_"):
+            parts = payload_str.split("_")
+            if len(parts) >= 3:
+                tier_id = parts[1]
+                target_uid = int(parts[2])
+                from social_platform import ensure_social_tables, SUB_TIERS, get_or_create_sp_profile
+                await ensure_social_tables()
+                await get_or_create_sp_profile(target_uid)
+                days = SUB_TIERS.get(tier_id, {}).get("days", 30)
+                exp_ts = time.time() + (days * 86400)
+                await db.pool.execute(
+                    "UPDATE sp_profiles SET sub_tier=$1, sub_expires_at=$2 WHERE user_id=$3",
+                    tier_id, exp_ts, target_uid
+                )
+                await msg.answer(
+                    f"💎 <b>اشتراک {tier_id.upper()} شما با موفقیت به مدت {days} روز فعال شد!</b>",
+                    parse_mode=ParseMode.HTML,
+                )
+                return
+
         await msg.answer(f"{E.HEART} از حمایت شما سپاسگزاریم!", parse_mode=ParseMode.HTML)
-        
-        if payload.startswith("spsub_"):
-        # فرمت: spsub_{tier_id}_{uid}
-        parts = payload.split("_")
-        if len(parts) >= 3:
-            tier_id = parts[1]
-            target_uid = int(parts[2])
-            from social_platform import ensure_social_tables, SUB_TIERS
-            await ensure_social_tables()
-            days = SUB_TIERS.get(tier_id, {}).get("days", 30)
-            exp_ts = time.time() + (days * 86400)
-            await db.pool.execute(
-                "UPDATE sp_profiles SET sub_tier=$1, sub_expires_at=$2 WHERE user_id=$3",
-                tier_id, exp_ts, target_uid
-            )
-            await message.answer(f"💎 اشتراک <b>{tier_id.upper()}</b> شما با موفقیت به مدت {days} روز فعال شد!")
-            return
 
     asyncio.create_task(cleanup_loop(bot))
     health_runner = await _start_health_server(int(os.getenv("PORT", "8080")))
