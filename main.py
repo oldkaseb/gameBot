@@ -331,7 +331,6 @@ async def _start_health_server(port: int = 8080):
         log.warning(f"FastAPI server fallback: {e}")
         return None
 
-@dp.message(F.audio | F.voice | F.document)
 async def handle_user_audio_upload(msg: Message):
     uid = msg.from_user.id
     doc = msg.audio or msg.voice or msg.document
@@ -356,6 +355,11 @@ async def main():
 
     bot = EmojiBot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
     dp = Dispatcher(storage=MemoryStorage())
+
+    dp.message.register(
+        handle_user_audio_upload,
+        F.audio | F.voice | F.document
+    )
 
     await db.connect()
     await db.init()
