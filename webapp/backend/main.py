@@ -435,6 +435,11 @@ async def get_gardone_data(chat_id: int):
     winners = [w["name"] for w in g.get("winners", [])]
     return {"ok": True, "names": names, "winners": winners, "host": g.get("host_name", "")}
 
+@app.post("/api/social/action")
+async def social_action_endpoint(request: Request):
+    from social_platform import handle_social_api
+    body = await request.json()
+    return await handle_social_api(body)
 
 MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
 <html lang="fa" dir="rtl">
@@ -1138,13 +1143,23 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
           </div>
         </div>
 
-        <!-- ۳. نوار ناوبری شناور پایین صفحه (Floating Bottom Dock) مشابه اسکرین‌شات -->
-        <div class="fixed bottom-3 left-3 right-3 z-30 bottom-dock px-4 py-2 flex justify-between items-center">
-          <button onclick="setHubFilter('all')" class="${hubFilter==='all' ? 'text-white scale-110' : 'text-slate-400'} text-xl p-2 transition">🏠</button>
-          <button onclick="setHubFilter('pvp')" class="w-12 h-10 rounded-2xl bg-gradient-to-br from-purple-600 to-indigo-600 flex items-center justify-center text-xl shadow-[0_0_18px_rgba(124,58,237,0.7)] border border-purple-300/40">🎮</button>
-          <button onclick="nav('demontower');setTimeout(()=>dtNav('shop'),250)" class="text-slate-400 hover:text-white text-xl p-2 transition">🛍️</button>
-          <button onclick="setHubFilter('pve')" class="${hubFilter==='pve' ? 'text-white scale-110' : 'text-slate-400'} text-xl p-2 transition">☑️</button>
-          <button onclick="nav('demontower');setTimeout(()=>dtNav('account'),250)" class="text-slate-400 hover:text-white text-xl p-2 transition">👤</button>
+        <!-- نوار ناوبری شناور پایین صفحه (اتاق‌های صوتی + بازی‌ها + فروشگاه + پروفایل) -->
+        <div class="fixed bottom-3 left-3 right-3 z-30 bottom-dock px-3 py-2 flex justify-around items-center">
+          <button onclick="nav('hub')" class="${currentGame==='hub' ? 'text-purple-400 scale-110' : 'text-slate-300'} flex flex-col items-center gap-0.5 text-[10px] font-black">
+            <span class="text-lg">🎮</span><span>Games</span>
+          </button>
+          <button onclick="nav('voice_hub')" class="${currentGame==='voice_hub' ? 'text-amber-300 scale-110' : 'text-slate-300'} flex flex-col items-center gap-0.5 text-[10px] font-black">
+            <span class="text-lg">🎙️</span><span>Rooms</span>
+          </button>
+          <button onclick="openMyVoiceRoomQuick()" class="w-12 h-10 rounded-2xl bg-gradient-to-br from-purple-600 to-pink-600 flex items-center justify-center text-xl shadow-[0_0_18px_rgba(168,85,247,0.75)] border border-purple-300/40">
+            ➕
+          </button>
+          <button onclick="nav('sp_store')" class="${currentGame==='sp_store' ? 'text-emerald-300 scale-110' : 'text-slate-300'} flex flex-col items-center gap-0.5 text-[10px] font-black">
+            <span class="text-lg">🛍️</span><span>Store</span>
+          </button>
+          <button onclick="nav('sp_profile')" class="${currentGame==='sp_profile' ? 'text-sky-300 scale-110' : 'text-slate-300'} flex flex-col items-center gap-0.5 text-[10px] font-black">
+            <span class="text-lg">👤</span><span>Profile</span>
+          </button>
         </div>
       `;
     }
@@ -3206,6 +3221,698 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
       setTimeout(nextWinner, 400);
     }
 
+/* ═══════════════════════════════════════════════════════════════════════════
+       پلتفرم اجتماعی راینو: اتاق‌های صوتی (SUGO Style) + پروفایل کاربری + فروشگاه VIP
+       ═══════════════════════════════════════════════════════════════════════════ */
+    let spState = null;
+    let activeVoiceRoom = null;
+    let minimizedVoiceRoom = null;
+    let viewedProfileData = null;
+    let spMsg = '';
+    let spErr = '';
+    let vrSheet = ''; // '' | 'manage' | 'modes' | 'details' | 'gifts' | 'edit_room'
+    let vrPollTimer = null;
+    let storeTab = 'subs'; // subs | rings | gifts
+
+    async function callSocialApi(action = 'state', extra = {}) {
+      try {
+        const res = await fetch('/api/social/action', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({
+            uid: Number(uid),
+            name: myName,
+            username: myUsername,
+            photo: myPhoto,
+            action: action,
+            ...extra
+          })
+        });
+        const data = await res.json();
+        spMsg = data.msg || '';
+        spErr = data.ok === false ? (data.error || '') : '';
+
+        if (data.need_pin) {
+          const pin = prompt(data.error || 'رمز اتاق صوتی را وارد کنید:');
+          if (pin !== null) {
+            return callSocialApi('join_room', { room_id: data.room_id, pin_code: pin });
+          }
+          return;
+        }
+        if (data.invoice_link && tg?.openInvoice) {
+          tg.openInvoice(data.invoice_link, () => callSocialApi('state'));
+          return;
+        } else if (data.invoice_link) {
+          window.open(data.invoice_link, '_blank');
+        }
+        if (data.state) spState = data.state;
+        if (data.viewed_profile) viewedProfileData = data.viewed_profile;
+        if (data.active_room) {
+          activeVoiceRoom = data.active_room;
+          currentGame = 'voice_room_live';
+        }
+        if (data.left) {
+          activeVoiceRoom = null;
+          minimizedVoiceRoom = null;
+          if (vrPollTimer) { clearInterval(vrPollTimer); vrPollTimer = null; }
+          currentGame = 'voice_hub';
+        }
+        render();
+      } catch (e) {}
+    }
+
+    window.openMyVoiceRoomQuick = async function() {
+      if (!spState) await callSocialApi('state');
+      if (spState?.me?.room) {
+        callSocialApi('join_room', { room_id: spState.me.room.room_id });
+      } else {
+        currentGame = 'voice_hub';
+        vrSheet = 'edit_room';
+        render();
+      }
+    };
+
+    window.openUserProfileModal = function(targetUid) {
+      viewedProfileData = null;
+      currentGame = 'sp_profile';
+      callSocialApi('view_profile', { target_uid: Number(targetUid) });
+    };
+
+    window.vrOpenExitPrompt = function() {
+      vrSheet = 'exit_confirm';
+      drawLiveVoiceRoom(document.getElementById('app'));
+    };
+
+    window.vrKeepMinimized = function() {
+      minimizedVoiceRoom = activeVoiceRoom;
+      vrSheet = '';
+      currentGame = 'voice_hub';
+      render();
+    };
+
+    /* ۱. صفحه لیست اتاق‌های صوتی (مشابه تصویر ۶ اپلیکیشن SUGO) */
+    function renderVoiceHub(root) {
+      if (!spState) {
+        root.innerHTML = `<div class="p-6 text-center"><div class="glass-panel p-6 rounded-3xl font-bold">در حال بارگذاری اتاق‌های صوتی...</div></div>`;
+        callSocialApi('state');
+        return;
+      }
+      const me = spState.me;
+      const rooms = spState.rooms || [];
+
+      const roomsGridHtml = rooms.map(r => `
+        <div onclick="callSocialApi('join_room',{room_id:${r.room_id}})" class="arcade-card cursor-pointer">
+          <img src="${r.photo || '/api/banner/hub.png'}" onerror="this.src='/api/banner/hub.png'" class="arcade-card-bg" />
+          <div class="arcade-card-overlay">
+            <div class="flex justify-between items-start">
+              <span class="px-2 py-0.5 rounded-full bg-black/60 backdrop-blur-md text-[10px] font-black text-amber-300 border border-amber-400/30">
+                Lv.${r.level || 1}
+              </span>
+              ${r.is_locked ? `<span class="w-7 h-7 rounded-full bg-rose-600/90 flex items-center justify-center text-xs shadow">🔒</span>` : `<span class="px-2 py-0.5 rounded-full bg-emerald-500/80 text-[9px] font-black">LIVE</span>`}
+            </div>
+            <div>
+              <div class="font-black text-sm text-white truncate drop-shadow">${r.title}</div>
+              <div class="text-[10px] text-slate-300 truncate mb-1.5">${r.description || ''}</div>
+              <div class="flex items-center justify-between ltr-grid">
+                <span class="pill-mode-pve">${r.category || 'Friendship'}</span>
+                <span class="pill-players">👥 ${r.online_count || 1}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      `).join('');
+
+      const editModalHtml = vrSheet === 'edit_room' ? renderEditRoomModal(me.room) : '';
+
+      root.innerHTML = `
+        ${editModalHtml}
+        ${renderMinimizedFloatingWidget()}
+        <div class="glass-panel mx-3 mb-2 px-3.5 py-2.5 rounded-3xl flex items-center justify-between shrink-0">
+          <div class="flex items-center gap-3 text-sm font-black">
+            <span class="text-white border-b-2 border-purple-400 pb-0.5">Rooms</span>
+            <button onclick="nav('hub')" class="text-slate-400 hover:text-white">Games</button>
+            <button onclick="nav('sp_store')" class="text-slate-400 hover:text-white">VIP Store</button>
+          </div>
+          <div class="flex items-center gap-1.5">
+            <button onclick="vrSheet='edit_room';renderVoiceHub(document.getElementById('app'))" class="btn-primary px-3 py-1.5 rounded-xl text-xs font-black">
+              ${me.room ? '⚙️ اتاق من' : '➕ ساخت اتاق'}
+            </button>
+            <button onclick="openUserProfileModal(${uid})" class="glass-soft px-2.5 py-1.5 rounded-xl text-xs font-bold">👤</button>
+          </div>
+        </div>
+
+        <div class="flex-1 overflow-y-auto px-3 pb-24">
+          ${spMsg ? `<div class="p-3 rounded-2xl bg-emerald-600/35 border border-emerald-400 text-xs font-bold text-center mb-3">${spMsg}</div>` : ''}
+          ${spErr ? `<div class="p-3 rounded-2xl bg-rose-600/40 border border-rose-400 text-xs font-bold text-center mb-3">${spErr}</div>` : ''}
+
+          ${me.room ? `
+            <div onclick="callSocialApi('join_room',{room_id:${me.room.room_id}})" class="glass-panel p-3 rounded-3xl mb-3 flex items-center justify-between border border-purple-400/40 cursor-pointer">
+              <div class="flex items-center gap-3 min-w-0">
+                <img src="${me.room.photo || myPhoto || '/api/banner/hub.png'}" class="w-12 h-12 rounded-2xl object-cover border border-amber-400" />
+                <div class="min-w-0">
+                  <div class="text-xs font-black text-amber-300 truncate">👑 اتاق شخصی شما: ${me.room.title}</div>
+                  <div class="text-[10px] text-slate-300">ID: ${me.room.room_id} • ${me.room.is_locked ? '🔒 قفل‌شده' : '🟢 عمومی'} • ${me.room.mic_count} مایک</div>
+                </div>
+              </div>
+              <span class="btn-success px-3 py-1.5 rounded-xl text-xs font-black shrink-0">ورود ◀</span>
+            </div>
+          ` : ''}
+
+          <div class="grid grid-cols-2 gap-3">
+            ${roomsGridHtml || `<div class="col-span-2 glass-panel p-8 rounded-3xl text-center text-xs text-slate-300">هنوز اتاق صوتی ساخته نشده است! اولین اتاق را شما بسازید.</div>`}
+          </div>
+        </div>
+      `;
+    }
+
+    function renderEditRoomModal(rm) {
+      const me = spState?.me || {};
+      return `
+        <div class="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
+          <div class="glass-panel p-4 rounded-3xl w-full max-w-sm space-y-2.5 text-xs max-h-[90vh] overflow-y-auto border border-purple-400/40">
+            <h3 class="text-sm font-black text-amber-300 text-center">🎙️ تنظیمات اتاق صوتی شخصی شما</h3>
+            <div>
+              <label class="block text-[11px] text-slate-300 mb-1">نام اتاق صوتی:</label>
+              <input id="rm_title" type="text" value="${rm?.title || ('مجلس ' + myName)}" class="w-full p-2.5 rounded-xl glass-soft text-white font-bold text-center" />
+            </div>
+            <div>
+              <label class="block text-[11px] text-slate-300 mb-1">بیوگرافی / معرفی اتاق (Room Info):</label>
+              <input id="rm_desc" type="text" value="${rm?.description || 'به اتاق صوتی خوش آمدید!'}" class="w-full p-2.5 rounded-xl glass-soft text-white text-center" />
+            </div>
+            <div class="glass-soft p-2.5 rounded-2xl text-center">
+              <label class="block text-[11px] text-amber-200 font-bold mb-1">📷 عکس کاور اتاق صوتی (آپلود از گالری):</label>
+              <input type="file" accept="image/*" onchange="handleImageUpload(this, 'my_room_photo', 'prev_my_room_photo')" class="w-full text-[10px]" />
+              <img id="prev_my_room_photo" src="${rm?.photo || ''}" class="${rm?.photo ? '' : 'hidden'} w-20 h-20 rounded-2xl object-cover mx-auto mt-2 border border-amber-400" />
+            </div>
+            <div class="grid grid-cols-2 gap-2">
+              <div>
+                <label class="block text-[11px] text-slate-300 mb-1">تعداد میکروفون‌ها:</label>
+                <select id="rm_mics" class="w-full p-2.5 rounded-xl bg-slate-900 border border-white/20 text-white font-bold text-center">
+                  ${[1,2,6,8,10,12,15,20,24,30,36].map(n => `<option value="${n}" ${(rm?.mic_count||8)===n?'selected':''}>${n} Mic</option>`).join('')}
+                </select>
+              </div>
+              <div>
+                <label class="block text-[11px] text-slate-300 mb-1">دسته‌بندی:</label>
+                <select id="rm_cat" class="w-full p-2.5 rounded-xl bg-slate-900 border border-white/20 text-white font-bold text-center">
+                  <option value="Friendship">Friendship</option>
+                  <option value="Families">Families</option>
+                  <option value="PK Battle">PK Battle</option>
+                  <option value="Music">Music</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="glass-soft p-3 rounded-2xl space-y-2 border ${me.can_lock_room ? 'border-emerald-400/40' : 'border-rose-400/40'}">
+              <div class="flex justify-between items-center">
+                <span class="font-black text-amber-300">🔒 قفل کردن اتاق (ویژه اشتراک PRO+):</span>
+                <input id="rm_lock" type="checkbox" ${rm?.is_locked ? 'checked' : ''} ${!me.can_lock_room ? 'disabled' : ''} class="w-4 h-4" />
+              </div>
+              ${!me.can_lock_room ? `<div class="text-[10px] text-rose-300">برای قفل کردن اتاق نیاز به اشتراک PRO، PLUS یا ULTRA دارید.</div>` : `
+                <input id="rm_pin" type="text" value="${rm?.pin_code || ''}" placeholder="رمز عبور اتاق (مثلاً: 1234)" class="w-full p-2 rounded-xl bg-slate-900 text-white text-center font-bold" />
+              `}
+            </div>
+
+            <div class="grid grid-cols-2 gap-2 pt-2">
+              <button onclick="vrSheet='';callSocialApi('save_my_room',{title:document.getElementById('rm_title').value,description:document.getElementById('rm_desc').value,room_photo:window.uploadedImages['my_room_photo']||'',mic_count:Number(document.getElementById('rm_mics').value),category:document.getElementById('rm_cat').value,is_locked:document.getElementById('rm_lock').checked,pin_code:document.getElementById('rm_pin')?.value||''})" class="btn-success py-3 rounded-2xl font-black">💾 ذخیره و ورود</button>
+              <button onclick="vrSheet='';render()" class="btn-danger py-3 rounded-2xl font-bold">انصراف</button>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    function renderMinimizedFloatingWidget() {
+      if (!minimizedVoiceRoom || currentGame === 'voice_room_live') return '';
+      return `
+        <div onclick="activeVoiceRoom=minimizedVoiceRoom;minimizedVoiceRoom=null;currentGame='voice_room_live';render()" class="fixed top-20 left-3 z-40 w-20 h-24 rounded-2xl overflow-hidden border-2 border-purple-400 shadow-2xl cursor-pointer bg-slate-950">
+          <img src="${minimizedVoiceRoom.photo || '/api/banner/hub.png'}" class="w-full h-16 object-cover" />
+          <div class="bg-purple-900/90 text-[9px] font-black text-center py-1 truncate px-1">🎙️ ${minimizedVoiceRoom.title}</div>
+        </div>
+      `;
+    }
+
+    /* ۲. داخل اتاق صوتی زنده (مشابه تصاویر ۷ تا ۱۵ اپلیکیشن SUGO) */
+    function startLiveVoiceRoom(root) {
+      if (!activeVoiceRoom) { currentGame = 'voice_hub'; return render(); }
+      drawLiveVoiceRoom(root);
+      if (vrPollTimer) clearInterval(vrPollTimer);
+      vrPollTimer = setInterval(() => {
+        if (currentGame === 'voice_room_live' && activeVoiceRoom && !isUserTyping() && !vrSheet) {
+          callSocialApi('room_op', { room_id: activeVoiceRoom.room_id, op: 'ping' });
+        }
+      }, 3500);
+    }
+
+    function drawLiveVoiceRoom(root) {
+      if (!root || currentGame !== 'voice_room_live' || !activeVoiceRoom) return;
+      const r = activeVoiceRoom;
+      const me = spState?.me || {};
+      const isRoomOwner = (Number(r.owner_id) === Number(uid)) || isOwner;
+
+      const bgThemes = {
+        lighthouse: "radial-gradient(circle at 50% 20%, #1e1b4b 0%, #090514 85%)",
+        royal_stage: "radial-gradient(circle at 50% 15%, #581c87 0%, #1e1b4b 60%, #090514 95%)",
+        crimson: "radial-gradient(circle at 50% 20%, #7f1d1d 0%, #111827 90%)",
+        emerald: "radial-gradient(circle at 50% 20%, #065f46 0%, #090514 90%)"
+      };
+      const roomBgCss = bgThemes[r.bg_theme] || bgThemes.lighthouse;
+
+      // چیدمان صندلی‌های میکروفون بر اساس تعداد (از ۱ تا ۳۶ مایک)
+      const mc = r.mic_count || 8;
+      const gridCols = mc === 1 ? 'grid-cols-1 max-w-[110px]' : (mc === 2 ? 'grid-cols-2 max-w-[220px]' : (mc <= 8 ? 'grid-cols-4' : (mc <= 15 ? 'grid-cols-5' : 'grid-cols-6')));
+      const seatSize = mc <= 8 ? 'w-14 h-14 text-lg' : (mc <= 15 ? 'w-12 h-12 text-sm' : 'w-10 h-10 text-xs');
+
+      let seatsHtml = '';
+      for (let i = 1; i <= mc; i++) {
+        const occ = (r.seats || {})[String(i)];
+        const isLockedSeat = (r.locked_seats || []).includes(i);
+        seatsHtml += `
+          <div class="flex flex-col items-center gap-1">
+            <button onclick="callSocialApi('room_op',{room_id:${r.room_id},op:'take_seat',seat_idx:'${i}'})"
+              style="${occ?.ring_css ? `box-shadow:${occ.ring_css};` : ''}"
+              class="${seatSize} rounded-full ${occ ? 'bg-indigo-950 border-2 border-emerald-400' : 'bg-white/10 border border-white/25'} flex items-center justify-center relative overflow-hidden active:scale-95 transition">
+              ${occ ? (occ.photo ? `<img src="${occ.photo}" class="w-full h-full object-cover" />` : `<span class="font-black">${(occ.name||'P')[0]}</span>`) : (isLockedSeat ? '🔒' : '➕')}
+              ${occ?.muted ? `<span class="absolute bottom-0 right-0 bg-rose-600 text-[9px] rounded-full px-1">🔇</span>` : ''}
+            </button>
+            <div onclick="${occ ? `openUserProfileModal(${occ.uid})` : (isRoomOwner ? `callSocialApi('room_op',{room_id:${r.room_id},op:'toggle_seat_lock',seat_idx:${i}})` : '')}" class="text-[10px] font-bold text-slate-200 truncate max-w-[64px] cursor-pointer">
+              ${occ ? `${occ.name}` : `${i}`}
+            </div>
+          </div>
+        `;
+      }
+
+      const membersAvatars = (r.visible_members || []).slice(0, 6).map(m => `
+        <img onclick="openUserProfileModal(${m.uid})" src="${m.photo || '/api/banner/hub.png'}" title="${m.name}" class="w-7 h-7 rounded-full object-cover border border-amber-400/60 cursor-pointer" />
+      `).join('');
+
+      const chatsHtml = (r.chats || []).map(c => c.sys ? `
+        <div class="px-3 py-1.5 rounded-2xl ${c.gift ? 'bg-amber-500/25 border border-amber-400/50 text-amber-200' : 'bg-teal-950/60 border border-teal-500/25 text-teal-300'} text-[11px] font-bold">
+          ${c.text}
+        </div>
+      ` : `
+        <div class="px-3 py-1.5 rounded-2xl bg-black/45 text-xs">
+          <span onclick="openUserProfileModal(${c.uid})" class="font-black text-amber-300 cursor-pointer">${c.badge ? c.badge + ' ' : ''}${c.name}:</span>
+          <span class="text-white mr-1">${c.text}</span>
+        </div>
+      `).join('');
+
+      const imSeated = Object.values(r.seats || {}).some(s => s && Number(s.uid) === Number(uid));
+
+      // شیت‌های کشویی (Room Management, Mic Modes, Room Details, Gifts, Keep/Exit)
+      let modalSheetHtml = '';
+      if (vrSheet === 'exit_confirm') {
+        modalSheetHtml = `
+          <div onclick="vrSheet='';drawLiveVoiceRoom(document.getElementById('app'))" class="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex flex-col items-center justify-center gap-10">
+            <div class="flex flex-col items-center gap-2">
+              <button onclick="event.stopPropagation();vrKeepMinimized()" class="w-20 h-20 rounded-full bg-gradient-to-br from-emerald-400 to-teal-500 flex items-center justify-center text-3xl shadow-[0_0_25px_#10b981]">🗗</button>
+              <span class="font-black text-sm">Keep</span>
+            </div>
+            <div class="flex flex-col items-center gap-2">
+              <button onclick="event.stopPropagation();callSocialApi('room_op',{room_id:${r.room_id},op:'leave_room'})" class="w-20 h-20 rounded-full bg-gradient-to-br from-rose-500 to-red-600 flex items-center justify-center text-3xl shadow-[0_0_25px_#f43f5e]">⏻</button>
+              <span class="font-black text-sm">Exit</span>
+            </div>
+          </div>
+        `;
+      } else if (vrSheet === 'manage') {
+        modalSheetHtml = `
+          <div onclick="vrSheet='';drawLiveVoiceRoom(document.getElementById('app'))" class="fixed inset-0 z-50 bg-black/65 flex flex-col justify-end">
+            <div onclick="event.stopPropagation()" class="glass-panel rounded-t-3xl p-4 space-y-4 border-t border-purple-400/40">
+              <div class="flex justify-between items-center border-b border-white/10 pb-2 text-xs font-black">
+                <span class="text-amber-300">🎛️ Room Management & Basic Tools</span>
+                <button onclick="vrSheet='';drawLiveVoiceRoom(document.getElementById('app'))" class="text-slate-400">✖</button>
+              </div>
+              <div class="grid grid-cols-4 gap-3 text-center text-[11px] font-bold">
+                <button onclick="vrSheet='modes';drawLiveVoiceRoom(document.getElementById('app'))" class="glass-soft p-3 rounded-2xl flex flex-col items-center gap-1"><span class="text-xl">🎙️</span><span>Room Mode</span></button>
+                <button onclick="callSocialApi('room_op',{room_id:${r.room_id},op:'toggle_lock_room'});vrSheet=''" class="glass-soft p-3 rounded-2xl flex flex-col items-center gap-1"><span class="text-xl">${r.is_locked ? '🔓' : '🔒'}</span><span>${r.is_locked ? 'Unlock' : 'Lock Room'}</span></button>
+                <button onclick="callSocialApi('room_op',{room_id:${r.room_id},op:'toggle_auto_lock_mics'});vrSheet=''" class="glass-soft p-3 rounded-2xl flex flex-col items-center gap-1"><span class="text-xl">💺</span><span>Mic Lock</span></button>
+                <button onclick="callSocialApi('room_op',{room_id:${r.room_id},op:'clear_chat'});vrSheet=''" class="glass-soft p-3 rounded-2xl flex flex-col items-center gap-1"><span class="text-xl">🧹</span><span>Delete Chat</span></button>
+                <button onclick="callSocialApi('room_op',{room_id:${r.room_id},op:'toggle_music'});vrSheet=''" class="glass-soft p-3 rounded-2xl flex flex-col items-center gap-1"><span class="text-xl">🎵</span><span>Music</span></button>
+                <button onclick="callSocialApi('room_op',{room_id:${r.room_id},op:'toggle_pk'});vrSheet=''" class="glass-soft p-3 rounded-2xl flex flex-col items-center gap-1"><span class="text-xl">⚔️</span><span>PK Battle</span></button>
+                <button onclick="callSocialApi('room_op',{room_id:${r.room_id},op:'change_bg',bg_theme:'royal_stage'});vrSheet=''" class="glass-soft p-3 rounded-2xl flex flex-col items-center gap-1"><span class="text-xl">🌌</span><span>Stage BG</span></button>
+                <button onclick="vrSheet='';nav('sp_store')" class="glass-soft p-3 rounded-2xl flex flex-col items-center gap-1"><span class="text-xl">🛍️</span><span>VIP Store</span></button>
+              </div>
+            </div>
+          </div>
+        `;
+      } else if (vrSheet === 'modes') {
+        const micOptions = [
+          { n: 1, mode: 'normal', lbl: '1 Mic (Solo)' },
+          { n: 2, mode: 'normal', lbl: '2 Mic (Couple)' },
+          { n: 6, mode: 'normal', lbl: '6 Mic' },
+          { n: 8, mode: 'pk',     lbl: '8 Mic (PK)' },
+          { n: 10, mode: 'pk',    lbl: '10 Mic (PK)' },
+          { n: 12, mode: 'theme', lbl: '12 Mic (Stage)' },
+          { n: 15, mode: 'normal',lbl: '15 Mic' },
+          { n: 20, mode: 'normal',lbl: '20 Mic' },
+          { n: 24, mode: 'normal',lbl: '24 Mic' },
+          { n: 30, mode: 'normal',lbl: '30 Mic' },
+          { n: 36, mode: 'normal',lbl: '36 Mic (Mega)' }
+        ];
+        modalSheetHtml = `
+          <div onclick="vrSheet='';drawLiveVoiceRoom(document.getElementById('app'))" class="fixed inset-0 z-50 bg-black/70 flex flex-col justify-end">
+            <div onclick="event.stopPropagation()" class="bg-slate-950 rounded-t-3xl p-4 space-y-3 max-h-[75vh] overflow-y-auto border-t border-purple-400">
+              <h3 class="text-sm font-black text-center text-amber-300">🎙️ انتخاب چیدمان میکروفون‌های اتاق (Voice Modes)</h3>
+              <div class="grid grid-cols-3 gap-2.5 text-xs">
+                ${micOptions.map(m => `
+                  <button onclick="callSocialApi('room_op',{room_id:${r.room_id},op:'change_layout',mic_count:${m.n},mic_mode:'${m.mode}'});vrSheet=''"
+                    class="p-3 rounded-2xl border ${r.mic_count===m.n ? 'border-purple-400 bg-purple-950/60' : 'border-white/10 bg-white/5'} flex flex-col items-center gap-1.5">
+                    <span class="px-2 py-0.5 rounded-full bg-sky-500/20 text-sky-300 text-[9px] font-black">${m.mode.toUpperCase()}</span>
+                    <span class="font-black text-white">${m.lbl}</span>
+                  </button>
+                `).join('')}
+              </div>
+            </div>
+          </div>
+        `;
+      } else if (vrSheet === 'details') {
+        modalSheetHtml = `
+          <div onclick="vrSheet='';drawLiveVoiceRoom(document.getElementById('app'))" class="fixed inset-0 z-50 bg-black/70 flex flex-col justify-end">
+            <div onclick="event.stopPropagation()" class="bg-white text-slate-900 rounded-t-3xl p-5 space-y-4 max-h-[80vh] overflow-y-auto">
+              <div class="flex justify-between items-center">
+                <h3 class="font-black text-base">Room Details</h3>
+                <button onclick="openUserProfileModal(${r.owner_id})" class="text-xs font-bold text-purple-700">👤 مشاهده پروفایل مالک</button>
+              </div>
+              <div class="flex items-center justify-between bg-slate-100 p-3 rounded-2xl">
+                <div class="flex items-center gap-3">
+                  <img src="${r.photo || '/api/banner/hub.png'}" class="w-14 h-14 rounded-2xl object-cover" />
+                  <div>
+                    <div class="font-black text-sm">👑 ${r.title}</div>
+                    <div class="text-xs text-slate-500">ID: ${r.room_id}</div>
+                  </div>
+                </div>
+                <span class="px-3 py-1 rounded-xl bg-amber-400 text-black font-black text-xs">Lv.${r.level || 1}</span>
+              </div>
+              <div class="bg-slate-100 p-3 rounded-2xl">
+                <div class="font-black text-xs mb-2">Room Members (${r.online_count || 1})</div>
+                <div class="flex gap-2 flex-wrap">
+                  ${(r.visible_members || []).map(m => `
+                    <div onclick="openUserProfileModal(${m.uid})" class="flex items-center gap-1 bg-white px-2 py-1 rounded-full text-xs font-bold shadow-sm cursor-pointer">
+                      <span>👤 ${m.name}</span><span class="text-[10px] text-purple-600">${m.badge||''}</span>
+                    </div>
+                  `).join('')}
+                </div>
+              </div>
+              <div class="bg-slate-100 p-3 rounded-2xl">
+                <div class="font-black text-xs mb-1">Room Info</div>
+                <div class="text-xs text-slate-600">${r.description || '—'}</div>
+              </div>
+            </div>
+          </div>
+        `;
+      } else if (vrSheet === 'gifts') {
+        const gifts = (spState?.store_items || []).filter(x => x.category === 'gift');
+        modalSheetHtml = `
+          <div onclick="vrSheet='';drawLiveVoiceRoom(document.getElementById('app'))" class="fixed inset-0 z-50 bg-black/65 flex flex-col justify-end">
+            <div onclick="event.stopPropagation()" class="glass-panel rounded-t-3xl p-4 space-y-3 border-t border-amber-400/40">
+              <div class="flex justify-between items-center text-xs font-black">
+                <span class="text-amber-300">🎁 ارسال هدیه در اتاق صوتی (موجودی: ${(me.coins||0).toLocaleString()} 🪙)</span>
+                <button onclick="vrSheet='';drawLiveVoiceRoom(document.getElementById('app'))">✖</button>
+              </div>
+              <div class="grid grid-cols-4 gap-2 text-center text-xs">
+                ${gifts.map(g => `
+                  <button onclick="callSocialApi('room_op',{room_id:${r.room_id},op:'send_gift',gift_id:${g.id}});vrSheet=''" class="glass-soft p-2.5 rounded-2xl flex flex-col items-center gap-1 hover:border-amber-400">
+                    ${g.photo ? `<img src="${g.photo}" class="w-10 h-10 object-cover rounded-xl" />` : `<span class="text-2xl">${g.icon}</span>`}
+                    <span class="font-bold text-[10px] truncate w-full">${g.name}</span>
+                    <span class="text-[10px] text-amber-300 font-black">${g.price_coins} 🪙</span>
+                  </button>
+                `).join('')}
+              </div>
+            </div>
+          </div>
+        `;
+      }
+
+      root.innerHTML = `
+        ${modalSheetHtml}
+        <div style="background: ${roomBgCss};" class="flex-1 flex flex-col justify-between p-3 overflow-hidden relative">
+          <!-- هدر بالای اتاق صوتی (مشابه عکس‌های SUGO) -->
+          <div class="flex items-center justify-between gap-2 shrink-0">
+            <div onclick="vrSheet='details';drawLiveVoiceRoom(document.getElementById('app'))" class="glass-panel px-2.5 py-1.5 rounded-2xl flex items-center gap-2 cursor-pointer">
+              <img src="${r.photo || '/api/banner/hub.png'}" class="w-9 h-9 rounded-xl object-cover border border-amber-400" />
+              <div class="leading-tight">
+                <div class="font-black text-xs text-amber-200 flex items-center gap-1">
+                  <span>👑 ${r.title}</span>
+                  ${r.is_locked ? '<span>🔒</span>' : ''}
+                </div>
+                <div class="text-[10px] text-slate-400">ID: ${r.room_id} • 🪙 ${r.total_gifts || 0}</div>
+              </div>
+            </div>
+
+            <div class="flex items-center gap-1.5">
+              <div class="flex -space-x-2 overflow-hidden">${membersAvatars}</div>
+              <span class="px-2 py-1 rounded-xl glass-soft text-[11px] font-black">👥 ${r.online_count || 1}</span>
+              <button onclick="vrOpenExitPrompt()" class="w-8 h-8 rounded-full glass-panel flex items-center justify-center text-sm font-black">⏻</button>
+            </div>
+          </div>
+
+          <!-- بنر وضعیت روح یا موزیک یا PK -->
+          <div class="flex items-center justify-between gap-2 my-1 shrink-0">
+            <div class="px-2.5 py-1 rounded-full bg-amber-500/20 border border-amber-400/30 text-[10px] font-black text-amber-300">
+              🏆 Lv.${r.level || 1} • ${r.mic_count} Mic
+            </div>
+            ${r.music_playing ? `<div class="px-2.5 py-1 rounded-full bg-purple-600/40 border border-purple-400 text-[10px] font-bold animate-pulse">🎵 ${r.music_title}</div>` : ''}
+            ${me.can_ghost_join && me.ghost_mode && !imSeated && !isRoomOwner ? `<div class="px-2.5 py-1 rounded-full bg-sky-500/30 border border-sky-300 text-[10px] font-black text-sky-200">👻 حالت روح فعال (مخفی)</div>` : ''}
+          </div>
+
+          ${r.pk_active ? `
+            <div class="glass-panel p-2 rounded-2xl flex items-center justify-between text-xs font-black border border-rose-500/50 mb-1 shrink-0">
+              <span class="text-sky-400">🔵 TEAM A: ${r.pk_score_a}</span>
+              <span class="px-2 py-0.5 rounded bg-rose-600 text-[10px]">PK VS</span>
+              <span class="text-rose-400">🔴 TEAM B: ${r.pk_score_b}</span>
+            </div>
+          ` : ''}
+
+          <!-- چیدمان صندلی‌های میکروفون وسط اتاق -->
+          <div class="my-auto py-2 overflow-y-auto max-h-[44vh] flex justify-center">
+            <div class="grid ${gridCols} gap-3 justify-items-center w-full">
+              ${seatsHtml}
+            </div>
+          </div>
+
+          <!-- بخش اعلان و چت زنده پایین اتاق -->
+          <div class="flex flex-col gap-1.5 max-h-[26vh] overflow-y-auto mb-2 pr-1">
+            <div class="px-3 py-1.5 rounded-2xl bg-indigo-950/70 border border-indigo-400/30 text-[11px] text-amber-200">
+              📣 <b>Room Info:</b> ${r.description}
+            </div>
+            ${chatsHtml}
+          </div>
+
+          <!-- نوار ابزار پایین اتاق صوتی (Say something, Mic, Tools, PK, Gift) -->
+          <div class="flex items-center gap-1.5 shrink-0 pt-1">
+            <div class="flex-1 flex items-center gap-1 glass-panel rounded-full px-3 py-1.5">
+              <input id="vrChatInp" type="text" placeholder="Say something..." onkeydown="if(event.key==='Enter'){callSocialApi('room_op',{room_id:${r.room_id},op:'chat',text:this.value});this.value='';}" class="flex-1 bg-transparent text-xs text-white outline-none" />
+              <button onclick="const el=document.getElementById('vrChatInp');if(el.value){callSocialApi('room_op',{room_id:${r.room_id},op:'chat',text:el.value});el.value='';}" class="text-purple-300 font-black text-xs">ارسال</button>
+            </div>
+
+            ${imSeated ? `
+              <button onclick="callSocialApi('room_op',{room_id:${r.room_id},op:'toggle_my_mic'})" class="w-10 h-10 rounded-full btn-success flex items-center justify-center text-base">🎙️</button>
+              <button onclick="callSocialApi('room_op',{room_id:${r.room_id},op:'leave_seat'})" class="w-10 h-10 rounded-full btn-danger flex items-center justify-center text-xs font-bold">⬇️</button>
+            ` : ''}
+
+            <button onclick="vrSheet='manage';drawLiveVoiceRoom(document.getElementById('app'))" class="w-10 h-10 rounded-full glass-panel flex items-center justify-center text-base" title="ابزارهای اتاق">🎛️</button>
+            <button onclick="vrSheet='gifts';drawLiveVoiceRoom(document.getElementById('app'))" class="w-10 h-10 rounded-full bg-gradient-to-br from-amber-400 to-rose-500 flex items-center justify-center text-base shadow-lg">🎁</button>
+          </div>
+        </div>
+      `;
+    }
+
+    /* ۳. صفحه پروفایل اختصاصی کاربر با کارت‌های رنگی تلگرامی + نمایش اتاق صوتی داخل پروفایل */
+    function renderSpProfile(root) {
+      if (!spState) {
+        root.innerHTML = `<div class="p-6 text-center"><div class="glass-panel p-6 rounded-3xl font-bold">در حال بارگذاری پروفایل...</div></div>`;
+        callSocialApi('state');
+        return;
+      }
+      const me = spState.me;
+      const p = viewedProfileData || me;
+      const isMe = Number(p.user_id) === Number(uid);
+      const themes = spState.profile_themes || [];
+      const curTheme = themes.find(t => t.id === p.card_theme) || themes[0];
+
+      const themeSelectorHtml = isMe ? themes.map(t => `
+        <button onclick="callSocialApi('save_profile',{card_theme:'${t.id}'})" style="background:${t.css}" class="px-2.5 py-2 rounded-xl text-[10px] font-black border ${p.card_theme===t.id ? 'border-white scale-105' : 'border-white/20 opacity-80'} flex items-center justify-between gap-1">
+          <span>${t.title}</span>
+          ${t.tier !== 'free' ? `<span class="px-1 rounded bg-black/50 text-amber-300 text-[8px]">${t.tier.toUpperCase()}</span>` : ''}
+        </button>
+      `).join('') : '';
+
+      const visitorsHtml = isMe ? (p.visitors_log || []).map(v => `
+        <div onclick="openUserProfileModal(${v.uid})" class="glass-soft p-2 rounded-xl flex items-center justify-between text-xs cursor-pointer">
+          <div class="flex items-center gap-2">
+            <img src="${v.photo || '/api/banner/hub.png'}" class="w-8 h-8 rounded-full object-cover" />
+            <span class="font-bold">${v.name} <b class="text-amber-300">${v.badge||''}</b></span>
+          </div>
+          <span class="text-[10px] text-slate-400">${v.time}</span>
+        </div>
+      `).join('') : '';
+
+      root.innerHTML = `
+        ${renderTopBar('👤 پروفایل کاربری')}
+        <div class="flex-1 overflow-y-auto px-3 pb-24 space-y-3">
+          ${spMsg ? `<div class="p-3 rounded-2xl bg-emerald-600/35 border border-emerald-400 text-xs font-bold text-center">${spMsg}</div>` : ''}
+          ${spErr ? `<div class="p-3 rounded-2xl bg-rose-600/40 border border-rose-400 text-xs font-bold text-center">${spErr}</div>` : ''}
+
+          <!-- کارت رنگی پروفایل به سبک تلگرام + حلقه دور آواتار + نشان اشتراک -->
+          <div style="background: ${curTheme?.css || '#3b0764'};" class="p-5 rounded-3xl border border-white/20 shadow-2xl text-center relative overflow-hidden">
+            <div class="relative inline-block mb-2">
+              <img src="${p.photo || '/api/banner/hub.png'}" style="${p.ring_css ? `box-shadow:${p.ring_css};` : ''}" class="w-24 h-24 rounded-full object-cover mx-auto border-2 border-white" />
+            </div>
+            <div class="text-lg font-black text-white flex items-center justify-center gap-1.5">
+              <span>${p.display_name}</span>
+              ${p.sub_badge ? `<span class="px-2 py-0.5 rounded-full bg-black/45 border border-amber-300/50 text-amber-300 text-xs font-black">${p.sub_badge}</span>` : ''}
+            </div>
+            <div class="text-xs text-white/75 font-mono mb-2">ID: ${p.user_id} ${p.username ? '• @'+p.username : ''}</div>
+            <p class="text-xs text-white/95 bg-black/25 p-2.5 rounded-2xl max-w-xs mx-auto">${p.bio}</p>
+
+            <div class="grid grid-cols-3 gap-2 mt-3 text-xs font-black">
+              <div class="bg-black/30 p-2 rounded-xl"><div class="text-[10px] text-white/70">سکه</div><div class="text-amber-300">🪙 ${(p.coins||0).toLocaleString()}</div></div>
+              <div class="bg-black/30 p-2 rounded-xl"><div class="text-[10px] text-white/70">هدایا</div><div class="text-pink-300">🎁 ${p.gifts_received||0}</div></div>
+              <div class="bg-black/30 p-2 rounded-xl"><div class="text-[10px] text-white/70">اشتراک</div><div class="text-emerald-300 uppercase">${p.sub_tier}</div></div>
+            </div>
+          </div>
+
+          <!-- نمایش اتاق صوتی شخص در داخل پروفایلش (برای ورود مستقیم سایر کاربران) -->
+          <div class="glass-panel p-4 rounded-3xl">
+            <h4 class="text-xs font-black text-amber-300 mb-2">🎙️ اتاق صوتی اختصاصی ${isMe ? 'شما' : p.display_name}</h4>
+            ${p.room ? `
+              <div onclick="callSocialApi('join_room',{room_id:${p.room.room_id}})" class="glass-soft p-3 rounded-2xl flex items-center justify-between cursor-pointer border border-purple-400/40">
+                <div class="flex items-center gap-3 min-w-0">
+                  <img src="${p.room.photo || p.photo || '/api/banner/hub.png'}" class="w-12 h-12 rounded-2xl object-cover" />
+                  <div class="min-w-0">
+                    <div class="font-black text-xs text-white truncate">${p.room.title} ${p.room.is_locked ? '🔒' : '🟢'}</div>
+                    <div class="text-[10px] text-slate-300 truncate">${p.room.description}</div>
+                    <div class="text-[10px] text-emerald-300 font-bold">👥 ${p.room.online_count || 1} نفر داخل اتاق • Lv.${p.room.level || 1}</div>
+                  </div>
+                </div>
+                <button class="btn-success px-3 py-2 rounded-xl text-xs font-black shrink-0">ورود ◀</button>
+              </div>
+            ` : `
+              <div class="text-center text-xs text-slate-400 py-2">
+                ${isMe ? `<button onclick="openMyVoiceRoomQuick()" class="btn-primary px-4 py-2.5 rounded-xl font-black">➕ ساخت اتاق صوتی شخصی</button>` : 'این کاربر هنوز اتاق صوتی نساخته است.'}
+              </div>
+            `}
+          </div>
+
+          ${isMe ? `
+            <!-- تنظیمات ویرایش پروفایل، رنگ کارت و حالت‌های مخفی Plus/Ultra -->
+            <div class="glass-panel p-4 rounded-3xl space-y-3 text-xs">
+              <h4 class="font-black text-sm text-indigo-300 text-center">🎨 رنگ پس‌زمینه کارت پروفایل (مشابه تلگرام)</h4>
+              <div class="grid grid-cols-2 gap-2">${themeSelectorHtml}</div>
+
+              <div class="border-t border-white/10 pt-3 space-y-2">
+                <label class="block text-[11px] text-slate-300">نام نمایشی و بیوگرافی:</label>
+                <input id="sp_name_inp" type="text" value="${p.display_name}" class="w-full p-2.5 rounded-xl glass-soft text-white font-bold text-center" />
+                <input id="sp_bio_inp" type="text" value="${p.bio}" class="w-full p-2.5 rounded-xl glass-soft text-white text-center" />
+
+                <div class="glass-soft p-2.5 rounded-xl flex justify-between items-center">
+                  <span>🕵️ بازدید مخفی پروفایل دیگران (PLUS+):</span>
+                  <input id="sp_stealth_chk" type="checkbox" ${p.stealth_mode ? 'checked' : ''} ${!p.can_stealth_visit ? 'disabled' : ''} class="w-4 h-4" />
+                </div>
+                <div class="glass-soft p-2.5 rounded-xl flex justify-between items-center">
+                  <span>👻 ورود روح به اتاق‌های صوتی (ULTRA):</span>
+                  <input id="sp_ghost_chk" type="checkbox" ${p.ghost_mode ? 'checked' : ''} ${!p.can_ghost_join ? 'disabled' : ''} class="w-4 h-4" />
+                </div>
+
+                <button onclick="callSocialApi('save_profile',{display_name:document.getElementById('sp_name_inp').value,bio:document.getElementById('sp_bio_inp').value,card_theme:'${p.card_theme}',stealth_mode:document.getElementById('sp_stealth_chk').checked,ghost_mode:document.getElementById('sp_ghost_chk').checked})" class="btn-success w-full py-3 rounded-2xl font-black">
+                  💾 ذخیره تغییرات پروفایل
+                </button>
+              </div>
+            </div>
+
+            <div class="glass-panel p-4 rounded-3xl space-y-2 text-xs">
+              <h4 class="font-black text-amber-300 text-center">👁️ آخرین بازدیدکنندگان پروفایل شما</h4>
+              <div class="flex flex-col gap-1.5">${visitorsHtml || '<div class="text-center text-slate-400">هنوز کسی از پروفایل شما بازدید نکرده است.</div>'}</div>
+            </div>
+          ` : `
+            <button onclick="viewedProfileData=null;renderSpProfile(document.getElementById('app'))" class="btn-primary w-full py-3 rounded-2xl font-black text-xs">🔙 بازگشت به پروفایل خودم</button>
+          `}
+        </div>
+      `;
+    }
+
+    /* ۴. فروشگاه جامع (اشتراک‌های Pro/Plus/Ultra + حلقه‌های دور پروفایل + گیفت‌ها) */
+    function renderSpStore(root) {
+      if (!spState) {
+        root.innerHTML = `<div class="p-6 text-center"><div class="glass-panel p-6 rounded-3xl font-bold">در حال بارگذاری فروشگاه...</div></div>`;
+        callSocialApi('state');
+        return;
+      }
+      const me = spState.me;
+      const subs = (spState.sub_tiers || []).filter(s => s.id !== 'free');
+      const rings = (spState.store_items || []).filter(i => i.category === 'ring');
+      const gifts = (spState.store_items || []).filter(i => i.category === 'gift');
+
+      let contentHtml = '';
+      if (storeTab === 'subs') {
+        contentHtml = subs.map(s => `
+          <div class="glass-panel p-4 rounded-3xl space-y-2.5 border ${s.id==='ultra' ? 'border-pink-400 shadow-[0_0_20px_rgba(236,72,153,0.3)]' : (s.id==='plus' ? 'border-amber-400/60' : 'border-sky-400/50')}">
+            <div class="flex justify-between items-center">
+              <span class="text-base font-black text-white">${s.title}</span>
+              <span class="px-2.5 py-1 rounded-full bg-white/10 text-amber-300 text-xs font-black">${s.badge}</span>
+            </div>
+            <ul class="text-xs text-slate-200 space-y-1 pr-2">
+              ${s.perks.map(pk => `<li>✅ ${pk}</li>`).join('')}
+            </ul>
+            <div class="grid grid-cols-2 gap-2 pt-2">
+              <button onclick="callSocialApi('buy_subscription',{tier_id:'${s.id}',pay_method:'stars'})" class="btn-primary py-2.5 rounded-xl font-black text-xs">⭐ خرید با ${s.stars} استارز</button>
+              <button onclick="callSocialApi('buy_subscription',{tier_id:'${s.id}',pay_method:'coins'})" class="btn-success py-2.5 rounded-xl font-black text-xs">🪙 خرید با ${s.coins.toLocaleString()} سکه</button>
+            </div>
+          </div>
+        `).join('');
+      } else if (storeTab === 'rings') {
+        contentHtml = rings.map(r => {
+          const owned = (me.owned_rings || []).includes(r.id);
+          const equipped = me.avatar_ring_id === r.id;
+          return `
+            <div class="glass-panel p-3.5 rounded-3xl flex items-center justify-between gap-3">
+              <div class="flex items-center gap-3">
+                <div style="box-shadow:${r.ring_css}" class="w-14 h-14 rounded-full bg-slate-900 flex items-center justify-center text-2xl shrink-0">
+                  ${r.icon || '⭕'}
+                </div>
+                <div>
+                  <div class="font-black text-xs text-white">${r.name}</div>
+                  <div class="text-[11px] text-amber-300 font-bold">${r.price_coins.toLocaleString()} 🪙</div>
+                </div>
+              </div>
+              <button onclick="callSocialApi('buy_or_equip_ring',{ring_id:${r.id}})" class="${equipped ? 'btn-success' : (owned ? 'btn-primary' : 'btn-danger')} px-3.5 py-2 rounded-xl text-xs font-black shrink-0">
+                ${equipped ? 'فعال ✓' : (owned ? 'استفاده' : 'خرید')}
+              </button>
+            </div>
+          `;
+        }).join('');
+      } else {
+        contentHtml = `<div class="grid grid-cols-2 gap-2.5">` + gifts.map(g => `
+          <div class="glass-panel p-3.5 rounded-3xl text-center space-y-1.5">
+            <div class="text-4xl">${g.icon}</div>
+            <div class="font-black text-xs text-white">${g.name}</div>
+            <div class="text-xs text-amber-300 font-extrabold">${g.price_coins.toLocaleString()} 🪙</div>
+            <div class="text-[10px] text-slate-400">قابل ارسال در تمام اتاق‌های صوتی</div>
+          </div>
+        `).join('') + `</div>`;
+      }
+
+      root.innerHTML = `
+        ${renderTopBar('🛍️ فروشگاه VIP و کاور پروفایل')}
+        <div class="flex-1 overflow-y-auto px-3 pb-24 space-y-3">
+          <div class="glass-panel p-3 rounded-2xl flex justify-between items-center text-xs font-black">
+            <span>موجودی شما: <b class="text-amber-300">🪙 ${(me.coins||0).toLocaleString()}</b></span>
+            <span>اشتراک فعلی: <b class="text-emerald-300 uppercase">${me.sub_tier} ${me.sub_badge||''}</b></span>
+          </div>
+
+          <div class="grid grid-cols-3 gap-2 text-xs font-black">
+            <button onclick="storeTab='subs';renderSpStore(document.getElementById('app'))" class="py-2.5 rounded-xl ${storeTab==='subs' ? 'btn-primary' : 'glass-soft'}">💎 اشتراک VIP</button>
+            <button onclick="storeTab='rings';renderSpStore(document.getElementById('app'))" class="py-2.5 rounded-xl ${storeTab==='rings' ? 'btn-primary' : 'glass-soft'}">⭕ حلقه آواتار</button>
+            <button onclick="storeTab='gifts';renderSpStore(document.getElementById('app'))" class="py-2.5 rounded-xl ${storeTab==='gifts' ? 'btn-primary' : 'glass-soft'}">🎁 گیفت‌ها</button>
+          </div>
+
+          ${spMsg ? `<div class="p-3 rounded-2xl bg-emerald-600/35 border border-emerald-400 text-xs font-bold text-center">${spMsg}</div>` : ''}
+          ${spErr ? `<div class="p-3 rounded-2xl bg-rose-600/40 border border-rose-400 text-xs font-bold text-center">${spErr}</div>` : ''}
+
+          <div class="space-y-3">${contentHtml}</div>
+        </div>
+      `;
+    }
+
     function render() {
       const root = document.getElementById('app');
       if (!root) return;
@@ -3225,6 +3932,10 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
       if (currentGame === 'typing') return renderTyping(root);
       if (currentGame === 'hangman') return renderHangman(root);
       if (currentGame === 'guess') return renderGuess(root);
+      if (currentGame === 'voice_hub') return renderVoiceHub(root);
+      if (currentGame === 'voice_room_live') return startLiveVoiceRoom(root);
+      if (currentGame === 'sp_profile') return renderSpProfile(root);
+      if (currentGame === 'sp_store') return renderSpStore(root);
       return renderHub(root);
     }
 
