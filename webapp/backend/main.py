@@ -1984,6 +1984,13 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
           headers: {'Content-Type': 'application/json'},
           body: JSON.stringify({ uid: Number(uid), action: action, ...extra })
         });
+        if (!res.ok) {
+          const errTxt = await res.text();
+          admErr = `خطای سرور (${res.status}): ${errTxt.slice(0, 120)}`;
+          if (!admState) admState = { bot_stats: {}, ui_assets: {}, users_list: [], store_items: [], forced_channels: [], groups_list: [] };
+          drawTowerAdminApp(document.getElementById('app'));
+          return;
+        }
         const data = await res.json();
         admMsg = data.msg || '';
         admErr = data.ok === false ? (data.error || '') : '';
@@ -1995,34 +2002,28 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
             applyDynamicCssBackgrounds();
           }
         }
+        if (!admState) admState = { bot_stats: {}, ui_assets: {}, users_list: [], store_items: [], forced_channels: [], groups_list: [] };
         drawTowerAdminApp(document.getElementById('app'));
-      } catch (e) {}
-    }
-
-    window.admSwitchTab = function(t) {
-      admTab = t; admMsg = ''; admErr = '';
-      drawTowerAdminApp(document.getElementById('app'));
-    };
-
-    window.admSaveUiAsset = function(assetKey) {
-      const dataUrl = window.uploadedImages['asset_' + assetKey];
-      if (!dataUrl) {
-        if (tg?.showAlert) tg.showAlert('ابتدا یک تصویر از گالری انتخاب کنید!');
-        return;
+      } catch (e) {
+        admErr = 'خطا در ارتباط با سرور: ' + (e.message || e);
+        if (!admState) admState = { bot_stats: {}, ui_assets: {}, users_list: [], store_items: [], forced_channels: [], groups_list: [] };
+        drawTowerAdminApp(document.getElementById('app'));
       }
-      callTowerAdminApi('save_ui_asset', { asset_key: assetKey, photo: dataUrl });
-    };
-
-    window.admDeleteUiAsset = function(assetKey) {
-      callTowerAdminApi('delete_ui_asset', { asset_key: assetKey });
-    };
+    }
 
     function startTowerAdminApp(root) {
       if (!isOwner) {
-        root.innerHTML = `<div class="p-8 text-center"><div class="glass-panel p-6 rounded-3xl text-rose-400 font-black">⛔ دسترسی غیرمجاز</div></div>`;
+        root.innerHTML = `<div class="p-8 text-center"><div class="glass-panel p-6 rounded-3xl text-rose-400 font-black">⛔ دسترسی غیرمجاز (UID: ${uid})</div></div>`;
         return;
       }
-      root.innerHTML = `<div class="p-6 text-center"><div class="glass-panel p-6 rounded-3xl font-bold">در حال بارگذاری پنل مدیریت کل...</div></div>`;
+      if (admState) {
+        drawTowerAdminApp(root);
+      } else {
+        root.innerHTML = `
+          ${renderTopBar('👑 فرماندهی کل پلتفرم')}
+          <div class="p-6 text-center"><div class="glass-panel p-6 rounded-3xl font-bold">⏳ در حال دریافت اطلاعات پنل مدیریت...</div></div>
+        `;
+      }
       callTowerAdminApi('state');
     }
 
