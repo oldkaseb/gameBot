@@ -448,6 +448,23 @@ async def main():
                 )
                 return
         await msg.answer(f"{E.HEART} از حمایت شما سپاسگزاریم!", parse_mode=ParseMode.HTML)
+        
+        if payload.startswith("spsub_"):
+        # فرمت: spsub_{tier_id}_{uid}
+        parts = payload.split("_")
+        if len(parts) >= 3:
+            tier_id = parts[1]
+            target_uid = int(parts[2])
+            from social_platform import ensure_social_tables, SUB_TIERS
+            await ensure_social_tables()
+            days = SUB_TIERS.get(tier_id, {}).get("days", 30)
+            exp_ts = time.time() + (days * 86400)
+            await db.pool.execute(
+                "UPDATE sp_profiles SET sub_tier=$1, sub_expires_at=$2 WHERE user_id=$3",
+                tier_id, exp_ts, target_uid
+            )
+            await message.answer(f"💎 اشتراک <b>{tier_id.upper()}</b> شما با موفقیت به مدت {days} روز فعال شد!")
+            return
 
     asyncio.create_task(cleanup_loop(bot))
     health_runner = await _start_health_server(int(os.getenv("PORT", "8080")))
