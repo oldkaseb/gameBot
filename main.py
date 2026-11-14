@@ -331,6 +331,23 @@ async def _start_health_server(port: int = 8080):
         log.warning(f"FastAPI server fallback: {e}")
         return None
 
+@dp.message(F.audio | F.voice | F.document)
+async def handle_user_audio_upload(msg: Message):
+    uid = msg.from_user.id
+    doc = msg.audio or msg.voice or msg.document
+    if not doc:
+        return
+    file_id = doc.file_id
+    title = getattr(msg.audio, "title", None) or getattr(msg, "file_name", None) or "موزیک صوتی"
+    duration = getattr(doc, "duration", 0) or 0
+
+    from social_platform import ensure_social_tables
+    await ensure_social_tables()
+    await db.pool.execute(
+        "INSERT INTO sp_user_music (user_id, file_id, title, duration) VALUES ($1, $2, $3, $4)",
+        uid, file_id, title, duration
+    )
+    await msg.answer(f"🎵 موزیک <b>{title}</b> با موفقیت به پلی‌لیست اختصاصی شما در مینی‌اپ اضافه شد!", parse_mode=ParseMode.HTML)
 
 async def main():
     if not BOT_TOKEN:
