@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""webapp/backend/main.py — مینی‌اپ گیم باکس راینو با UI آرکید نئونی + تغییر تمام عکس‌ها از پنل ادمین"""
+"""webapp/backend/main.py — پلتفرم کامل راینو: اتاق‌های صوتی، کازینو، کیف پول استارز/سکه، پروفایل VIP و گیم باکس"""
 
 import base64
 import io
@@ -17,7 +17,7 @@ from PIL import Image, ImageDraw, ImageFont
 from database import db
 from webapp.backend.game_logic.hokm import HokmGame
 
-app = FastAPI(title="Rhino Game Box Mini App")
+app = FastAPI(title="Rhino Social & Casino Mini App")
 
 app.add_middleware(
     CORSMiddleware,
@@ -32,18 +32,18 @@ FONT_PATH = BASE_DIR / "Vazirmatn-SemiBold.ttf"
 CUSTOM_HERO_FILE = BASE_DIR / "rhino_banner.png"
 CUSTOM_MENU_BG = BASE_DIR / "menu_bg.png"
 CUSTOM_CARPET_BG = BASE_DIR / "hokm_carpet.png"
-CUSTOM_TOWER_BG = BASE_DIR / "tower_bg.png"
-CUSTOM_TOWER_HERO = BASE_DIR / "tower_hero.png"
 
 hokm_rooms: dict[str, HokmGame] = {}
 guess_rooms: dict[str, dict] = {}
 
 GAME_META = {
-    "hub":          {"title": "RHINO GAME BOX", "c1": (18, 10, 42),  "c2": (109, 40, 217)},
-    "demontower":   {"title": "DEMON TOWER",    "c1": (85, 12, 18),  "c2": (220, 38, 38)},
-    "wip1":         {"title": "DUNGEON HEIST",  "c1": (30, 27, 75),  "c2": (124, 58, 237)},
-    "wip2":         {"title": "CYBER VAULT",    "c1": (6, 78, 59),   "c2": (16, 185, 129)},
-    "tower_admin":  {"title": "TOWER ADMIN",    "c1": (30, 27, 75),  "c2": (124, 58, 237)},
+    "hub":          {"title": "RHINO PLATFORM", "c1": (18, 10, 42),  "c2": (109, 40, 217)},
+    "crash":        {"title": "CRASH ROCKET",   "c1": (88, 28, 135), "c2": (236, 72, 153)},
+    "bombs":        {"title": "GOLD BOMBS",     "c1": (120, 53, 15), "c2": (245, 158, 11)},
+    "pickaxe":      {"title": "HELL PICKAXE",   "c1": (127, 29, 29), "c2": (239, 68, 68)},
+    "slot":         {"title": "ROYAL SLOT",     "c1": (49, 46, 129), "c2": (139, 92, 246)},
+    "voice_hub":    {"title": "VOICE ROOMS",    "c1": (30, 27, 75),  "c2": (124, 58, 237)},
+    "tower_admin":  {"title": "ADMIN PANEL",    "c1": (30, 27, 75),  "c2": (124, 58, 237)},
     "hokm":         {"title": "HOKM 4P",        "c1": (127, 17, 22), "c2": (220, 38, 38)},
     "hokm2p":       {"title": "HOKM 2P",        "c1": (105, 15, 45), "c2": (219, 39, 119)},
     "2048":         {"title": "2048 PUZZLE",    "c1": (30, 58, 138), "c2": (59, 130, 246)},
@@ -62,7 +62,6 @@ GAME_META = {
 
 
 def generate_game_banner(game_key: str) -> bytes:
-    """تولید پوستر گرافیکی نئونی در صورتی که هنوز عکسی از پنل ادمین برای بازی آپلود نشده باشد"""
     meta = GAME_META.get(game_key, GAME_META["hub"])
     w, h = 500, 500
     img = Image.new("RGB", (w, h), meta["c1"])
@@ -77,7 +76,7 @@ def generate_game_banner(game_key: str) -> bytes:
         b = int(b1 * (1 - ratio) + b2 * ratio)
         draw.line([(0, y), (w, y)], fill=(r, g, b))
 
-    draw.ellipse([60, 60, w - 60, h - 60], outline=(255, 255, 255, 40), width=4)
+    draw.ellipse([65, 65, w - 65, h - 65], outline=(255, 255, 255), width=3)
     draw.rounded_rectangle([18, 18, w - 18, h - 18], radius=36, outline=(255, 255, 255), width=2)
 
     buf = io.BytesIO()
@@ -87,8 +86,8 @@ def generate_game_banner(game_key: str) -> bytes:
 
 async def _get_saved_ui_assets() -> dict:
     try:
-        from games.demon_tower import get_dt_config
-        raw = await get_dt_config("ui_assets", "{}")
+        from social_platform import get_sp_config
+        raw = await get_sp_config("ui_assets", "{}")
         return json.loads(raw) if raw else {}
     except Exception:
         return {}
@@ -96,30 +95,13 @@ async def _get_saved_ui_assets() -> dict:
 
 @app.get("/api/ui_assets")
 async def api_get_ui_assets():
-    """دریافت تمام عکس‌های سفارشی آپلودشده در پنل ادمین + آمار کلی برای نمایش در UI"""
+    from social_platform import recent_big_wins
     assets = await _get_saved_ui_assets()
-    recent_wins = []
-    try:
-        await db.ensure_pool()
-        rows = await db.pool.fetch("""
-            SELECT first_name, username FROM users
-            ORDER BY user_id DESC LIMIT 6
-        """)
-        games_sample = ["HOKM 4P", "DEMON TOWER", "2048", "RINGS 2P", "RPS", "GUESS"]
-        for idx, r in enumerate(rows):
-            recent_wins.append({
-                "name": (r["first_name"] or r["username"] or f"Player {idx+1}")[:12],
-                "game": games_sample[idx % len(games_sample)],
-                "time": f"{idx + 1}m ago",
-            })
-    except Exception:
-        pass
-    return {"ok": True, "assets": assets, "recent_wins": recent_wins}
+    return {"ok": True, "assets": assets, "recent_wins": recent_big_wins[:8]}
 
 
 @app.get("/api/custom_bg/{bg_name}")
 async def serve_custom_bg(bg_name: str):
-    # ۱. اولویت اول: بررسی عکس آپلودشده توسط ادمین در دیتابیس
     assets = await _get_saved_ui_assets()
     b64_data = assets.get(bg_name, "")
     if b64_data and b64_data.startswith("data:image"):
@@ -130,19 +112,13 @@ async def serve_custom_bg(bg_name: str):
         except Exception:
             pass
 
-    # ۲. اولویت دوم: فایل‌های موجود در مخزن گیت‌هاب
     if bg_name in ("hero", "rhino_hero") and CUSTOM_HERO_FILE.exists():
         return FileResponse(str(CUSTOM_HERO_FILE), media_type="image/png")
     if bg_name in ("menu", "menu_bg") and CUSTOM_MENU_BG.exists():
         return FileResponse(str(CUSTOM_MENU_BG), media_type="image/png")
     if bg_name in ("carpet", "hokm_carpet") and CUSTOM_CARPET_BG.exists():
         return FileResponse(str(CUSTOM_CARPET_BG), media_type="image/png")
-    if bg_name == "tower_bg" and CUSTOM_TOWER_BG.exists():
-        return FileResponse(str(CUSTOM_TOWER_BG), media_type="image/png")
-    if bg_name == "tower_hero" and CUSTOM_TOWER_HERO.exists():
-        return FileResponse(str(CUSTOM_TOWER_HERO), media_type="image/png")
 
-    # ۳. اولویت سوم: تولید پوستر گرافیکی نئونی
     png_bytes = generate_game_banner(game_key=bg_name)
     return Response(content=png_bytes, media_type="image/png")
 
@@ -193,39 +169,23 @@ class GuessActionPayload(BaseModel):
     guess_val: int | None = None
 
 
-class TowerActionPayload(BaseModel):
-    uid: int
-    name: str = "Player"
-    lang: str = "fa"
-    action: str = "state"
-    move: str | None = None
-    gender: str | None = None
-    item_id: int | None = None
-    weapon_id: int | None = None
-    amount: int | None = None
-    target: str | None = None
-    pack_id: str | None = None
-    code: str | None = None
-    coins: int | None = None
-    voucher_type: str | None = None
-
-
 @app.get("/health")
 async def health_check():
     return {"status": "ok"}
 
 
-@app.post("/api/tower/action")
-async def tower_action_endpoint(payload: TowerActionPayload):
-    from games.demon_tower import handle_tower_api_action
-    return await handle_tower_api_action(payload.model_dump())
+@app.post("/api/social/action")
+async def social_action_endpoint(request: Request):
+    from social_platform import handle_social_api
+    body = await request.json()
+    return await handle_social_api(body)
 
 
 @app.post("/api/tower/admin")
-async def tower_admin_endpoint(request: Request):
-    from games.demon_tower import handle_tower_admin_api
+async def platform_admin_endpoint(request: Request):
+    from social_platform import handle_platform_admin_api
     body = await request.json()
-    return await handle_tower_admin_api(body)
+    return await handle_platform_admin_api(body)
 
 
 @app.get("/api/check_join/{user_id}")
@@ -435,11 +395,6 @@ async def get_gardone_data(chat_id: int):
     winners = [w["name"] for w in g.get("winners", [])]
     return {"ok": True, "names": names, "winners": winners, "host": g.get("host_name", "")}
 
-@app.post("/api/social/action")
-async def social_action_endpoint(request: Request):
-    from social_platform import handle_social_api
-    body = await request.json()
-    return await handle_social_api(body)
 
 MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
 <html lang="fa" dir="rtl">
@@ -449,7 +404,7 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
   <title>__OG_TITLE__</title>
   <meta property="og:type" content="website" />
   <meta property="og:title" content="__OG_TITLE__" />
-  <meta property="og:description" content="گیم باکس راینو — مجموعه بازی‌های گروهی و آنلاین" />
+  <meta property="og:description" content="پلتفرم راینو — اتاق‌های صوتی، کازینو و بازی‌های آنلاین" />
   <meta property="og:image" content="__OG_IMAGE__" />
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
   <script src="https://cdn.tailwindcss.com"></script>
@@ -464,7 +419,6 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
       overflow: hidden;
       background-color: #090514;
       background-image:
-        var(--custom-menu-bg, none),
         radial-gradient(circle at 15% 10%, rgba(124, 58, 237, 0.25) 0%, transparent 45%),
         radial-gradient(circle at 85% 85%, rgba(219, 39, 119, 0.18) 0%, transparent 45%);
       background-size: cover;
@@ -486,17 +440,17 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
       overflow: hidden;
     }
     .glass-panel {
-      background: rgba(19, 14, 38, 0.72);
+      background: rgba(19, 14, 38, 0.75);
       backdrop-filter: blur(18px);
       -webkit-backdrop-filter: blur(18px);
-      border: 1px solid rgba(255, 255, 255, 0.11);
-      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.55);
     }
     .glass-soft {
-      background: rgba(255, 255, 255, 0.06);
+      background: rgba(255, 255, 255, 0.07);
       backdrop-filter: blur(12px);
       -webkit-backdrop-filter: blur(12px);
-      border: 1px solid rgba(255, 255, 255, 0.1);
+      border: 1px solid rgba(255, 255, 255, 0.11);
     }
     .btn-primary {
       background: linear-gradient(135deg, #7c3aed, #4f46e5);
@@ -513,13 +467,12 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
     }
     .ltr-grid { direction: ltr !important; }
 
-    /* کارت‌های مربعی کازینو-آرکید مشابه تصویر ارسالی */
     .arcade-card {
       position: relative;
       aspect-ratio: 1 / 1.04;
       border-radius: 24px;
       overflow: hidden;
-      border: 1.5px solid rgba(168, 85, 247, 0.32);
+      border: 1.5px solid rgba(168, 85, 247, 0.34);
       background: #130d26;
       box-shadow: 0 10px 26px rgba(0, 0, 0, 0.65);
       transition: transform 0.16s ease, border-color 0.16s ease;
@@ -534,12 +487,11 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
       width: 100%;
       height: 100%;
       object-fit: cover;
-      transition: transform 0.3s ease;
     }
     .arcade-card-overlay {
       position: absolute;
       inset: 0;
-      background: linear-gradient(180deg, rgba(10, 6, 24, 0.55) 0%, rgba(10, 6, 24, 0.15) 45%, rgba(10, 6, 24, 0.88) 100%);
+      background: linear-gradient(180deg, rgba(10, 6, 24, 0.6) 0%, rgba(10, 6, 24, 0.15) 45%, rgba(10, 6, 24, 0.9) 100%);
       display: flex;
       flex-direction: column;
       justify-content: space-between;
@@ -547,16 +499,15 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
     }
     .arcade-title {
       font-weight: 900;
-      font-size: 1.15rem;
+      font-size: 1.12rem;
       line-height: 1.15;
       letter-spacing: 0.02em;
       text-transform: uppercase;
       color: #ffffff;
       text-shadow: 0 3px 12px rgba(0, 0, 0, 0.9);
-      text-align: right;
     }
     .pill-players {
-      background: rgba(15, 23, 42, 0.78);
+      background: rgba(15, 23, 42, 0.8);
       backdrop-filter: blur(6px);
       border: 1px solid rgba(52, 211, 153, 0.35);
       color: #34d399;
@@ -585,7 +536,7 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
       border-radius: 999px;
     }
     .pill-new {
-      background: rgba(88, 28, 135, 0.85);
+      background: rgba(88, 28, 135, 0.88);
       border: 1px solid rgba(192, 132, 252, 0.5);
       color: #f3e8ff;
       font-size: 10px;
@@ -594,28 +545,21 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
       border-radius: 999px;
     }
     .bottom-dock {
-      background: rgba(18, 13, 36, 0.88);
+      background: rgba(18, 13, 36, 0.92);
       backdrop-filter: blur(20px);
       -webkit-backdrop-filter: blur(20px);
-      border: 1px solid rgba(255, 255, 255, 0.12);
+      border: 1px solid rgba(255, 255, 255, 0.14);
       border-radius: 28px;
-      box-shadow: 0 -4px 25px rgba(0, 0, 0, 0.65);
+      box-shadow: 0 -4px 25px rgba(0, 0, 0, 0.7);
     }
 
-    .tower-bg-wrap {
-      background-image:
-        var(--custom-tower-bg, __TOWER_BG__),
-        radial-gradient(circle at top, rgba(153, 27, 27, 0.45) 0%, rgba(15, 23, 42, 0.92) 70%);
-      background-size: cover;
-      background-position: center;
-    }
     .persian-carpet {
       position: relative;
       width: 100%;
       height: 100%;
       background-color: #781014;
       background-image:
-        var(--custom-carpet-bg, __CARPET_BG__),
+        var(--custom-carpet-bg, __CARPET_BG__)
         radial-gradient(ellipse at center, rgba(185, 28, 28, 0.52) 0%, rgba(102, 10, 14, 0.94) 68%, #3a0608 100%),
         repeating-linear-gradient(45deg, rgba(245, 158, 11, 0.06) 0px, rgba(245, 158, 11, 0.06) 2px, transparent 2px, transparent 6px);
       background-size: cover;
@@ -681,7 +625,6 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
       return el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT');
     }
 
-    /* ─── ابزار فشرده‌سازی و آپلود مستقیم عکس از گالری گوشی ─── */
     window.uploadedImages = {};
     window.uiAssetsMap = {};
     window.recentWinsList = [];
@@ -731,9 +674,6 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
       if (window.uiAssetsMap?.hokm_carpet) {
         rootStyle.setProperty('--custom-carpet-bg', `url('${window.uiAssetsMap.hokm_carpet}'),`);
       }
-      if (window.uiAssetsMap?.tower_bg) {
-        rootStyle.setProperty('--custom-tower-bg', `url('${window.uiAssetsMap.tower_bg}'),`);
-      }
     }
 
     async function loadUiAssets() {
@@ -749,7 +689,6 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
     }
 
     const HERO_CUSTOM_IMG = "__HERO_IMAGE__";
-    const TOWER_HERO_IMG = "__TOWER_HERO__";
     const BOT_USERNAME = "__BOT_USERNAME__";
     const SHORT_NAME = "__SHORT_NAME__";
     const OWNER_IDS = [7662192190, 6041119040];
@@ -775,10 +714,9 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
 
     const I18N = {
       fa: {
-        heroTitle: "گیم باکس راینو",
-        heroBody: "به گیم باکس راینو خوش اومدی رفیق\nاینجا کلی بازی خفن رو توی یک ربات برات جمع کردیم\nلذت ببر دوست من",
-        bigWins: "برندگان اخیر",
-        wipBadge: "SOON",
+        heroTitle: "گیم باکس و روم راینو",
+        heroBody: "به پلتفرم راینو خوش اومدی رفیق\nاتاق‌های صوتی، کازینو و بازی‌های گروهی در یک مینی‌اپ",
+        bigWins: "BIG WINS • برندگان کازینو",
         backMenu: "منو",
         playBtn: "ورود",
         optBot: "🤖 بازی با ربات",
@@ -786,7 +724,7 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
         optShare: "📤 اشتراک‌گذاری لینک میز",
         sendInviteBtn: "ارسال دعوت‌نامه",
         enterTableBtn: "ورود به میز",
-        notStartedWarn: "⚠️ این کاربران هنوز ربات را استارت نکرده‌اند (به آن‌ها بگو ابتدا ربات را استارت کنند):",
+        notStartedWarn: "⚠️ این کاربران هنوز ربات را استارت نکرده‌اند:",
         swipeHint: "صفحه را به ۴ جهت بکشید (Swipe)",
         restart: "شروع مجدد",
         score: "امتیاز",
@@ -811,48 +749,31 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
         chatPlaceholder: "پیام شفاف بالای اسم...",
         sendBtn: "ارسال",
         micOn: "🎙️ روشن", micOff: "🔇 مایک",
-        dt: {
-          floorBtn: "طبقه", enterBattle: "ورود به نبرد", charBtn: "🦸 کاراکتر", hospBtn: "🏥 بیمارستان",
-          vaultBtn: "🏦 خزانه", shopBtn: "🛒 فروشگاه", giftBtn: "🎁 کد هدیه", voucherBtn: "🎟️ درخواست ووچر",
-          accBtn: "👤 حسابم", backTower: "بازگشت به منوی برج", humanity: "انسانیت",
-          bossPower: "قدرت غول", bossWeak: "نقطه ضعف", bossReward: "پاداش مرحله",
-          pickWeaponHint: "سلاح خود را برای ورود به مرحله انتخاب کنید:", startBattleBtn: "⚔️ شروع نبرد طبقه",
-          pickGenderTitle: "انتخاب کاراکتر (یک‌بار و غیرقابل تغییر)", male: "مرد 🚹", female: "زن 🚺",
-          equipped: "تجهیز شده", select: "انتخاب", buy: "خرید",
-          hospDesc: "پس از هر جنگ برای بازیابی جان و انسانیت به بیمارستان بیایید. اگر انسانیت صفر شود ۲ روز به خواب می‌روید!",
-          healBtn: "💉 بستری شدن و درمان کامل", deposit: "سپرده‌گذاری", withdraw: "برداشت",
-          sellLootBtn: "💰 فروش غنیمت‌ها", transferTitle: "💸 انتقال سکه به کاربر دیگر (۳٪ مالیات)",
-          transferBtn: "ارسال سکه (کسر ۳٪ مالیات)", redeemBtn: "دریافت هدیه",
-          vchOfferHint: "مقدار سکه پیشنهادی...",
-          vchTypes: ["ووچر استارز", "ووچر گیفت", "ووچر سندر", "ووچر شارژ ربات"],
-          vchSendBtn: "ارسال درخواست برای مالک",
-          vchChatTitle: "💬 وضعیت درخواست‌های ووچر (در انتظار پاسخ مالک)",
-          vchPending: "⏳ در انتظار پاسخ مالک...",
-          vchApproved: "✅ تایید شد — پیام کد ووچر را از پیوی برای @oldkaseb فوروارد کنید",
-          vchRejected: "❌ رد شد (سکه عودت داده شد)", ownerNote: "یادداشت مالک"
-        },
         games: {
-          wip1: "شکارچی سیاه‌چال", wip2: "هک گاوصندوق", wip3: "برج شیاطین", wip3Sub: "RPG • طبقات و غول‌ها",
-          hokm: "حکم ۴ نفره", hokmSub: "۴ نفره • فرش ایرانی",
-          hokm2p: "حکم ۲ نفره", hokm2pSub: "۲ نفره • تک‌به‌تک",
-          dooz: "دوز ۲ نفره", doozSub: "۲ نفره • حلقه رنگی",
-          doz4p: "دوز ۴ نفره", doz4pSub: "۴ نفره • حلقه رنگی",
-          connect4: "چهار در ردیف", connect4Sub: "۲ نفره • استراتژیک",
-          rps: "سنگ کاغذ قیچی", rpsSub: "۲ نفره • سرعتی",
-          guess: "حدس عدد", guessSub: "گروهی • رقابتی",
-          g2048: "پازل ۲۰۴۸", g2048Sub: "تک‌نفره • لمسی",
-          spuzzle: "پازل ۱۵", spuzzleSub: "تک‌نفره • لمسی",
-          samegame: "جفت‌های رنگی", samegameSub: "تک‌نفره • رنگی",
-          memory: "حافظه", memorySub: "۲ نفره • تمرکزی",
-          typing: "تایپ سرعتی", typingSub: "سرعتی • رکوردی",
-          hangman: "حدس کلمه", hangmanSub: "فکری • حروف"
+          crash: "CRASH",
+          bombs: "BOMBS",
+          pickaxe: "HELL PICKAXE",
+          slot: "ROYAL SLOT",
+          hokm: "HOKM 4P",
+          hokm2p: "HOKM 2P",
+          dooz: "RINGS 2P",
+          doz4p: "RINGS 4P",
+          connect4: "CONNECT 4",
+          rps: "ROCK PAPER",
+          guess: "NUMBER GUESS",
+          g2048: "2048 PUZZLE",
+          spuzzle: "PUZZLE 15",
+          samegame: "COLOR MATCH",
+          memory: "MEMORY",
+          typing: "SPEED TYPE",
+          hangman: "WORD GUESS"
         }
       },
       en: {
-        heroTitle: "Rhino Game Box",
-        heroBody: "Welcome to Rhino Game Box my friend\nAwesome games gathered in one bot for you\nEnjoy my friend",
+        heroTitle: "Rhino Social & Casino",
+        heroBody: "Welcome to Rhino Platform my friend\nVoice Rooms, Casino & Multiplayer Games in one Mini App",
         bigWins: "BIG WINS",
-        wipBadge: "SOON", backMenu: "Menu", playBtn: "Play",
+        backMenu: "Menu", playBtn: "Play",
         optBot: "🤖 Play with AI Bot", optInvite: "📩 Invite Friends via Bot", optShare: "📤 Share Table Link",
         sendInviteBtn: "Send Invites", enterTableBtn: "Enter Table",
         notStartedWarn: "⚠️ These users haven't started the bot yet:",
@@ -863,35 +784,24 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
         rock: "Rock", paper: "Paper", scissors: "Scissors", pickColor: "Your Color:",
         fromNum: "From:", toNum: "To:", createGame: "Create Game", submitBtn: "Submit", playAgainBtn: "🔄 Play Again",
         chatPlaceholder: "Quick message...", sendBtn: "Send", micOn: "🎙️ On", micOff: "🔇 Mic",
-        dt: {
-          floorBtn: "Floor", enterBattle: "Battle", charBtn: "🦸 Character", hospBtn: "🏥 Hospital",
-          vaultBtn: "🏦 Vault", shopBtn: "🛒 Shop", giftBtn: "🎁 Gift Code", voucherBtn: "🎟️ Voucher",
-          accBtn: "👤 My Account", backTower: "Back to Tower Menu", humanity: "Humanity",
-          bossPower: "Boss Power", bossWeak: "Weakness", bossReward: "Stage Reward",
-          pickWeaponHint: "Select your weapon:", startBattleBtn: "⚔️ Start Floor Battle",
-          pickGenderTitle: "Choose Character (One-time)", male: "Male 🚹", female: "Female 🚺",
-          equipped: "Equipped", select: "Equip", buy: "Buy",
-          hospDesc: "Heal after battles. If Humanity hits 0, you sleep for 2 days!",
-          healBtn: "💉 Enter Hospital & Heal", deposit: "Deposit", withdraw: "Withdraw",
-          sellLootBtn: "💰 Sell All Loot", transferTitle: "💸 Transfer Coins (3% Tax)",
-          transferBtn: "Send Coins (3% Tax)", redeemBtn: "Redeem Code",
-          vchOfferHint: "Offered Coins...",
-          vchTypes: ["Stars Voucher", "Gift Voucher", "Sender Voucher", "Bot Charge Voucher"],
-          vchSendBtn: "Send Request to Owner",
-          vchChatTitle: "💬 Voucher Requests",
-          vchPending: "⏳ Waiting for Owner...",
-          vchApproved: "✅ Approved — Forward code from Bot PM to @oldkaseb",
-          vchRejected: "❌ Rejected (Refunded)", ownerNote: "Owner Note"
-        },
         games: {
-          wip1: "DUNGEON HEIST", wip2: "CYBER VAULT", wip3: "DEMON TOWER", wip3Sub: "RPG • Bosses & Loot",
-          hokm: "HOKM 4P", hokmSub: "4 Players • Cards", hokm2p: "HOKM 2P", hokm2pSub: "2 Players • Duel",
-          dooz: "RINGS 2P", doozSub: "2 Players • Color", doz4p: "RINGS 4P", doz4pSub: "4 Players • Color",
-          connect4: "CONNECT 4", connect4Sub: "2 Players • Strategy", rps: "ROCK PAPER", rpsSub: "2 Players • Duel",
-          guess: "NUMBER GUESS", guessSub: "Group • Live", g2048: "2048 PUZZLE", g2048Sub: "Solo • Swipe",
-          spuzzle: "PUZZLE 15", spuzzleSub: "Solo • Swipe", samegame: "COLOR MATCH", samegameSub: "Solo • Match",
-          memory: "MEMORY", memorySub: "2 Players • Match", typing: "SPEED TYPE", typingSub: "Speed • Record",
-          hangman: "WORD GUESS", hangmanSub: "Solo • Letters"
+          crash: "CRASH",
+          bombs: "BOMBS",
+          pickaxe: "HELL PICKAXE",
+          slot: "ROYAL SLOT",
+          hokm: "HOKM 4P",
+          hokm2p: "HOKM 2P",
+          dooz: "RINGS 2P",
+          doz4p: "RINGS 4P",
+          connect4: "CONNECT 4",
+          rps: "ROCK PAPER",
+          guess: "NUMBER GUESS",
+          g2048: "2048 PUZZLE",
+          spuzzle: "PUZZLE 15",
+          samegame: "COLOR MATCH",
+          memory: "MEMORY",
+          typing: "SPEED TYPE",
+          hangman: "WORD GUESS"
         }
       }
     };
@@ -899,7 +809,7 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
     function T() { return I18N[lang] || I18N.fa; }
 
     let currentGame = parsedGame || 'hub';
-    let hubFilter = 'all'; // all | pve | pvp
+    let hubFilter = 'all'; // all | casino | pvp
     const tgUser = tg?.initDataUnsafe?.user || {};
     const realTgUid = tgUser.id || Number(params.get('uid')) || 0;
     const uid = realTgUid || Math.floor(Math.random()*900000 + 100000);
@@ -910,8 +820,23 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
 
     let hokmPollTimer = null;
     let guessPollTimer = null;
+    let vrPollTimer = null;
     let isJoinVerified = false;
     let lobbyState = { game: '', maxPlayers: 2, rpsTargetWins: 3, step: 'options', inviteWarning: '', inviteSuccess: '' };
+
+    // وضعیت کلی پلتفرم اجتماعی، کیف پول و کازینو
+    let spState = null;
+    let activeVoiceRoom = null;
+    let minimizedVoiceRoom = null;
+    let viewedProfileData = null;
+    let spMsg = '';
+    let spErr = '';
+    let vrSheet = '';
+    let storeTab = 'subs'; // subs | rings | gifts
+    let bombsState = null;
+    let crashLastResult = null;
+    let pickaxeLastResult = null;
+    let slotLastResult = null;
 
     window.cycleLang = function() {
       const codes = ['fa', 'en'];
@@ -921,20 +846,47 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
       render();
     };
 
+    function renderBottomNav() {
+      return `
+        <div class="fixed bottom-3 left-3 right-3 z-30 bottom-dock px-3 py-2 flex justify-around items-center">
+          <button onclick="nav('hub')" class="${currentGame==='hub' ? 'text-purple-400 scale-110' : 'text-slate-300'} flex flex-col items-center gap-0.5 text-[10px] font-black transition">
+            <span class="text-lg">🏠</span><span>Home</span>
+          </button>
+          <button onclick="nav('voice_hub')" class="${currentGame==='voice_hub' ? 'text-amber-300 scale-110' : 'text-slate-300'} flex flex-col items-center gap-0.5 text-[10px] font-black transition">
+            <span class="text-lg">🎙️</span><span>Rooms</span>
+          </button>
+          <button onclick="nav('sp_wallet')" class="w-12 h-10 rounded-2xl bg-gradient-to-br from-purple-600 to-indigo-600 flex items-center justify-center text-xl shadow-[0_0_18px_rgba(124,58,237,0.75)] border border-purple-300/40">
+            🪙
+          </button>
+          <button onclick="nav('sp_store')" class="${currentGame==='sp_store' ? 'text-emerald-300 scale-110' : 'text-slate-300'} flex flex-col items-center gap-0.5 text-[10px] font-black transition">
+            <span class="text-lg">🛍️</span><span>Store</span>
+          </button>
+          <button onclick="openUserProfileModal(${uid})" class="${currentGame==='sp_profile' ? 'text-sky-300 scale-110' : 'text-slate-300'} flex flex-col items-center gap-0.5 text-[10px] font-black transition">
+            <span class="text-lg">👤</span><span>Profile</span>
+          </button>
+        </div>
+      `;
+    }
+
     function renderTopBar(titleText = '') {
+      const me = spState?.me || {};
       const langFlags = { fa: '🇮🇷 FA', en: '🇬🇧 EN' };
       return `
         <div class="glass-panel mx-3 mb-2 px-3 py-2 rounded-2xl flex justify-between items-center shrink-0">
           <div class="flex items-center gap-1.5">
             ${currentGame !== 'hub' ? `<button onclick="nav('hub')" class="btn-danger px-2.5 py-1 rounded-xl text-xs font-extrabold">${T().backMenu}</button>` : `<span class="text-xs font-black text-purple-400">RHINO™</span>`}
-            <span class="text-sm font-black text-white truncate max-w-[140px]">${titleText || T().heroTitle}</span>
+            <span class="text-sm font-black text-white truncate max-w-[125px]">${titleText || T().heroTitle}</span>
           </div>
           <div class="flex items-center gap-1.5">
+            <button onclick="nav('sp_wallet')" class="glass-soft px-2 py-1 rounded-xl text-[11px] font-black text-amber-300 flex items-center gap-1">
+              <span>🪙 ${(me.coins ?? 1000).toLocaleString()}</span>
+              <span class="text-purple-300">| ⭐ ${me.stars_balance ?? 0}</span>
+            </button>
             ${isOwner && currentGame !== 'tower_admin' ? `
-              <button onclick="nav('tower_admin')" class="btn-primary px-2.5 py-1 rounded-xl text-[11px] font-black text-amber-200">👑 پنل مدیریت</button>
+              <button onclick="nav('tower_admin')" class="btn-primary px-2 py-1 rounded-xl text-[11px] font-black text-amber-200">👑</button>
             ` : ''}
-            <button onclick="cycleLang()" class="glass-soft px-2.5 py-1 rounded-xl text-xs font-extrabold text-amber-300">
-              🌐 ${langFlags[lang] || 'FA'}
+            <button onclick="cycleLang()" class="glass-soft px-2 py-1 rounded-xl text-[10px] font-extrabold text-amber-300">
+              ${langFlags[lang] || 'FA'}
             </button>
           </div>
         </div>
@@ -946,9 +898,64 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
       else window.open(url, '_blank');
     };
 
+    async function callSocialApi(action = 'state', extra = {}) {
+      try {
+        const res = await fetch('/api/social/action', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({
+            uid: Number(uid),
+            name: myName,
+            username: myUsername,
+            photo: myPhoto,
+            action: action,
+            ...extra
+          })
+        });
+        const data = await res.json();
+        spMsg = data.msg || '';
+        spErr = data.ok === false ? (data.error || '') : '';
+
+        if (data.need_pin) {
+          const pin = prompt(data.error || 'رمز اتاق صوتی را وارد کنید:');
+          if (pin !== null) {
+            return callSocialApi('join_room', { room_id: data.room_id, pin_code: pin });
+          }
+          return;
+        }
+        if (data.invoice_link && tg?.openInvoice) {
+          tg.openInvoice(data.invoice_link, () => callSocialApi('state'));
+          return;
+        } else if (data.invoice_link) {
+          window.open(data.invoice_link, '_blank');
+        }
+        if (data.state) {
+          spState = data.state;
+          if (spState.big_wins) window.recentWinsList = spState.big_wins;
+        }
+        if (data.bombs_state) bombsState = data.bombs_state;
+        if (data.crash_result) crashLastResult = data.crash_result;
+        if (data.pickaxe_result) pickaxeLastResult = data.pickaxe_result;
+        if (data.slot_result) slotLastResult = data.slot_result;
+        if (data.viewed_profile) viewedProfileData = data.viewed_profile;
+        if (data.active_room) {
+          activeVoiceRoom = data.active_room;
+          currentGame = 'voice_room_live';
+        }
+        if (data.left) {
+          activeVoiceRoom = null;
+          minimizedVoiceRoom = null;
+          if (vrPollTimer) { clearInterval(vrPollTimer); vrPollTimer = null; }
+          currentGame = 'voice_hub';
+        }
+        render();
+      } catch (e) {}
+    }
+
     window.verifyJoinAndRender = async function() {
       const root = document.getElementById('app');
       await loadUiAssets();
+      await callSocialApi('state');
       if (!realTgUid || isOwner) { isJoinVerified = true; return render(); }
       try {
         const res = await fetch('/api/check_join/' + realTgUid);
@@ -976,7 +983,8 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
     window.nav = function(g, skipLobbyGate = false) {
       if (hokmPollTimer) { clearInterval(hokmPollTimer); hokmPollTimer = null; }
       if (guessPollTimer) { clearInterval(guessPollTimer); guessPollTimer = null; }
-      if (window.dtBattleTimer) { clearInterval(window.dtBattleTimer); window.dtBattleTimer = null; }
+      if (vrPollTimer && g !== 'voice_room_live') { clearInterval(vrPollTimer); vrPollTimer = null; }
+      spMsg = ''; spErr = '';
       currentGame = g;
 
       const lobbyGames = { hokm: 4, hokm2p: 2, dooz: 2, doz4p: 4, connect4: 2, rps: 2, memory: 2 };
@@ -1000,61 +1008,67 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
     };
 
     /* ═══════════════════════════════════════════════════════════════════════════
-       صفحه اصلی گیم باکس راینو با طراحی کازینو-آرکید نئونی (مشابه تصویر ارسالی)
+       صفحه اصلی پلتفرم راینو (کازینو + اتاق‌های صوتی + بازی‌ها مشابه اسکرین‌شات)
        ═══════════════════════════════════════════════════════════════════════════ */
     function renderHub(root) {
       const G = T().games;
-      const avatarUrl = myPhoto || '';
-      const initial = (myName || 'R')[0].toUpperCase();
+      const me = spState?.me || {};
+      const avatarUrl = me.photo || myPhoto || '';
+      const displayName = me.display_name || myName;
+      const initial = (displayName || 'R')[0].toUpperCase();
+      const ringStyle = me.ring_css ? `box-shadow: ${me.ring_css};` : '';
+      const lvl = me.level || 1;
+      const xpPct = Math.min(100, Math.round(((me.xp || 0) % 200) / 2));
 
       const allCards = [
-        { id: "demontower", title: G.wip3,     mode: "RPG",  tag: "NEW",  online: 14, cat: "pve", wip: false, c1: "#450a0a", c2: "#dc2626", icon: "👹" },
-        { id: "hokm",       title: G.hokm,     mode: "PVP",  tag: "HOT",  online: 28, cat: "pvp", wip: false, c1: "#7f1d1d", c2: "#b91c1c", icon: "♠️" },
-        { id: "hokm2p",     title: G.hokm2p,   mode: "PVP",  tag: "NEW",  online: 12, cat: "pvp", wip: false, c1: "#500724", c2: "#db2777", icon: "👑" },
-        { id: "dooz",       title: G.dooz,     mode: "PVP",  tag: "NEW",  online: 9,  cat: "pvp", wip: false, c1: "#1e1b4b", c2: "#3b82f6", icon: "🟢" },
-        { id: "doz4p",      title: G.doz4p,    mode: "PVP",  tag: "NEW",  online: 6,  cat: "pvp", wip: false, c1: "#4a044e", c2: "#ec4899", icon: "🟣" },
-        { id: "connect4",   title: G.connect4, mode: "PVP",  tag: "HOT",  online: 11, cat: "pvp", wip: false, c1: "#064e3b", c2: "#10b981", icon: "🔴" },
-        { id: "rps",        title: G.rps,      mode: "PVP",  tag: "NEW",  online: 7,  cat: "pvp", wip: false, c1: "#312e81", c2: "#6366f1", icon: "✂️" },
-        { id: "guess",      title: G.guess,    mode: "PVE",  tag: "LIVE", online: 19, cat: "pvp", wip: false, c1: "#14532d", c2: "#22c55e", icon: "🎯" },
-        { id: "2048",       title: G.g2048,    mode: "PVE",  tag: "NEW",  online: 15, cat: "pve", wip: false, c1: "#1e3a8a", c2: "#2563eb", icon: "🧩" },
-        { id: "spuzzle",    title: G.spuzzle,  mode: "PVE",  tag: "",     online: 5,  cat: "pve", wip: false, c1: "#0c4a6e", c2: "#0ea5e9", icon: "🔢" },
-        { id: "samegame",   title: G.samegame, mode: "PVE",  tag: "",     online: 8,  cat: "pve", wip: false, c1: "#581c87", c2: "#a855f7", icon: "🟦" },
-        { id: "memory",     title: G.memory,   mode: "PVE",  tag: "NEW",  online: 10, cat: "pve", wip: false, c1: "#4c1d95", c2: "#8b5cf6", icon: "🧠" },
-        { id: "typing",     title: G.typing,   mode: "PVE",  tag: "",     online: 4,  cat: "pve", wip: false, c1: "#78350f", c2: "#f59e0b", icon: "⌨️" },
-        { id: "hangman",    title: G.hangman,  mode: "PVE",  tag: "",     online: 9,  cat: "pve", wip: false, c1: "#881337", c2: "#e11d48", icon: "🕵️" },
-        { id: "wip1",       title: G.wip1,     mode: "SLOT", tag: T().wipBadge, online: 0, cat: "pve", wip: true, c1: "#1e1b4b", c2: "#6d28d9", icon: "🏰" },
-        { id: "wip2",       title: G.wip2,     mode: "PVE",  tag: T().wipBadge, online: 0, cat: "pve", wip: true, c1: "#0f172a", c2: "#059669", icon: "🔐" }
+        { id: "crash",      title: G.crash,    mode: "PVE",  tag: "HOT",  online: 34, cat: "casino", c1: "#581c87", c2: "#ec4899", icon: "🚀" },
+        { id: "bombs",      title: G.bombs,    mode: "PVE",  tag: "NEW",  online: 26, cat: "casino", c1: "#78350f", c2: "#f59e0b", icon: "💣" },
+        { id: "pickaxe",    title: G.pickaxe,  mode: "PVE",  tag: "NEW",  online: 18, cat: "casino", c1: "#7f1d1d", c2: "#ef4444", icon: "⛏️" },
+        { id: "slot",       title: G.slot,     mode: "SLOT", tag: "NEW",  online: 22, cat: "casino", c1: "#312e81", c2: "#8b5cf6", icon: "🎰" },
+        { id: "voice_hub",  title: "VOICE ROOMS", mode: "LIVE", tag: "VIP", online: 42, cat: "pvp",  c1: "#1e1b4b", c2: "#a855f7", icon: "🎙️" },
+        { id: "hokm",       title: G.hokm,     mode: "PVP",  tag: "HOT",  online: 28, cat: "pvp",    c1: "#7f1d1d", c2: "#b91c1c", icon: "♠️" },
+        { id: "hokm2p",     title: G.hokm2p,   mode: "PVP",  tag: "",     online: 12, cat: "pvp",    c1: "#500724", c2: "#db2777", icon: "👑" },
+        { id: "dooz",       title: G.dooz,     mode: "PVP",  tag: "",     online: 9,  cat: "pvp",    c1: "#1e1b4b", c2: "#3b82f6", icon: "🟢" },
+        { id: "doz4p",      title: G.doz4p,    mode: "PVP",  tag: "",     online: 6,  cat: "pvp",    c1: "#4a044e", c2: "#ec4899", icon: "🟣" },
+        { id: "connect4",   title: G.connect4, mode: "PVP",  tag: "",     online: 11, cat: "pvp",    c1: "#064e3b", c2: "#10b981", icon: "🔴" },
+        { id: "rps",        title: G.rps,      mode: "PVP",  tag: "",     online: 7,  cat: "pvp",    c1: "#312e81", c2: "#6366f1", icon: "✂️" },
+        { id: "guess",      title: G.guess,    mode: "PVP",  tag: "LIVE", online: 19, cat: "pvp",    c1: "#14532d", c2: "#22c55e", icon: "🎯" },
+        { id: "2048",       title: G.g2048,    mode: "PVE",  tag: "",     online: 15, cat: "pve",    c1: "#1e3a8a", c2: "#2563eb", icon: "🧩" },
+        { id: "spuzzle",    title: G.spuzzle,  mode: "PVE",  tag: "",     online: 5,  cat: "pve",    c1: "#0c4a6e", c2: "#0ea5e9", icon: "🔢" },
+        { id: "samegame",   title: G.samegame, mode: "PVE",  tag: "",     online: 8,  cat: "pve",    c1: "#581c87", c2: "#a855f7", icon: "🟦" },
+        { id: "memory",     title: G.memory,   mode: "PVE",  tag: "",     online: 10, cat: "pve",    c1: "#4c1d95", c2: "#8b5cf6", icon: "🧠" },
+        { id: "typing",     title: G.typing,   mode: "PVE",  tag: "",     online: 4,  cat: "pve",    c1: "#78350f", c2: "#f59e0b", icon: "⌨️" },
+        { id: "hangman",    title: G.hangman,  mode: "PVE",  tag: "",     online: 9,  cat: "pve",    c1: "#881337", c2: "#e11d48", icon: "🕵️" }
       ];
 
       const filteredCards = allCards.filter(c => {
-        if (hubFilter === 'pve') return c.cat === 'pve';
+        if (hubFilter === 'casino') return c.cat === 'casino';
         if (hubFilter === 'pvp') return c.cat === 'pvp';
         return true;
       });
 
       const winsData = window.recentWinsList?.length ? window.recentWinsList : [
-        { name: myName, game: "DEMON TOWER", time: "1m ago" },
-        { name: "RHINO PRO", game: "HOKM 4P", time: "2m ago" },
-        { name: "KING_88", game: "2048", time: "4m ago" }
+        { name: displayName, game: "CRASH", win: 4500, mult: "3.0x", time: "1m ago" },
+        { name: "RHINO VIP", game: "BOMBS", win: 9200, mult: "4.6x", time: "2m ago" }
       ];
 
       const bigWinsHtml = winsData.map((w, i) => `
-        <div class="glass-panel rounded-2xl px-3 py-2 flex items-center gap-2.5 shrink-0 min-w-[165px] border border-purple-500/25">
+        <div class="glass-panel rounded-2xl px-3 py-2 flex items-center gap-2.5 shrink-0 min-w-[175px] border border-purple-500/25">
           <div class="w-8 h-8 rounded-full bg-gradient-to-br from-purple-600 to-indigo-600 flex items-center justify-center font-black text-xs shrink-0">
             ${(w.name || 'P')[0]}
           </div>
           <div class="leading-tight truncate">
             <div class="text-[11px] font-black text-amber-300 truncate">👑 ${w.name}</div>
-            <div class="text-[9px] text-slate-400 font-bold">${w.game} • ${w.time}</div>
+            <div class="text-[9px] text-emerald-300 font-bold">+${(w.win||1200).toLocaleString()} 🪙 (${w.mult||'2x'})</div>
           </div>
-          <span class="text-base ml-auto">${['🧸','🎰','🏆','💎'][i % 4]}</span>
+          <span class="text-base ml-auto">${['🚀','💣','⛏️','🎰'][i % 4]}</span>
         </div>
       `).join('');
 
       const cardsHtml = filteredCards.map(g => {
         const customImg = getAssetImg(g.id, '');
         return `
-          <div onclick="${g.wip ? '' : `nav('${g.id}')`}" class="arcade-card cursor-pointer ${g.wip ? 'opacity-80' : ''}">
+          <div onclick="nav('${g.id}')" class="arcade-card cursor-pointer">
             <img src="${customImg}" onerror="this.style.display='none'" class="arcade-card-bg" />
             <div style="background: radial-gradient(circle at 75% 70%, ${g.c2}55 0%, ${g.c1}ee 85%);" class="absolute inset-0 -z-10 flex items-center justify-end p-3">
               <span class="text-7xl opacity-45 select-none">${g.icon}</span>
@@ -1071,101 +1085,891 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
         `;
       }).join('');
 
-      const heroImgSrc = getAssetImg('rhino_hero', HERO_CUSTOM_IMG);
-
       root.innerHTML = `
-        <!-- ۱. هدر پروفایل گیمینگ مشابه اسکرین‌شات -->
+        ${renderMinimizedFloatingWidget()}
+        <!-- ۱. هدر پروفایل گیمینگ با حلقه دور آواتار، نشان اشتراک و کیف پول دوگانه -->
         <div class="glass-panel mx-3 mb-2 px-3 py-2.5 rounded-3xl flex items-center justify-between gap-2 shrink-0 border border-purple-500/25">
-          <div class="flex items-center gap-2.5 min-w-0 flex-1">
+          <div onclick="openUserProfileModal(${uid})" class="flex items-center gap-2.5 min-w-0 flex-1 cursor-pointer">
             ${avatarUrl ? `
-              <img src="${avatarUrl}" class="w-11 h-11 rounded-full object-cover border-2 border-purple-500 shrink-0" />
+              <img src="${avatarUrl}" style="${ringStyle}" class="w-11 h-11 rounded-full object-cover border-2 border-purple-400 shrink-0" />
             ` : `
-              <div class="w-11 h-11 rounded-full bg-gradient-to-br from-purple-600 to-indigo-800 flex items-center justify-center font-black text-base border-2 border-purple-400 shrink-0">${initial}</div>
+              <div style="${ringStyle}" class="w-11 h-11 rounded-full bg-gradient-to-br from-purple-600 to-indigo-800 flex items-center justify-center font-black text-base border-2 border-purple-400 shrink-0">${initial}</div>
             `}
             <div class="min-w-0 flex-1">
-              <div class="flex items-center gap-1.5">
-                <span class="font-black text-sm text-white truncate">${myName}</span>
-                <span class="px-1.5 py-0.5 rounded-md bg-white/10 text-[10px] font-black text-purple-300">1 ^</span>
+              <div class="flex items-center gap-1">
+                <span class="font-black text-sm text-white truncate">${displayName}</span>
+                ${me.sub_badge ? `<span class="px-1.5 py-0.5 rounded-md bg-amber-500/25 border border-amber-400/50 text-[9px] font-black text-amber-300 shrink-0">${me.sub_badge}</span>` : `<span class="px-1.5 py-0.5 rounded-md bg-white/10 text-[10px] font-black text-purple-300">${lvl} ^</span>`}
               </div>
               <div class="flex items-center gap-1.5 mt-1">
-                <span class="text-[10px] font-black text-slate-300">1</span>
+                <span class="text-[10px] font-black text-slate-300">${lvl}</span>
                 <div class="flex-1 h-2 bg-slate-900/90 rounded-full overflow-hidden border border-white/10">
-                  <div class="w-1/3 h-full bg-gradient-to-r from-purple-500 to-indigo-400 rounded-full"></div>
+                  <div style="width:${Math.max(15, xpPct)}%" class="h-full bg-gradient-to-r from-purple-500 to-indigo-400 rounded-full"></div>
                 </div>
-                <span class="text-[10px] font-black text-slate-400">2</span>
+                <span class="text-[10px] font-black text-slate-400">${lvl + 1}</span>
               </div>
             </div>
           </div>
 
           <div class="flex items-center gap-1.5 shrink-0">
-            <div class="flex flex-col gap-1 items-end">
+            <div onclick="nav('sp_wallet')" class="flex flex-col gap-1 items-end cursor-pointer">
               <div class="px-2.5 py-0.5 rounded-full bg-white text-slate-950 font-black text-[11px] flex items-center gap-1 shadow">
-                <span>0</span><span>🪙</span>
+                <span>${(me.coins ?? 1000).toLocaleString()}</span><span>🪙</span>
               </div>
-              <div class="px-2.5 py-0.5 rounded-full bg-slate-800/90 border border-white/15 text-white font-black text-[11px] flex items-center gap-1">
-                <span>16</span><span>🎮</span>
+              <div class="px-2.5 py-0.5 rounded-full bg-slate-800/90 border border-white/15 text-amber-300 font-black text-[11px] flex items-center gap-1">
+                <span>${me.stars_balance ?? 0}</span><span>⭐</span>
               </div>
             </div>
-            <button onclick="nav('demontower')" class="w-10 h-10 rounded-full bg-gradient-to-br from-purple-500 to-indigo-600 flex items-center justify-center text-xl font-black shadow-lg border border-purple-300/40">+</button>
+            <button onclick="nav('sp_wallet')" title="شارژ و تبدیل کیف پول" class="w-10 h-10 rounded-full bg-gradient-to-br from-purple-500 to-indigo-600 flex items-center justify-center text-xl font-black shadow-lg border border-purple-300/40">+</button>
             ${isOwner ? `
               <button onclick="nav('tower_admin')" title="پنل مدیریت" class="w-10 h-10 rounded-full glass-soft flex items-center justify-center text-base border border-amber-400/50">👑</button>
-            ` : `
-              <button onclick="cycleLang()" class="w-10 h-10 rounded-full glass-soft flex items-center justify-center text-xs font-black text-amber-300">${lang.toUpperCase()}</button>
-            `}
+            ` : ''}
           </div>
         </div>
 
-        <!-- ۲. محتوای اسکرول‌شونده: نوار BIG WINS + بنر معرفی راینو + گرید ۲ ستونی کارت‌های مربعی -->
+        <!-- ۲. نوار BIG WINS + فیلتر سریع + گرید ۲ ستونی کارت‌ها -->
         <div class="flex-1 overflow-y-auto px-3 pb-24 flex flex-col gap-3">
-          <!-- نوار BIG WINS -->
           <div>
             <div class="flex items-center justify-between px-1 mb-1.5">
               <div class="flex items-center gap-1 text-[11px] font-black text-orange-400 tracking-wider uppercase">
                 <span>🔥</span><span>${T().bigWins}</span>
               </div>
-              ${isOwner ? `<button onclick="cycleLang()" class="text-[10px] font-black text-purple-300">🌐 ${lang.toUpperCase()}</button>` : ''}
+              <div class="flex gap-1.5 text-[10px] font-black">
+                <button onclick="setHubFilter('all')" class="px-2 py-0.5 rounded-lg ${hubFilter==='all'?'btn-primary':'glass-soft'}">همه</button>
+                <button onclick="setHubFilter('casino')" class="px-2 py-0.5 rounded-lg ${hubFilter==='casino'?'btn-primary':'glass-soft'}">🎰 کازینو</button>
+                <button onclick="setHubFilter('pvp')" class="px-2 py-0.5 rounded-lg ${hubFilter==='pvp'?'btn-primary':'glass-soft'}">🎙️ روم و گروهی</button>
+              </div>
             </div>
             <div class="flex gap-2 overflow-x-auto pb-1">${bigWinsHtml}</div>
           </div>
 
-          <!-- کارت معرفی گیم باکس راینو (قابل تغییر از پنل ادمین) -->
-          <div class="glass-panel rounded-3xl overflow-hidden shrink-0 border border-purple-500/25">
-            <img src="${heroImgSrc}" onerror="this.style.display='none'" class="w-full h-32 object-cover border-b border-white/10" />
-            <div class="p-3 text-center">
-              <h1 class="text-base font-black text-amber-300 mb-0.5">${T().heroTitle}</h1>
-              <p class="text-[11px] text-slate-200 font-bold leading-relaxed whitespace-pre-line">${T().heroBody}</p>
-            </div>
-          </div>
-
-          <!-- گرید ۲ ستونی بازی‌ها با ظاهر مربعی پوستردار -->
           <div class="grid grid-cols-2 gap-3">
             ${cardsHtml}
           </div>
         </div>
 
-        <!-- نوار ناوبری شناور پایین صفحه (اتاق‌های صوتی + بازی‌ها + فروشگاه + پروفایل) -->
-        <div class="fixed bottom-3 left-3 right-3 z-30 bottom-dock px-3 py-2 flex justify-around items-center">
-          <button onclick="nav('hub')" class="${currentGame==='hub' ? 'text-purple-400 scale-110' : 'text-slate-300'} flex flex-col items-center gap-0.5 text-[10px] font-black">
-            <span class="text-lg">🎮</span><span>Games</span>
-          </button>
-          <button onclick="nav('voice_hub')" class="${currentGame==='voice_hub' ? 'text-amber-300 scale-110' : 'text-slate-300'} flex flex-col items-center gap-0.5 text-[10px] font-black">
-            <span class="text-lg">🎙️</span><span>Rooms</span>
-          </button>
-          <button onclick="openMyVoiceRoomQuick()" class="w-12 h-10 rounded-2xl bg-gradient-to-br from-purple-600 to-pink-600 flex items-center justify-center text-xl shadow-[0_0_18px_rgba(168,85,247,0.75)] border border-purple-300/40">
-            ➕
-          </button>
-          <button onclick="nav('sp_store')" class="${currentGame==='sp_store' ? 'text-emerald-300 scale-110' : 'text-slate-300'} flex flex-col items-center gap-0.5 text-[10px] font-black">
-            <span class="text-lg">🛍️</span><span>Store</span>
-          </button>
-          <button onclick="nav('sp_profile')" class="${currentGame==='sp_profile' ? 'text-sky-300 scale-110' : 'text-slate-300'} flex flex-col items-center gap-0.5 text-[10px] font-black">
-            <span class="text-lg">👤</span><span>Profile</span>
-          </button>
-        </div>
+        ${renderBottomNav()}
       `;
     }
 
     /* ═══════════════════════════════════════════════════════════════════════════
-       مینی‌اپ مخفی «فرماندهی کل ربات و برج شیاطین» (۱۱ تب کامل شامل تغییر تمام عکس‌ها)
+       کیف پول دوگانه (Wallet): شارژ با استارز و تبدیل آنی استارز به سکه
+       ═══════════════════════════════════════════════════════════════════════════ */
+    function renderSpWallet(root) {
+      if (!spState) { callSocialApi('state'); return; }
+      const me = spState.me;
+      const packs = spState.topup_packs || [];
+      const rate = spState.rate || 100;
+
+      const packsHtml = packs.map(pk => `
+        <div class="glass-soft p-3 rounded-2xl flex items-center justify-between border border-purple-400/30">
+          <div>
+            <div class="font-black text-xs text-white">${pk.title}</div>
+            <div class="text-[10px] text-emerald-300 font-bold">معادل ${((pk.stars + pk.bonus_stars) * rate).toLocaleString()} 🪙 سکه کازینو</div>
+          </div>
+          <button onclick="callSocialApi('create_topup_invoice',{pack_id:'${pk.id}'})" class="btn-primary px-3.5 py-2 rounded-xl text-xs font-black shrink-0">
+            ⭐ ${pk.stars} Stars
+          </button>
+        </div>
+      `).join('');
+
+      root.innerHTML = `
+        ${renderTopBar('🪙 کیف پول و تبدیل استارز')}
+        <div class="flex-1 overflow-y-auto px-3 pb-24 space-y-3 text-xs">
+          ${spMsg ? `<div class="p-3 rounded-2xl bg-emerald-600/35 border border-emerald-400 font-bold text-center">${spMsg}</div>` : ''}
+          ${spErr ? `<div class="p-3 rounded-2xl bg-rose-600/40 border border-rose-400 font-bold text-center">${spErr}</div>` : ''}
+
+          <!-- کارت موجودی دوگانه -->
+          <div class="glass-panel p-4 rounded-3xl grid grid-cols-2 gap-3 text-center border border-purple-400/40">
+            <div class="glass-soft p-3 rounded-2xl">
+              <div class="text-slate-400 text-[10px] font-bold">موجودی استارز کیف پول</div>
+              <div class="text-2xl font-black text-amber-300 mt-1">⭐ ${(me.stars_balance||0).toLocaleString()}</div>
+            </div>
+            <div class="glass-soft p-3 rounded-2xl">
+              <div class="text-slate-400 text-[10px] font-bold">موجودی سکه کازینو و خرید</div>
+              <div class="text-2xl font-black text-emerald-300 mt-1">🪙 ${(me.coins||0).toLocaleString()}</div>
+            </div>
+          </div>
+
+          <!-- بخش ۱: تبدیل استارز به سکه -->
+          <div class="glass-panel p-4 rounded-3xl space-y-2.5 border border-emerald-400/30">
+            <h3 class="font-black text-sm text-emerald-300 text-center">🔄 تبدیل استارز به سکه کازینو (هر ۱ ⭐ = ${rate} 🪙)</h3>
+            <div class="flex gap-2">
+              <input id="conv_stars_inp" type="number" value="${me.stars_balance > 0 ? me.stars_balance : 10}" min="1" placeholder="تعداد استارز..." class="flex-1 p-3 rounded-xl glass-soft text-center font-black text-sm text-white" />
+              <button onclick="callSocialApi('convert_stars_to_coins',{stars:Number(document.getElementById('conv_stars_inp').value||0)})" class="btn-success px-5 rounded-xl font-black text-xs">
+                ⚡ تبدیل به سکه
+              </button>
+            </div>
+          </div>
+
+          <!-- بخش ۲: شارژ کیف پول با Telegram Stars -->
+          <div class="glass-panel p-4 rounded-3xl space-y-2.5">
+            <h3 class="font-black text-sm text-amber-300 text-center">⭐ شارژ کیف پول با استارز تلگرام</h3>
+            <div class="flex flex-col gap-2">${packsHtml}</div>
+          </div>
+        </div>
+        ${renderBottomNav()}
+      `;
+    }
+
+    /* ═══════════════════════════════════════════════════════════════════════════
+       ۴ بازی کازینویی (CRASH, BOMBS, HELL PICKAXE, ROYAL SLOT)
+       ═══════════════════════════════════════════════════════════════════════════ */
+    function renderCrashGame(root) {
+      const me = spState?.me || {};
+      const r = crashLastResult;
+      root.innerHTML = `
+        ${renderTopBar('🚀 CRASH • انفجار موشک')}
+        <div class="flex-1 overflow-y-auto px-3 pb-24 flex flex-col justify-between gap-3">
+          <div class="glass-panel p-6 rounded-3xl text-center relative overflow-hidden border border-pink-500/40 my-auto">
+            <div class="text-6xl mb-3 ${r ? (r.won ? 'animate-bounce' : '') : ''}">${r ? (r.won ? '🚀💎' : '💥🔥') : '🚀'}</div>
+            <div class="text-4xl font-black ${r ? (r.won ? 'text-emerald-400' : 'text-rose-400') : 'text-amber-300'} mb-1 ltr-grid">
+              ${r ? `${r.crash_point.toFixed(2)}x` : '1.00x'}
+            </div>
+            <div class="text-xs font-bold text-slate-300">
+              ${spMsg || spErr || 'مبلغ شرط و ضریب خروج خودکار (Target Cashout) را مشخص کنید:'}
+            </div>
+          </div>
+
+          <div class="glass-panel p-4 rounded-3xl space-y-3 text-xs">
+            <div class="grid grid-cols-2 gap-2.5">
+              <div>
+                <label class="block text-[11px] text-slate-300 font-bold mb-1">🪙 مبلغ شرط (سکه):</label>
+                <input id="cr_bet" type="number" value="200" min="10" class="w-full p-3 rounded-xl glass-soft text-center font-black text-base text-amber-300" />
+              </div>
+              <div>
+                <label class="block text-[11px] text-slate-300 font-bold mb-1">🎯 ضریب برداشت (مثلاً 2.0):</label>
+                <input id="cr_mult" type="number" step="0.1" value="2.0" min="1.1" class="w-full p-3 rounded-xl glass-soft text-center font-black text-base text-emerald-300" />
+              </div>
+            </div>
+            <div class="grid grid-cols-4 gap-1.5 text-[11px] font-black">
+              <button onclick="document.getElementById('cr_mult').value='1.5'" class="glass-soft py-1.5 rounded-lg">1.5x</button>
+              <button onclick="document.getElementById('cr_mult').value='2.0'" class="glass-soft py-1.5 rounded-lg">2.0x</button>
+              <button onclick="document.getElementById('cr_mult').value='3.0'" class="glass-soft py-1.5 rounded-lg">3.0x</button>
+              <button onclick="document.getElementById('cr_mult').value='5.0'" class="glass-soft py-1.5 rounded-lg">5.0x</button>
+            </div>
+            <button onclick="callSocialApi('casino_play',{game:'crash',bet:Number(document.getElementById('cr_bet').value||100),target_mult:Number(document.getElementById('cr_mult').value||2)})" class="btn-primary w-full py-4 rounded-2xl font-black text-base">
+              🚀 پرتاب موشک و ثبت شرط
+            </button>
+          </div>
+        </div>
+        ${renderBottomNav()}
+      `;
+    }
+
+    function renderBombsGame(root) {
+      const b = bombsState || { active: false, revealed: [], bombs: [], mult: 1.0, bet: 200, mines_count: 5 };
+      let gridHtml = '';
+      for (let i = 0; i < 25; i++) {
+        const isRev = (b.revealed || []).includes(i);
+        const isBomb = (b.bombs || []).includes(i);
+        let content = '❓';
+        let cls = 'glass-soft hover:border-amber-400';
+        if (isRev && isBomb) { content = '💣'; cls = 'btn-danger'; }
+        else if (isRev) { content = '🪙'; cls = 'btn-success'; }
+        else if (b.game_over && isBomb) { content = '💣'; cls = 'bg-rose-950/70 border border-rose-500/40'; }
+
+        gridHtml += `
+          <button ${!b.active || isRev ? 'disabled' : ''} onclick="callSocialApi('casino_play',{game:'bombs',sub_op:'pick',cell:${i}})"
+            class="aspect-square rounded-2xl font-black text-xl flex items-center justify-center transition ${cls}">
+            ${content}
+          </button>
+        `;
+      }
+
+      root.innerHTML = `
+        ${renderTopBar('💣 BOMBS • بمب و سکه')}
+        <div class="flex-1 overflow-y-auto px-3 pb-24 flex flex-col justify-between gap-2.5 text-xs">
+          ${spMsg ? `<div class="p-2.5 rounded-2xl bg-emerald-600/35 border border-emerald-400 font-bold text-center">${spMsg}</div>` : ''}
+          ${spErr ? `<div class="p-2.5 rounded-2xl bg-rose-600/40 border border-rose-400 font-bold text-center">${spErr}</div>` : ''}
+
+          <div class="glass-panel px-4 py-2.5 rounded-2xl flex justify-between items-center font-black">
+            <span>ضریب فعلی: <b class="text-emerald-300 text-sm">${b.mult || 1.0}x</b></span>
+            <span>جایزه فعلی: <b class="text-amber-300 text-sm">${(b.potential_win || 0).toLocaleString()} 🪙</b></span>
+          </div>
+
+          <div class="ltr-grid grid grid-cols-5 gap-2 glass-panel p-3 rounded-3xl">
+            ${gridHtml}
+          </div>
+
+          <div class="glass-panel p-3.5 rounded-3xl space-y-2.5">
+            ${b.active ? `
+              <button onclick="callSocialApi('casino_play',{game:'bombs',sub_op:'cashout'})" class="btn-success w-full py-4 rounded-2xl font-black text-sm">
+                💰 برداشت جایزه (${(b.potential_win || b.bet).toLocaleString()} 🪙)
+              </button>
+            ` : `
+              <div class="grid grid-cols-2 gap-2">
+                <div>
+                  <label class="block text-[10px] text-slate-300 mb-1">🪙 مبلغ شرط (سکه):</label>
+                  <input id="bm_bet" type="number" value="${b.bet || 200}" min="10" class="w-full p-2.5 rounded-xl glass-soft text-center font-black text-amber-300" />
+                </div>
+                <div>
+                  <label class="block text-[10px] text-slate-300 mb-1">💣 تعداد بمب‌ها (۱ تا ۱۵):</label>
+                  <select id="bm_mines" class="w-full p-2.5 rounded-xl bg-slate-900 border border-white/20 text-white font-black text-center">
+                    ${[3, 5, 7, 10, 15].map(n => `<option value="${n}" ${(b.mines_count||5)===n?'selected':''}>${n} بمب</option>`).join('')}
+                  </select>
+                </div>
+              </div>
+              <button onclick="callSocialApi('casino_play',{game:'bombs',sub_op:'start',bet:Number(document.getElementById('bm_bet').value||200),mines:Number(document.getElementById('bm_mines').value||5)})" class="btn-primary w-full py-3.5 rounded-2xl font-black text-sm">
+                💣 شروع بازی و کاشت بمب‌ها
+              </button>
+            `}
+          </div>
+        </div>
+        ${renderBottomNav()}
+      `;
+    }
+
+    function renderPickaxeOrSlot(root, mode) {
+      const isPick = mode === 'pickaxe';
+      const res = isPick ? pickaxeLastResult : slotLastResult;
+      root.innerHTML = `
+        ${renderTopBar(isPick ? '⛏️ HELL PICKAXE' : '🎰 ROYAL SLOT')}
+        <div class="flex-1 overflow-y-auto px-3 pb-24 flex flex-col justify-between gap-3">
+          <div class="glass-panel p-6 rounded-3xl text-center my-auto space-y-3 border border-amber-400/40">
+            <div class="text-6xl">${isPick ? '⛏️💎' : (res?.reels ? res.reels.join(' ') : '🎰 7️⃣ 💎')}</div>
+            <div class="text-2xl font-black text-amber-300">${res ? `${res.mult}x` : 'آماده شانس‌آزمایی!'}</div>
+            <div class="text-xs font-bold text-slate-200">${spMsg || spErr || (isPick ? 'با کلنگ دوزخی سنگ معدن را بشکن و تا ۱۲ برابر سکه ببر!' : 'گردونه سلطنتی را بچرخان و تا ۱۵ برابر سکه برنده شو!')}</div>
+          </div>
+
+          <div class="glass-panel p-4 rounded-3xl space-y-3 text-xs">
+            <label class="block text-[11px] text-slate-300 font-bold text-center">🪙 مبلغ شرط (سکه):</label>
+            <input id="ps_bet" type="number" value="200" min="10" class="w-full p-3 rounded-xl glass-soft text-center font-black text-lg text-amber-300" />
+            <button onclick="callSocialApi('casino_play',{game:'${mode}',bet:Number(document.getElementById('ps_bet').value||200)})" class="btn-primary w-full py-4 rounded-2xl font-black text-base">
+              ${isPick ? '⛏️ ضربه با کلنگ دوزخی' : '🎰 چرخش اسلات سلطنتی'}
+            </button>
+          </div>
+        </div>
+        ${renderBottomNav()}
+      `;
+    }
+
+    /* ═══════════════════════════════════════════════════════════════════════════
+       اتاق‌های صوتی (SUGO Style) + پروفایل کاربری با کارت‌های رنگی + فروشگاه VIP
+       ═══════════════════════════════════════════════════════════════════════════ */
+    window.openMyVoiceRoomQuick = async function() {
+      if (!spState) await callSocialApi('state');
+      if (spState?.me?.room) {
+        callSocialApi('join_room', { room_id: spState.me.room.room_id });
+      } else {
+        currentGame = 'voice_hub';
+        vrSheet = 'edit_room';
+        render();
+      }
+    };
+
+    window.openUserProfileModal = function(targetUid) {
+      viewedProfileData = null;
+      currentGame = 'sp_profile';
+      callSocialApi('view_profile', { target_uid: Number(targetUid) });
+    };
+
+    window.vrOpenExitPrompt = function() {
+      vrSheet = 'exit_confirm';
+      drawLiveVoiceRoom(document.getElementById('app'));
+    };
+
+    window.vrKeepMinimized = function() {
+      minimizedVoiceRoom = activeVoiceRoom;
+      vrSheet = '';
+      currentGame = 'voice_hub';
+      render();
+    };
+
+    function renderVoiceHub(root) {
+      if (!spState) { callSocialApi('state'); return; }
+      const me = spState.me;
+      const rooms = spState.rooms || [];
+
+      const roomsGridHtml = rooms.map(r => `
+        <div onclick="callSocialApi('join_room',{room_id:${r.room_id}})" class="arcade-card cursor-pointer">
+          <img src="${r.photo || '/api/banner/voice_hub.png'}" onerror="this.src='/api/banner/voice_hub.png'" class="arcade-card-bg" />
+          <div class="arcade-card-overlay">
+            <div class="flex justify-between items-start">
+              <span class="px-2 py-0.5 rounded-full bg-black/60 backdrop-blur-md text-[10px] font-black text-amber-300 border border-amber-400/30">
+                Lv.${r.level || 1}
+              </span>
+              ${r.is_locked ? `<span class="w-7 h-7 rounded-full bg-rose-600/90 flex items-center justify-center text-xs shadow">🔒</span>` : `<span class="px-2 py-0.5 rounded-full bg-emerald-500/80 text-[9px] font-black">LIVE</span>`}
+            </div>
+            <div>
+              <div class="font-black text-sm text-white truncate drop-shadow">${r.title}</div>
+              <div class="text-[10px] text-slate-300 truncate mb-1.5">${r.description || ''}</div>
+              <div class="flex items-center justify-between ltr-grid">
+                <span class="pill-mode-pve">${r.category || 'Friendship'}</span>
+                <span class="pill-players">👥 ${r.online_count || 1}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      `).join('');
+
+      const editModalHtml = vrSheet === 'edit_room' ? renderEditRoomModal(me.room) : '';
+
+      root.innerHTML = `
+        ${editModalHtml}
+        ${renderMinimizedFloatingWidget()}
+        ${renderTopBar('🎙️ اتاق‌های صوتی زنده')}
+
+        <div class="flex-1 overflow-y-auto px-3 pb-24">
+          <div class="flex justify-between items-center mb-3">
+            <span class="text-xs font-black text-slate-300">اتاق‌های صوتی فعال (${rooms.length})</span>
+            <button onclick="vrSheet='edit_room';renderVoiceHub(document.getElementById('app'))" class="btn-primary px-3.5 py-2 rounded-xl text-xs font-black">
+              ${me.room ? '⚙️ ویرایش اتاق من' : '➕ ساخت اتاق صوتی'}
+            </button>
+          </div>
+
+          ${spMsg ? `<div class="p-3 rounded-2xl bg-emerald-600/35 border border-emerald-400 text-xs font-bold text-center mb-3">${spMsg}</div>` : ''}
+          ${spErr ? `<div class="p-3 rounded-2xl bg-rose-600/40 border border-rose-400 text-xs font-bold text-center mb-3">${spErr}</div>` : ''}
+
+          ${me.room ? `
+            <div onclick="callSocialApi('join_room',{room_id:${me.room.room_id}})" class="glass-panel p-3 rounded-3xl mb-3 flex items-center justify-between border border-purple-400/40 cursor-pointer">
+              <div class="flex items-center gap-3 min-w-0">
+                <img src="${me.room.photo || me.photo || '/api/banner/voice_hub.png'}" class="w-12 h-12 rounded-2xl object-cover border border-amber-400" />
+                <div class="min-w-0">
+                  <div class="text-xs font-black text-amber-300 truncate">👑 اتاق شخصی شما: ${me.room.title}</div>
+                  <div class="text-[10px] text-slate-300">ID: ${me.room.room_id} • ${me.room.is_locked ? '🔒 قفل‌شده' : '🟢 عمومی'} • ${me.room.mic_count} مایک</div>
+                </div>
+              </div>
+              <span class="btn-success px-3 py-1.5 rounded-xl text-xs font-black shrink-0">ورود ◀</span>
+            </div>
+          ` : ''}
+
+          <div class="grid grid-cols-2 gap-3">
+            ${roomsGridHtml || `<div class="col-span-2 glass-panel p-8 rounded-3xl text-center text-xs text-slate-300">هنوز اتاق صوتی ساخته نشده است! روی «➕ ساخت اتاق صوتی» بزنید.</div>`}
+          </div>
+        </div>
+        ${renderBottomNav()}
+      `;
+    }
+
+    function renderEditRoomModal(rm) {
+      const me = spState?.me || {};
+      return `
+        <div class="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
+          <div class="glass-panel p-4 rounded-3xl w-full max-w-sm space-y-2.5 text-xs max-h-[90vh] overflow-y-auto border border-purple-400/40">
+            <h3 class="text-sm font-black text-amber-300 text-center">🎙️ تنظیمات اتاق صوتی شخصی شما</h3>
+            <div>
+              <label class="block text-[11px] text-slate-300 mb-1">نام اتاق صوتی:</label>
+              <input id="rm_title" type="text" value="${rm?.title || ('مجلس ' + myName)}" class="w-full p-2.5 rounded-xl glass-soft text-white font-bold text-center" />
+            </div>
+            <div>
+              <label class="block text-[11px] text-slate-300 mb-1">معرفی اتاق (Room Info):</label>
+              <input id="rm_desc" type="text" value="${rm?.description || 'به اتاق صوتی خوش آمدید!'}" class="w-full p-2.5 rounded-xl glass-soft text-white text-center" />
+            </div>
+            <div class="glass-soft p-2.5 rounded-2xl text-center">
+              <label class="block text-[11px] text-amber-200 font-bold mb-1">📷 عکس پروفایل اتاق صوتی (آپلود از گالری):</label>
+              <input type="file" accept="image/*" onchange="handleImageUpload(this, 'my_room_photo', 'prev_my_room_photo')" class="w-full text-[10px]" />
+              <img id="prev_my_room_photo" src="${rm?.photo || ''}" class="${rm?.photo ? '' : 'hidden'} w-20 h-20 rounded-2xl object-cover mx-auto mt-2 border border-amber-400" />
+            </div>
+            <div class="grid grid-cols-2 gap-2">
+              <div>
+                <label class="block text-[11px] text-slate-300 mb-1">تعداد میکروفون‌ها:</label>
+                <select id="rm_mics" class="w-full p-2.5 rounded-xl bg-slate-900 border border-white/20 text-white font-bold text-center">
+                  ${[1,2,6,8,10,12,15,20,24,30,36].map(n => `<option value="${n}" ${(rm?.mic_count||8)===n?'selected':''}>${n} Mic</option>`).join('')}
+                </select>
+              </div>
+              <div>
+                <label class="block text-[11px] text-slate-300 mb-1">دسته‌بندی:</label>
+                <select id="rm_cat" class="w-full p-2.5 rounded-xl bg-slate-900 border border-white/20 text-white font-bold text-center">
+                  <option value="Friendship">Friendship</option>
+                  <option value="Families">Families</option>
+                  <option value="PK Battle">PK Battle</option>
+                  <option value="Music">Music</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="glass-soft p-3 rounded-2xl space-y-2 border ${me.can_lock_room ? 'border-emerald-400/40' : 'border-rose-400/40'}">
+              <div class="flex justify-between items-center">
+                <span class="font-black text-amber-300">🔒 قفل کردن اتاق (ویژه اشتراک PRO+):</span>
+                <input id="rm_lock" type="checkbox" ${rm?.is_locked ? 'checked' : ''} ${!me.can_lock_room ? 'disabled' : ''} class="w-4 h-4" />
+              </div>
+              ${!me.can_lock_room ? `<div class="text-[10px] text-rose-300">برای قفل کردن اتاق نیاز به اشتراک PRO، PLUS یا ULTRA دارید.</div>` : `
+                <input id="rm_pin" type="text" value="${rm?.pin_code || ''}" placeholder="رمز عبور اتاق (مثلاً: 1234)" class="w-full p-2 rounded-xl bg-slate-900 text-white text-center font-bold" />
+              `}
+            </div>
+
+            <div class="grid grid-cols-2 gap-2 pt-2">
+              <button onclick="vrSheet='';callSocialApi('save_my_room',{title:document.getElementById('rm_title').value,description:document.getElementById('rm_desc').value,room_photo:window.uploadedImages['my_room_photo']||'',mic_count:Number(document.getElementById('rm_mics').value),category:document.getElementById('rm_cat').value,is_locked:document.getElementById('rm_lock').checked,pin_code:document.getElementById('rm_pin')?.value||''})" class="btn-success py-3 rounded-2xl font-black">💾 ذخیره و ورود</button>
+              <button onclick="vrSheet='';render()" class="btn-danger py-3 rounded-2xl font-bold">انصراف</button>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    function renderMinimizedFloatingWidget() {
+      if (!minimizedVoiceRoom || currentGame === 'voice_room_live') return '';
+      return `
+        <div onclick="activeVoiceRoom=minimizedVoiceRoom;minimizedVoiceRoom=null;currentGame='voice_room_live';render()" class="fixed top-20 left-3 z-40 w-20 h-24 rounded-2xl overflow-hidden border-2 border-purple-400 shadow-2xl cursor-pointer bg-slate-950">
+          <img src="${minimizedVoiceRoom.photo || '/api/banner/voice_hub.png'}" class="w-full h-16 object-cover" />
+          <div class="bg-purple-900/90 text-[9px] font-black text-center py-1 truncate px-1">🎙️ ${minimizedVoiceRoom.title}</div>
+        </div>
+      `;
+    }
+
+    function startLiveVoiceRoom(root) {
+      if (!activeVoiceRoom) { currentGame = 'voice_hub'; return render(); }
+      drawLiveVoiceRoom(root);
+      if (vrPollTimer) clearInterval(vrPollTimer);
+      vrPollTimer = setInterval(() => {
+        if (currentGame === 'voice_room_live' && activeVoiceRoom && !isUserTyping() && !vrSheet) {
+          callSocialApi('room_op', { room_id: activeVoiceRoom.room_id, op: 'ping' });
+        }
+      }, 3500);
+    }
+
+    function drawLiveVoiceRoom(root) {
+      if (!root || currentGame !== 'voice_room_live' || !activeVoiceRoom) return;
+      const r = activeVoiceRoom;
+      const me = spState?.me || {};
+      const isRoomOwner = (Number(r.owner_id) === Number(uid)) || isOwner;
+
+      const bgThemes = {
+        lighthouse: "radial-gradient(circle at 50% 20%, #1e1b4b 0%, #090514 85%)",
+        royal_stage: "radial-gradient(circle at 50% 15%, #581c87 0%, #1e1b4b 60%, #090514 95%)",
+        crimson: "radial-gradient(circle at 50% 20%, #7f1d1d 0%, #111827 90%)",
+        emerald: "radial-gradient(circle at 50% 20%, #065f46 0%, #090514 90%)"
+      };
+      const roomBgCss = bgThemes[r.bg_theme] || bgThemes.lighthouse;
+
+      const mc = r.mic_count || 8;
+      const gridCols = mc === 1 ? 'grid-cols-1 max-w-[110px]' : (mc === 2 ? 'grid-cols-2 max-w-[220px]' : (mc <= 8 ? 'grid-cols-4' : (mc <= 15 ? 'grid-cols-5' : 'grid-cols-6')));
+      const seatSize = mc <= 8 ? 'w-14 h-14 text-lg' : (mc <= 15 ? 'w-12 h-12 text-sm' : 'w-10 h-10 text-xs');
+
+      let seatsHtml = '';
+      for (let i = 1; i <= mc; i++) {
+        const occ = (r.seats || {})[String(i)];
+        const isLockedSeat = (r.locked_seats || []).includes(i);
+        seatsHtml += `
+          <div class="flex flex-col items-center gap-1">
+            <button onclick="callSocialApi('room_op',{room_id:${r.room_id},op:'take_seat',seat_idx:'${i}'})"
+              style="${occ?.ring_css ? `box-shadow:${occ.ring_css};` : ''}"
+              class="${seatSize} rounded-full ${occ ? 'bg-indigo-950 border-2 border-emerald-400' : 'bg-white/10 border border-white/25'} flex items-center justify-center relative overflow-hidden active:scale-95 transition">
+              ${occ ? (occ.photo ? `<img src="${occ.photo}" class="w-full h-full object-cover" />` : `<span class="font-black">${(occ.name||'P')[0]}</span>`) : (isLockedSeat ? '🔒' : '➕')}
+              ${occ?.muted ? `<span class="absolute bottom-0 right-0 bg-rose-600 text-[9px] rounded-full px-1">🔇</span>` : ''}
+            </button>
+            <div onclick="${occ ? `openUserProfileModal(${occ.uid})` : (isRoomOwner ? `callSocialApi('room_op',{room_id:${r.room_id},op:'toggle_seat_lock',seat_idx:${i}})` : '')}" class="text-[10px] font-bold text-slate-200 truncate max-w-[68px] cursor-pointer">
+              ${occ ? `${occ.badge ? occ.badge.split(' ')[0] : ''}${occ.name}` : `${i}`}
+            </div>
+          </div>
+        `;
+      }
+
+      const membersAvatars = (r.visible_members || []).slice(0, 6).map(m => `
+        <img onclick="openUserProfileModal(${m.uid})" src="${m.photo || '/api/banner/hub.png'}" style="${m.ring_css ? `box-shadow:${m.ring_css};` : ''}" title="${m.name}" class="w-7 h-7 rounded-full object-cover border border-amber-400/60 cursor-pointer" />
+      `).join('');
+
+      const chatsHtml = (r.chats || []).map(c => c.sys ? `
+        <div class="px-3 py-1.5 rounded-2xl ${c.gift ? 'bg-amber-500/25 border border-amber-400/50 text-amber-200' : 'bg-teal-950/60 border border-teal-500/25 text-teal-300'} text-[11px] font-bold">
+          ${c.text}
+        </div>
+      ` : `
+        <div class="px-3 py-1.5 rounded-2xl bg-black/45 text-xs">
+          <span onclick="openUserProfileModal(${c.uid})" class="font-black text-amber-300 cursor-pointer">${c.badge ? c.badge + ' ' : ''}${c.name}:</span>
+          <span class="text-white mr-1">${c.text}</span>
+        </div>
+      `).join('');
+
+      const imSeated = Object.values(r.seats || {}).some(s => s && Number(s.uid) === Number(uid));
+
+      let modalSheetHtml = '';
+      if (vrSheet === 'exit_confirm') {
+        modalSheetHtml = `
+          <div onclick="vrSheet='';drawLiveVoiceRoom(document.getElementById('app'))" class="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex flex-col items-center justify-center gap-10">
+            <div class="flex flex-col items-center gap-2">
+              <button onclick="event.stopPropagation();vrKeepMinimized()" class="w-20 h-20 rounded-full bg-gradient-to-br from-emerald-400 to-teal-500 flex items-center justify-center text-3xl shadow-[0_0_25px_#10b981]">🗗</button>
+              <span class="font-black text-sm">Keep</span>
+            </div>
+            <div class="flex flex-col items-center gap-2">
+              <button onclick="event.stopPropagation();callSocialApi('room_op',{room_id:${r.room_id},op:'leave_room'})" class="w-20 h-20 rounded-full bg-gradient-to-br from-rose-500 to-red-600 flex items-center justify-center text-3xl shadow-[0_0_25px_#f43f5e]">⏻</button>
+              <span class="font-black text-sm">Exit</span>
+            </div>
+          </div>
+        `;
+      } else if (vrSheet === 'manage') {
+        modalSheetHtml = `
+          <div onclick="vrSheet='';drawLiveVoiceRoom(document.getElementById('app'))" class="fixed inset-0 z-50 bg-black/65 flex flex-col justify-end">
+            <div onclick="event.stopPropagation()" class="glass-panel rounded-t-3xl p-4 space-y-4 border-t border-purple-400/40">
+              <div class="flex justify-between items-center border-b border-white/10 pb-2 text-xs font-black">
+                <span class="text-amber-300">🎛️ Room Management & Tools</span>
+                <button onclick="vrSheet='';drawLiveVoiceRoom(document.getElementById('app'))" class="text-slate-400">✖</button>
+              </div>
+              <div class="grid grid-cols-4 gap-3 text-center text-[11px] font-bold">
+                <button onclick="vrSheet='modes';drawLiveVoiceRoom(document.getElementById('app'))" class="glass-soft p-3 rounded-2xl flex flex-col items-center gap-1"><span class="text-xl">🎙️</span><span>Room Mode</span></button>
+                <button onclick="callSocialApi('room_op',{room_id:${r.room_id},op:'toggle_lock_room'});vrSheet=''" class="glass-soft p-3 rounded-2xl flex flex-col items-center gap-1"><span class="text-xl">${r.is_locked ? '🔓' : '🔒'}</span><span>${r.is_locked ? 'Unlock' : 'Lock Room'}</span></button>
+                <button onclick="callSocialApi('room_op',{room_id:${r.room_id},op:'toggle_auto_lock_mics'});vrSheet=''" class="glass-soft p-3 rounded-2xl flex flex-col items-center gap-1"><span class="text-xl">💺</span><span>Mic Lock</span></button>
+                <button onclick="callSocialApi('room_op',{room_id:${r.room_id},op:'clear_chat'});vrSheet=''" class="glass-soft p-3 rounded-2xl flex flex-col items-center gap-1"><span class="text-xl">🧹</span><span>Delete Chat</span></button>
+                <button onclick="callSocialApi('room_op',{room_id:${r.room_id},op:'toggle_music'});vrSheet=''" class="glass-soft p-3 rounded-2xl flex flex-col items-center gap-1"><span class="text-xl">🎵</span><span>Music</span></button>
+                <button onclick="callSocialApi('room_op',{room_id:${r.room_id},op:'toggle_pk'});vrSheet=''" class="glass-soft p-3 rounded-2xl flex flex-col items-center gap-1"><span class="text-xl">⚔️</span><span>PK Battle</span></button>
+                <button onclick="callSocialApi('room_op',{room_id:${r.room_id},op:'change_bg',bg_theme:'royal_stage'});vrSheet=''" class="glass-soft p-3 rounded-2xl flex flex-col items-center gap-1"><span class="text-xl">🌌</span><span>Stage BG</span></button>
+                <button onclick="vrSheet='';nav('sp_store')" class="glass-soft p-3 rounded-2xl flex flex-col items-center gap-1"><span class="text-xl">🛍️</span><span>VIP Store</span></button>
+              </div>
+            </div>
+          </div>
+        `;
+      } else if (vrSheet === 'modes') {
+        const micOptions = [
+          { n: 1, mode: 'normal', lbl: '1 Mic' },
+          { n: 2, mode: 'normal', lbl: '2 Mic' },
+          { n: 6, mode: 'normal', lbl: '6 Mic' },
+          { n: 8, mode: 'pk',     lbl: '8 Mic (PK)' },
+          { n: 10, mode: 'pk',    lbl: '10 Mic (PK)' },
+          { n: 12, mode: 'theme', lbl: '12 Mic' },
+          { n: 15, mode: 'normal',lbl: '15 Mic' },
+          { n: 20, mode: 'normal',lbl: '20 Mic' },
+          { n: 24, mode: 'normal',lbl: '24 Mic' },
+          { n: 30, mode: 'normal',lbl: '30 Mic' },
+          { n: 36, mode: 'normal',lbl: '36 Mic' }
+        ];
+        modalSheetHtml = `
+          <div onclick="vrSheet='';drawLiveVoiceRoom(document.getElementById('app'))" class="fixed inset-0 z-50 bg-black/70 flex flex-col justify-end">
+            <div onclick="event.stopPropagation()" class="bg-slate-950 rounded-t-3xl p-4 space-y-3 max-h-[75vh] overflow-y-auto border-t border-purple-400">
+              <h3 class="text-sm font-black text-center text-amber-300">🎙️ انتخاب چیدمان میکروفون‌های اتاق</h3>
+              <div class="grid grid-cols-3 gap-2.5 text-xs">
+                ${micOptions.map(m => `
+                  <button onclick="callSocialApi('room_op',{room_id:${r.room_id},op:'change_layout',mic_count:${m.n},mic_mode:'${m.mode}'});vrSheet=''"
+                    class="p-3 rounded-2xl border ${r.mic_count===m.n ? 'border-purple-400 bg-purple-950/60' : 'border-white/10 bg-white/5'} flex flex-col items-center gap-1.5">
+                    <span class="px-2 py-0.5 rounded-full bg-sky-500/20 text-sky-300 text-[9px] font-black">${m.mode.toUpperCase()}</span>
+                    <span class="font-black text-white">${m.lbl}</span>
+                  </button>
+                `).join('')}
+              </div>
+            </div>
+          </div>
+        `;
+      } else if (vrSheet === 'details') {
+        modalSheetHtml = `
+          <div onclick="vrSheet='';drawLiveVoiceRoom(document.getElementById('app'))" class="fixed inset-0 z-50 bg-black/70 flex flex-col justify-end">
+            <div onclick="event.stopPropagation()" class="bg-white text-slate-900 rounded-t-3xl p-5 space-y-4 max-h-[80vh] overflow-y-auto">
+              <div class="flex justify-between items-center">
+                <h3 class="font-black text-base">Room Details</h3>
+                <button onclick="openUserProfileModal(${r.owner_id})" class="text-xs font-bold text-purple-700">👤 مشاهده پروفایل مالک اتاق</button>
+              </div>
+              <div class="flex items-center justify-between bg-slate-100 p-3 rounded-2xl">
+                <div class="flex items-center gap-3">
+                  <img src="${r.photo || '/api/banner/voice_hub.png'}" class="w-14 h-14 rounded-2xl object-cover" />
+                  <div>
+                    <div class="font-black text-sm">👑 ${r.title}</div>
+                    <div class="text-xs text-slate-500">ID: ${r.room_id}</div>
+                  </div>
+                </div>
+                <span class="px-3 py-1 rounded-xl bg-amber-400 text-black font-black text-xs">Lv.${r.level || 1}</span>
+              </div>
+              <div class="bg-slate-100 p-3 rounded-2xl">
+                <div class="font-black text-xs mb-2">Room Members (${r.online_count || 1})</div>
+                <div class="flex gap-2 flex-wrap">
+                  ${(r.visible_members || []).map(m => `
+                    <div onclick="openUserProfileModal(${m.uid})" class="flex items-center gap-1 bg-white px-2.5 py-1 rounded-full text-xs font-bold shadow-sm cursor-pointer">
+                      <span>👤 ${m.name}</span><span class="text-[10px] text-purple-600">${m.badge||''}</span>
+                    </div>
+                  `).join('')}
+                </div>
+              </div>
+              <div class="bg-slate-100 p-3 rounded-2xl">
+                <div class="font-black text-xs mb-1">Room Info</div>
+                <div class="text-xs text-slate-600">${r.description || '—'}</div>
+              </div>
+            </div>
+          </div>
+        `;
+      } else if (vrSheet === 'gifts') {
+        const gifts = (spState?.store_items || []).filter(x => x.category === 'gift');
+        modalSheetHtml = `
+          <div onclick="vrSheet='';drawLiveVoiceRoom(document.getElementById('app'))" class="fixed inset-0 z-50 bg-black/65 flex flex-col justify-end">
+            <div onclick="event.stopPropagation()" class="glass-panel rounded-t-3xl p-4 space-y-3 border-t border-amber-400/40">
+              <div class="flex justify-between items-center text-xs font-black">
+                <span class="text-amber-300">🎁 ارسال هدیه در اتاق (موجودی: ${(me.coins||0).toLocaleString()} 🪙)</span>
+                <button onclick="vrSheet='';drawLiveVoiceRoom(document.getElementById('app'))">✖</button>
+              </div>
+              <div class="grid grid-cols-4 gap-2 text-center text-xs">
+                ${gifts.map(g => `
+                  <button onclick="callSocialApi('room_op',{room_id:${r.room_id},op:'send_gift',gift_id:${g.id}});vrSheet=''" class="glass-soft p-2.5 rounded-2xl flex flex-col items-center gap-1 hover:border-amber-400">
+                    <span class="text-2xl">${g.icon}</span>
+                    <span class="font-bold text-[10px] truncate w-full">${g.name}</span>
+                    <span class="text-[10px] text-amber-300 font-black">${g.price_coins} 🪙</span>
+                  </button>
+                `).join('')}
+              </div>
+            </div>
+          </div>
+        `;
+      }
+
+      root.innerHTML = `
+        ${modalSheetHtml}
+        <div style="background: ${roomBgCss};" class="flex-1 flex flex-col justify-between p-3 overflow-hidden relative">
+          <div class="flex items-center justify-between gap-2 shrink-0">
+            <div onclick="vrSheet='details';drawLiveVoiceRoom(document.getElementById('app'))" class="glass-panel px-2.5 py-1.5 rounded-2xl flex items-center gap-2 cursor-pointer">
+              <img src="${r.photo || '/api/banner/voice_hub.png'}" class="w-9 h-9 rounded-xl object-cover border border-amber-400" />
+              <div class="leading-tight">
+                <div class="font-black text-xs text-amber-200 flex items-center gap-1">
+                  <span>👑 ${r.title}</span>
+                  ${r.is_locked ? '<span>🔒</span>' : ''}
+                </div>
+                <div class="text-[10px] text-slate-400">ID: ${r.room_id} • 🪙 ${r.total_gifts || 0}</div>
+              </div>
+            </div>
+
+            <div class="flex items-center gap-1.5">
+              <div class="flex -space-x-2 overflow-hidden">${membersAvatars}</div>
+              <span class="px-2 py-1 rounded-xl glass-soft text-[11px] font-black">👥 ${r.online_count || 1}</span>
+              <button onclick="vrOpenExitPrompt()" class="w-8 h-8 rounded-full glass-panel flex items-center justify-center text-sm font-black">⏻</button>
+            </div>
+          </div>
+
+          <div class="flex items-center justify-between gap-2 my-1 shrink-0">
+            <div class="px-2.5 py-1 rounded-full bg-amber-500/20 border border-amber-400/30 text-[10px] font-black text-amber-300">
+              🏆 Lv.${r.level || 1} • ${r.mic_count} Mic
+            </div>
+            ${r.music_playing ? `<div class="px-2.5 py-1 rounded-full bg-purple-600/40 border border-purple-400 text-[10px] font-bold animate-pulse">🎵 ${r.music_title}</div>` : ''}
+            ${me.can_ghost_join && me.ghost_mode && !imSeated && !isRoomOwner ? `<div class="px-2.5 py-1 rounded-full bg-sky-500/30 border border-sky-300 text-[10px] font-black text-sky-200">👻 حالت روح فعال (مخفی)</div>` : ''}
+          </div>
+
+          ${r.pk_active ? `
+            <div class="glass-panel p-2 rounded-2xl flex items-center justify-between text-xs font-black border border-rose-500/50 mb-1 shrink-0">
+              <span class="text-sky-400">🔵 TEAM A: ${r.pk_score_a}</span>
+              <span class="px-2 py-0.5 rounded bg-rose-600 text-[10px]">PK VS</span>
+              <span class="text-rose-400">🔴 TEAM B: ${r.pk_score_b}</span>
+            </div>
+          ` : ''}
+
+          <div class="my-auto py-2 overflow-y-auto max-h-[44vh] flex justify-center">
+            <div class="grid ${gridCols} gap-3 justify-items-center w-full">
+              ${seatsHtml}
+            </div>
+          </div>
+
+          <div class="flex flex-col gap-1.5 max-h-[26vh] overflow-y-auto mb-2 pr-1">
+            <div class="px-3 py-1.5 rounded-2xl bg-indigo-950/70 border border-indigo-400/30 text-[11px] text-amber-200">
+              📣 <b>Room Info:</b> ${r.description}
+            </div>
+            ${chatsHtml}
+          </div>
+
+          <div class="flex items-center gap-1.5 shrink-0 pt-1">
+            <div class="flex-1 flex items-center gap-1 glass-panel rounded-full px-3 py-1.5">
+              <input id="vrChatInp" type="text" placeholder="Say something..." onkeydown="if(event.key==='Enter'){callSocialApi('room_op',{room_id:${r.room_id},op:'chat',text:this.value});this.value='';}" class="flex-1 bg-transparent text-xs text-white outline-none" />
+              <button onclick="const el=document.getElementById('vrChatInp');if(el.value){callSocialApi('room_op',{room_id:${r.room_id},op:'chat',text:el.value});el.value='';}" class="text-purple-300 font-black text-xs">ارسال</button>
+            </div>
+
+            ${imSeated ? `
+              <button onclick="callSocialApi('room_op',{room_id:${r.room_id},op:'toggle_my_mic'})" class="w-10 h-10 rounded-full btn-success flex items-center justify-center text-base">🎙️</button>
+              <button onclick="callSocialApi('room_op',{room_id:${r.room_id},op:'leave_seat'})" class="w-10 h-10 rounded-full btn-danger flex items-center justify-center text-xs font-bold">⬇️</button>
+            ` : ''}
+
+            <button onclick="vrSheet='manage';drawLiveVoiceRoom(document.getElementById('app'))" class="w-10 h-10 rounded-full glass-panel flex items-center justify-center text-base">🎛️</button>
+            <button onclick="vrSheet='gifts';drawLiveVoiceRoom(document.getElementById('app'))" class="w-10 h-10 rounded-full bg-gradient-to-br from-amber-400 to-rose-500 flex items-center justify-center text-base shadow-lg">🎁</button>
+          </div>
+        </div>
+      `;
+    }
+
+    /* ─── پروفایل اختصاصی کاربر با کارت‌های رنگی تلگرام + نمایش حلقه و اشتراک + اتاق صوتی ─── */
+    function renderSpProfile(root) {
+      if (!spState) { callSocialApi('state'); return; }
+      const me = spState.me;
+      const p = viewedProfileData || me;
+      const isMe = Number(p.user_id) === Number(uid);
+      const themes = spState.profile_themes || [];
+      const curTheme = themes.find(t => t.id === p.card_theme) || themes[0];
+
+      const themeSelectorHtml = isMe ? themes.map(t => `
+        <button onclick="callSocialApi('save_profile',{card_theme:'${t.id}'})" style="background:${t.css}" class="px-2.5 py-2 rounded-xl text-[10px] font-black border ${p.card_theme===t.id ? 'border-white scale-105' : 'border-white/20 opacity-80'} flex items-center justify-between gap-1">
+          <span>${t.title}</span>
+          ${t.tier !== 'free' ? `<span class="px-1 rounded bg-black/50 text-amber-300 text-[8px]">${t.tier.toUpperCase()}</span>` : ''}
+        </button>
+      `).join('') : '';
+
+      const visitorsHtml = isMe ? (p.visitors_log || []).map(v => `
+        <div onclick="openUserProfileModal(${v.uid})" class="glass-soft p-2 rounded-xl flex items-center justify-between text-xs cursor-pointer">
+          <div class="flex items-center gap-2">
+            <img src="${v.photo || '/api/banner/hub.png'}" class="w-8 h-8 rounded-full object-cover" />
+            <span class="font-bold">${v.name} <b class="text-amber-300">${v.badge||''}</b></span>
+          </div>
+          <span class="text-[10px] text-slate-400">${v.time}</span>
+        </div>
+      `).join('') : '';
+
+      root.innerHTML = `
+        ${renderTopBar('👤 پروفایل کاربری')}
+        <div class="flex-1 overflow-y-auto px-3 pb-24 space-y-3">
+          ${spMsg ? `<div class="p-3 rounded-2xl bg-emerald-600/35 border border-emerald-400 text-xs font-bold text-center">${spMsg}</div>` : ''}
+          ${spErr ? `<div class="p-3 rounded-2xl bg-rose-600/40 border border-rose-400 text-xs font-bold text-center">${spErr}</div>` : ''}
+
+          <div style="background: ${curTheme?.css || '#3b0764'};" class="p-5 rounded-3xl border border-white/25 shadow-2xl text-center relative overflow-hidden">
+            <div class="relative inline-block mb-3">
+              ${p.photo ? `
+                <img src="${p.photo}" style="${p.ring_css ? `box-shadow:${p.ring_css};` : ''}" class="w-24 h-24 rounded-full object-cover mx-auto border-2 border-white" />
+              ` : `
+                <div style="${p.ring_css ? `box-shadow:${p.ring_css};` : ''}" class="w-24 h-24 rounded-full bg-slate-900 flex items-center justify-center text-3xl font-black mx-auto border-2 border-white">${(p.display_name||'U')[0]}</div>
+              `}
+            </div>
+            <div class="text-lg font-black text-white flex items-center justify-center gap-1.5">
+              <span>${p.display_name}</span>
+              ${p.sub_badge ? `<span class="px-2.5 py-0.5 rounded-full bg-black/55 border border-amber-300 text-amber-300 text-xs font-black">${p.sub_badge}</span>` : ''}
+            </div>
+            <div class="text-xs text-white/80 font-mono mb-2">
+              ID: ${p.user_id} ${p.username ? '• @'+p.username : ''} ${p.ring_name ? `• ⭕ ${p.ring_name}` : ''}
+            </div>
+            <p class="text-xs text-white/95 bg-black/30 p-2.5 rounded-2xl max-w-xs mx-auto">${p.bio}</p>
+
+            <div class="grid grid-cols-3 gap-2 mt-3 text-xs font-black">
+              <div class="bg-black/35 p-2 rounded-xl"><div class="text-[10px] text-white/70">سکه</div><div class="text-amber-300">🪙 ${(p.coins||0).toLocaleString()}</div></div>
+              <div class="bg-black/35 p-2 rounded-xl"><div class="text-[10px] text-white/70">هدایا</div><div class="text-pink-300">🎁 ${p.gifts_received||0}</div></div>
+              <div class="bg-black/35 p-2 rounded-xl"><div class="text-[10px] text-white/70">اشتراک</div><div class="text-emerald-300 uppercase">${p.sub_tier}</div></div>
+            </div>
+          </div>
+
+          <!-- نمایش اتاق صوتی شخص در داخل پروفایلش -->
+          <div class="glass-panel p-4 rounded-3xl">
+            <h4 class="text-xs font-black text-amber-300 mb-2">🎙️ اتاق صوتی اختصاصی ${isMe ? 'شما' : p.display_name}</h4>
+            ${p.room ? `
+              <div onclick="callSocialApi('join_room',{room_id:${p.room.room_id}})" class="glass-soft p-3 rounded-2xl flex items-center justify-between cursor-pointer border border-purple-400/40">
+                <div class="flex items-center gap-3 min-w-0">
+                  <img src="${p.room.photo || p.photo || '/api/banner/voice_hub.png'}" class="w-12 h-12 rounded-2xl object-cover" />
+                  <div class="min-w-0">
+                    <div class="font-black text-xs text-white truncate">${p.room.title} ${p.room.is_locked ? '🔒' : '🟢'}</div>
+                    <div class="text-[10px] text-slate-300 truncate">${p.room.description}</div>
+                    <div class="text-[10px] text-emerald-300 font-bold">👥 ${p.room.online_count || 1} نفر داخل اتاق • Lv.${p.room.level || 1}</div>
+                  </div>
+                </div>
+                <button class="btn-success px-3 py-2 rounded-xl text-xs font-black shrink-0">ورود ◀</button>
+              </div>
+            ` : `
+              <div class="text-center text-xs text-slate-400 py-2">
+                ${isMe ? `<button onclick="openMyVoiceRoomQuick()" class="btn-primary px-4 py-2.5 rounded-xl font-black">➕ ساخت اتاق صوتی شخصی</button>` : 'این کاربر هنوز اتاق صوتی نساخته است.'}
+              </div>
+            `}
+          </div>
+
+          ${isMe ? `
+            <div class="glass-panel p-4 rounded-3xl space-y-3 text-xs">
+              <h4 class="font-black text-sm text-indigo-300 text-center">🎨 رنگ پس‌زمینه کارت پروفایل</h4>
+              <div class="grid grid-cols-2 gap-2">${themeSelectorHtml}</div>
+
+              <div class="border-t border-white/10 pt-3 space-y-2">
+                <label class="block text-[11px] text-slate-300">نام نمایشی و بیوگرافی:</label>
+                <input id="sp_name_inp" type="text" value="${p.display_name}" class="w-full p-2.5 rounded-xl glass-soft text-white font-bold text-center" />
+                <input id="sp_bio_inp" type="text" value="${p.bio}" class="w-full p-2.5 rounded-xl glass-soft text-white text-center" />
+
+                <div class="glass-soft p-2.5 rounded-xl flex justify-between items-center">
+                  <span>🕵️ بازدید مخفی پروفایل دیگران (PLUS+):</span>
+                  <input id="sp_stealth_chk" type="checkbox" ${p.stealth_mode ? 'checked' : ''} ${!p.can_stealth_visit ? 'disabled' : ''} class="w-4 h-4" />
+                </div>
+                <div class="glass-soft p-2.5 rounded-xl flex justify-between items-center">
+                  <span>👻 ورود روح به اتاق‌های صوتی (ULTRA):</span>
+                  <input id="sp_ghost_chk" type="checkbox" ${p.ghost_mode ? 'checked' : ''} ${!p.can_ghost_join ? 'disabled' : ''} class="w-4 h-4" />
+                </div>
+
+                <button onclick="callSocialApi('save_profile',{display_name:document.getElementById('sp_name_inp').value,bio:document.getElementById('sp_bio_inp').value,card_theme:'${p.card_theme}',stealth_mode:document.getElementById('sp_stealth_chk').checked,ghost_mode:document.getElementById('sp_ghost_chk').checked})" class="btn-success w-full py-3 rounded-2xl font-black">
+                  💾 ذخیره تغییرات پروفایل
+                </button>
+              </div>
+            </div>
+
+            <div class="glass-panel p-4 rounded-3xl space-y-2 text-xs">
+              <h4 class="font-black text-amber-300 text-center">👁️ آخرین بازدیدکنندگان پروفایل شما</h4>
+              <div class="flex flex-col gap-1.5">${visitorsHtml || '<div class="text-center text-slate-400">هنوز کسی از پروفایل شما بازدید نکرده است.</div>'}</div>
+            </div>
+          ` : `
+            <button onclick="viewedProfileData=null;renderSpProfile(document.getElementById('app'))" class="btn-primary w-full py-3 rounded-2xl font-black text-xs">🔙 بازگشت به پروفایل خودم</button>
+          `}
+        </div>
+        ${renderBottomNav()}
+      `;
+    }
+
+    /* ─── فروشگاه جامع (اشتراک‌های Pro/Plus/Ultra + حلقه‌های دور پروفایل + گیفت‌ها) ─── */
+    function renderSpStore(root) {
+      if (!spState) { callSocialApi('state'); return; }
+      const me = spState.me;
+      const subs = (spState.sub_tiers || []).filter(s => s.id !== 'free');
+      const rings = (spState.store_items || []).filter(i => i.category === 'ring');
+      const gifts = (spState.store_items || []).filter(i => i.category === 'gift');
+
+      let contentHtml = '';
+      if (storeTab === 'subs') {
+        contentHtml = subs.map(s => {
+          const isCurrent = me.sub_tier === s.id;
+          return `
+            <div class="glass-panel p-4 rounded-3xl space-y-2.5 border ${isCurrent ? 'border-emerald-400 ring-2 ring-emerald-400/30' : (s.id==='ultra' ? 'border-pink-400' : 'border-purple-400/40')}">
+              <div class="flex justify-between items-center">
+                <span class="text-base font-black text-white">${s.title}</span>
+                <span class="px-2.5 py-1 rounded-full bg-white/10 text-amber-300 text-xs font-black">${s.badge}</span>
+              </div>
+              <ul class="text-xs text-slate-200 space-y-1 pr-2">
+                ${s.perks.map(pk => `<li>✅ ${pk}</li>`).join('')}
+              </ul>
+              <div class="grid grid-cols-2 gap-2 pt-2">
+                <button onclick="callSocialApi('buy_subscription',{tier_id:'${s.id}',pay_method:'coins'})" class="btn-success py-3 rounded-xl font-black text-xs">
+                  🪙 خرید با ${s.coins.toLocaleString()} سکه
+                </button>
+                <button onclick="callSocialApi('buy_subscription',{tier_id:'${s.id}',pay_method:'direct_stars'})" class="btn-primary py-3 rounded-xl font-black text-xs">
+                  ⭐ خرید با ${s.stars} استارز
+                </button>
+              </div>
+            </div>
+          `;
+        }).join('');
+      } else if (storeTab === 'rings') {
+        contentHtml = `
+          ${me.avatar_ring_id ? `<button onclick="callSocialApi('buy_or_equip_ring',{ring_id:0})" class="btn-danger w-full py-2.5 rounded-2xl text-xs font-black mb-2">❌ برداشتن حلقه فعلی از دور آواتار</button>` : ''}
+        ` + rings.map(r => {
+          const owned = (me.owned_rings || []).includes(Number(r.id));
+          const equipped = Number(me.avatar_ring_id) === Number(r.id);
+          return `
+            <div class="glass-panel p-3.5 rounded-3xl flex items-center justify-between gap-3 border ${equipped ? 'border-emerald-400' : 'border-white/10'}">
+              <div class="flex items-center gap-3">
+                <div style="box-shadow:${r.ring_css}" class="w-14 h-14 rounded-full bg-slate-900 flex items-center justify-center text-2xl shrink-0 border border-white/30">
+                  ${r.icon || '⭕'}
+                </div>
+                <div>
+                  <div class="font-black text-xs text-white">${r.name}</div>
+                  <div class="text-[11px] text-amber-300 font-bold">${r.price_coins.toLocaleString()} 🪙</div>
+                </div>
+              </div>
+              <button onclick="callSocialApi('buy_or_equip_ring',{ring_id:${r.id}})" class="${equipped ? 'btn-success' : (owned ? 'btn-primary' : 'btn-danger')} px-4 py-2.5 rounded-xl text-xs font-black shrink-0">
+                ${equipped ? 'فعال ✓' : (owned ? 'پوشیدن' : `خرید (${r.price_coins} 🪙)`)}
+              </button>
+            </div>
+          `;
+        }).join('');
+      } else {
+        contentHtml = `<div class="grid grid-cols-2 gap-2.5">` + gifts.map(g => `
+          <div class="glass-panel p-3.5 rounded-3xl text-center space-y-1.5">
+            <div class="text-4xl">${g.icon}</div>
+            <div class="font-black text-xs text-white">${g.name}</div>
+            <div class="text-xs text-amber-300 font-extrabold">${g.price_coins.toLocaleString()} 🪙</div>
+            <div class="text-[10px] text-slate-400">قابل ارسال در تمام اتاق‌های صوتی</div>
+          </div>
+        `).join('') + `</div>`;
+      }
+
+      root.innerHTML = `
+        ${renderTopBar('🛍️ فروشگاه VIP و کاور پروفایل')}
+        <div class="flex-1 overflow-y-auto px-3 pb-24 space-y-3">
+          <div class="glass-panel p-3 rounded-2xl flex justify-between items-center text-xs font-black">
+            <span>موجودی: <b class="text-amber-300">🪙 ${(me.coins||0).toLocaleString()}</b> | <b class="text-purple-300">⭐ ${me.stars_balance||0}</b></span>
+            <span>اشتراک: <b class="text-emerald-300 uppercase">${me.sub_tier} ${me.sub_badge||''}</b></span>
+          </div>
+
+          <div class="grid grid-cols-3 gap-2 text-xs font-black">
+            <button onclick="storeTab='subs';renderSpStore(document.getElementById('app'))" class="py-2.5 rounded-xl ${storeTab==='subs' ? 'btn-primary' : 'glass-soft'}">💎 اشتراک VIP</button>
+            <button onclick="storeTab='rings';renderSpStore(document.getElementById('app'))" class="py-2.5 rounded-xl ${storeTab==='rings' ? 'btn-primary' : 'glass-soft'}">⭕ حلقه آواتار</button>
+            <button onclick="storeTab='gifts';renderSpStore(document.getElementById('app'))" class="py-2.5 rounded-xl ${storeTab==='gifts' ? 'btn-primary' : 'glass-soft'}">🎁 گیفت‌ها</button>
+          </div>
+
+          ${spMsg ? `<div class="p-3 rounded-2xl bg-emerald-600/35 border border-emerald-400 text-xs font-bold text-center">${spMsg}</div>` : ''}
+          ${spErr ? `<div class="p-3 rounded-2xl bg-rose-600/40 border border-rose-400 text-xs font-bold text-center">${spErr}</div>` : ''}
+
+          <div class="space-y-3">${contentHtml}</div>
+        </div>
+        ${renderBottomNav()}
+      `;
+    }
+
+    /* ═══════════════════════════════════════════════════════════════════════════
+       پنل مدیریت کل پلتفرم راینو (مستقل از برج شیاطین)
        ═══════════════════════════════════════════════════════════════════════════ */
     let admState = null;
     let admTab = 'ui_assets';
@@ -1213,124 +2017,26 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
       callTowerAdminApi('delete_ui_asset', { asset_key: assetKey });
     };
 
-    window.admFillFloorForm = function(fnum) {
-      const f = (admState?.floors || []).find(x => x.floor_num === fnum);
-      if (!f) return;
-      document.getElementById('af_num').value = f.floor_num;
-      document.getElementById('af_name').value = f.boss_name || '';
-      document.getElementById('af_desc').value = f.description || '';
-      document.getElementById('af_power').value = f.power_desc || '';
-      document.getElementById('af_weak').value = f.weakness || '';
-      document.getElementById('af_hp').value = f.hp || 100;
-      document.getElementById('af_atk').value = f.atk || 20;
-      document.getElementById('af_def').value = f.def || 10;
-      document.getElementById('af_coins').value = f.reward_coins || 100;
-      document.getElementById('af_xp').value = f.reward_xp || 50;
-      document.getElementById('af_drop').value = f.drop_item || '';
-      document.getElementById('af_dprice').value = f.drop_price || 50;
-      if (f.photo) {
-        window.uploadedImages['floor_photo'] = f.photo;
-        const pImg = document.getElementById('prev_floor_photo');
-        if (pImg) { pImg.src = f.photo; pImg.classList.remove('hidden'); }
-      }
-    };
-
-    window.admSubmitFloor = function() {
-      callTowerAdminApi('save_floor', {
-        floor_num: Number(document.getElementById('af_num').value || 1),
-        boss_name: document.getElementById('af_name').value,
-        photo: window.uploadedImages['floor_photo'] || '',
-        description: document.getElementById('af_desc').value,
-        power_desc: document.getElementById('af_power').value,
-        weakness: document.getElementById('af_weak').value,
-        hp: Number(document.getElementById('af_hp').value || 100),
-        atk: Number(document.getElementById('af_atk').value || 20),
-        def_val: Number(document.getElementById('af_def').value || 10),
-        reward_coins: Number(document.getElementById('af_coins').value || 100),
-        reward_xp: Number(document.getElementById('af_xp').value || 50),
-        drop_item: document.getElementById('af_drop').value,
-        drop_price: Number(document.getElementById('af_dprice').value || 50)
-      });
-    };
-
-    window.admSubmitItem = function() {
-      callTowerAdminApi('save_item', {
-        item_type: document.getElementById('ai_type').value,
-        name: document.getElementById('ai_name').value,
-        photo: window.uploadedImages['item_photo'] || '',
-        price: Number(document.getElementById('ai_price').value || 0),
-        hp_bonus: Number(document.getElementById('ai_hp').value || 0),
-        atk_bonus: Number(document.getElementById('ai_atk').value || 0),
-        def_bonus: Number(document.getElementById('ai_def').value || 0),
-        spd_bonus: Number(document.getElementById('ai_spd').value || 0)
-      });
-    };
-
-    window.admSubmitChars = function() {
-      callTowerAdminApi('save_gender_imgs', {
-        male_img: window.uploadedImages['male_photo'] || '',
-        female_img: window.uploadedImages['female_photo'] || ''
-      });
-    };
-
-    window.admSubmitGift = function() {
-      callTowerAdminApi('save_gift', {
-        code: document.getElementById('ag_code').value,
-        coins: Number(document.getElementById('ag_coins').value || 0),
-        xp: Number(document.getElementById('ag_xp').value || 0),
-        max_uses: Number(document.getElementById('ag_uses').value || 1)
-      });
-    };
-
-    window.admSubmitPopup = function(clear = false) {
-      if (clear) return callTowerAdminApi('save_popup', { clear: true });
-      callTowerAdminApi('save_popup', {
-        text: document.getElementById('ap_text').value,
-        photo: window.uploadedImages['popup_photo'] || '',
-        btn_text: document.getElementById('ap_btxt').value,
-        btn_url: document.getElementById('ap_burl').value,
-        hours: Number(document.getElementById('ap_hrs').value || 24)
-      });
-    };
-
-    window.admDecideVoucher = function(vid, dec) {
-      const noteEl = document.getElementById('vnote_' + vid);
-      callTowerAdminApi('decide_voucher', {
-        voucher_id: vid,
-        decision: dec,
-        note: noteEl ? noteEl.value : ''
-      });
-    };
-
     function startTowerAdminApp(root) {
       if (!isOwner) {
-        root.innerHTML = `<div class="p-8 text-center"><div class="glass-panel p-6 rounded-3xl text-rose-400 font-black">⛔ دسترسی غیرمجاز (فقط مالک ربات)</div></div>`;
+        root.innerHTML = `<div class="p-8 text-center"><div class="glass-panel p-6 rounded-3xl text-rose-400 font-black">⛔ دسترسی غیرمجاز</div></div>`;
         return;
       }
-      root.innerHTML = `<div class="p-6 text-center"><div class="glass-panel p-6 rounded-3xl font-bold">در حال بارگذاری پنل فرماندهی کل ربات...</div></div>`;
+      root.innerHTML = `<div class="p-6 text-center"><div class="glass-panel p-6 rounded-3xl font-bold">در حال بارگذاری پنل مدیریت کل...</div></div>`;
       callTowerAdminApi('state');
     }
 
     function drawTowerAdminApp(root) {
       if (!root || currentGame !== 'tower_admin') return;
-      if (!isOwner) {
-        root.innerHTML = `<div class="p-8 text-center"><div class="glass-panel p-6 rounded-3xl text-rose-400 font-black">⛔ دسترسی غیرمجاز</div></div>`;
-        return;
-      }
       if (!admState) return;
 
       const tabs = [
         { id: 'ui_assets',    lbl: '🖼️ عکس بازی‌ها' },
         { id: 'bot_stats',    lbl: '📊 آمار و همگانی' },
+        { id: 'users',        lbl: '👤 کاربران و شارژ' },
+        { id: 'store_mgr',    lbl: '🛍️ مدیریت فروشگاه' },
         { id: 'bot_channels', lbl: '🔒 قفل کانال' },
-        { id: 'bot_groups',   lbl: '👥 گروه‌ها' },
-        { id: 'users',        lbl: '👤 کاربران و بن' },
-        { id: 'floors',       lbl: '👹 طبقات برج' },
-        { id: 'items',        lbl: '⚔️ سلاح و زره' },
-        { id: 'chars',        lbl: '🚻 عکس کاراکتر' },
-        { id: 'vouchers',     lbl: '🎟️ ووچرها' },
-        { id: 'gifts',        lbl: '🎁 کد هدیه' },
-        { id: 'popup',        lbl: '📢 پاپ‌آپ' }
+        { id: 'bot_groups',   lbl: '👥 گروه‌ها' }
       ];
       const tabsHtml = tabs.map(t => `
         <button onclick="admSwitchTab('${t.id}')" class="px-3 py-2 rounded-xl text-xs font-black shrink-0 ${admTab === t.id ? 'btn-primary text-white' : 'glass-soft text-slate-300'}">
@@ -1340,15 +2046,15 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
 
       let sectionHtml = '';
 
-      /* تب ۰: تغییر و آپلود مستقیم تمام عکس‌های بازی‌ها و بک‌گراندهای مینی‌اپ */
       if (admTab === 'ui_assets') {
         const assetItems = [
-          { key: 'rhino_hero',  title: '🦏 بنر کارت معرفی گیم باکس راینو' },
           { key: 'menu_bg',     title: '🌌 پس‌زمینه کل مینی‌اپ (Menu BG)' },
           { key: 'hokm_carpet', title: '🟥 طرح فرش میز حکم (Hokm Carpet)' },
-          { key: 'tower_hero',  title: '👹 بنر بالای منوی برج شیاطین' },
-          { key: 'tower_bg',    title: '🌋 پس‌زمینه صفحات برج شیاطین' },
-          { key: 'demontower',  title: '🃏 پوستر کارت بازی: برج شیاطین' },
+          { key: 'crash',       title: '🚀 پوستر کارت کازینو: CRASH' },
+          { key: 'bombs',       title: '💣 پوستر کارت کازینو: BOMBS' },
+          { key: 'pickaxe',     title: '⛏️ پوستر کارت کازینو: HELL PICKAXE' },
+          { key: 'slot',        title: '🎰 پوستر کارت کازینو: ROYAL SLOT' },
+          { key: 'voice_hub',   title: '🎙️ پوستر کارت: اتاق‌های صوتی' },
           { key: 'hokm',        title: '🃏 پوستر کارت بازی: حکم ۴ نفره' },
           { key: 'hokm2p',      title: '🃏 پوستر کارت بازی: حکم ۲ نفره' },
           { key: 'dooz',        title: '🃏 پوستر کارت بازی: دوز ۲ نفره' },
@@ -1361,9 +2067,7 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
           { key: 'samegame',    title: '🃏 پوستر کارت بازی: جفت‌های رنگی' },
           { key: 'memory',      title: '🃏 پوستر کارت بازی: حافظه' },
           { key: 'typing',      title: '🃏 پوستر کارت بازی: تایپ سرعتی' },
-          { key: 'hangman',     title: '🃏 پوستر کارت بازی: حدس کلمه' },
-          { key: 'wip1',        title: '🃏 پوستر کارت بازی: شکارچی سیاه‌چال' },
-          { key: 'wip2',        title: '🃏 پوستر کارت بازی: هک گاوصندوق' }
+          { key: 'hangman',     title: '🃏 پوستر کارت بازی: حدس کلمه' }
         ];
 
         const savedMap = admState.ui_assets || {};
@@ -1382,9 +2086,7 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
                     </div>
                   </div>
                 </div>
-                ${hasCustom ? `
-                  <button onclick="admDeleteUiAsset('${item.key}')" class="btn-danger px-2.5 py-1.5 rounded-xl text-[10px] font-bold shrink-0">حذف</button>
-                ` : ''}
+                ${hasCustom ? `<button onclick="admDeleteUiAsset('${item.key}')" class="btn-danger px-2.5 py-1.5 rounded-xl text-[10px] font-bold shrink-0">حذف</button>` : ''}
               </div>
               <div class="flex items-center gap-2 pt-1 border-t border-white/10">
                 <input type="file" accept="image/*" onchange="handleImageUpload(this, 'asset_${item.key}', 'prev_asset_${item.key}')" class="flex-1 text-[10px] text-slate-300" />
@@ -1397,430 +2099,65 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
         sectionHtml = `
           <div class="glass-panel p-4 rounded-3xl space-y-3 text-xs">
             <h3 class="font-black text-sm text-amber-300 text-center">🖼️ مدیریت و تغییر تمام عکس‌های مینی‌اپ</h3>
-            <p class="text-[11px] text-slate-300 text-center">برای هر بازی یا پس‌زمینه، عکس دلخواهتان را از گالری انتخاب و روی «ذخیره» بزنید تا بلافاصله در کل مینی‌اپ تغییر کند:</p>
             <div class="flex flex-col gap-2.5">${cardsListHtml}</div>
           </div>
         `;
       }
 
-      /* ۰-الف. تب آمار کل ربات و ارسال همگانی هیبریدی */
       else if (admTab === 'bot_stats') {
         const st = admState.bot_stats || {};
         const draft = admState.bc_draft || null;
-
         sectionHtml = `
           <div class="glass-panel p-4 rounded-3xl space-y-3 text-xs">
-            <h3 class="font-black text-sm text-amber-300 text-center">📊 آمار زنده کل ربات راینو</h3>
+            <h3 class="font-black text-sm text-amber-300 text-center">📊 آمار زنده کل پلتفرم راینو</h3>
             <div class="grid grid-cols-2 gap-2 text-center font-extrabold">
               <div class="glass-soft p-3 rounded-2xl"><div class="text-slate-400 text-[10px]">کل کاربران</div><div class="text-lg text-emerald-300">${st.users || 0}</div></div>
               <div class="glass-soft p-3 rounded-2xl"><div class="text-slate-400 text-[10px]">کل گروه‌ها</div><div class="text-lg text-sky-300">${st.groups || 0}</div></div>
-              <div class="glass-soft p-3 rounded-2xl"><div class="text-slate-400 text-[10px]">بازیکنان برج</div><div class="text-lg text-amber-300">${admState.players_count || 0}</div></div>
-              <div class="glass-soft p-3 rounded-2xl"><div class="text-slate-400 text-[10px]">مجموع استارز</div><div class="text-lg text-purple-300">⭐ ${st.stars || 0}</div></div>
+              <div class="glass-soft p-3 rounded-2xl"><div class="text-slate-400 text-[10px]">اتاق‌های صوتی</div><div class="text-lg text-amber-300">${st.rooms || 0}</div></div>
+              <div class="glass-soft p-3 rounded-2xl"><div class="text-slate-400 text-[10px]">مشترکین VIP</div><div class="text-lg text-purple-300">💎 ${st.vips || 0}</div></div>
             </div>
 
             <div class="border-t border-white/10 pt-3 space-y-2.5">
               <h4 class="font-black text-sm text-indigo-300 text-center">📢 ارسال پیام همگانی (با حفظ ایموجی پریمیوم)</h4>
-
               <div class="glass-soft p-3 rounded-2xl text-center space-y-2 border ${draft ? 'border-emerald-400/50' : 'border-amber-400/40'}">
                 ${draft ? `
                   <div class="text-emerald-300 font-black text-xs">✅ پیام همگانی شما در پیوی دریافت و آماده ارسال است!</div>
-                  <div class="p-2 rounded-xl bg-black/40 text-slate-200 text-[11px] truncate">«${draft.preview}» (ثبت در ${draft.saved_at})</div>
+                  <div class="p-2 rounded-xl bg-black/40 text-slate-200 text-[11px] truncate">«${draft.preview}»</div>
                   <div class="grid grid-cols-2 gap-2 pt-1">
                     <button onclick="callTowerAdminApi('bot_arm_bc_capture');setTimeout(()=>tg?.close?.(),700)" class="btn-primary py-2 rounded-xl font-bold text-[11px]">🔄 تغییر پیام در پیوی</button>
                     <button onclick="callTowerAdminApi('bot_clear_bc_draft')" class="btn-danger py-2 rounded-xl font-bold text-[11px]">🗑️ پاک کردن پیام</button>
                   </div>
                 ` : `
-                  <div class="text-amber-200 font-bold text-[11px]">هنوز پیامی برای ارسال همگانی ثبت نشده است:</div>
                   <button onclick="callTowerAdminApi('bot_arm_bc_capture');setTimeout(()=>tg?.close?.(),700)" class="btn-primary w-full py-3.5 rounded-2xl font-black text-xs border border-amber-400/50">
                     📝 ثبت پیام همگانی در پیوی ربات (با ایموجی پریمیوم)
                   </button>
                 `}
               </div>
 
-              <div class="space-y-2 pt-1">
-                <label class="block text-[11px] text-slate-300 font-bold">۱. انتخاب مقصد ارسال:</label>
-                <select id="bc_target" class="w-full p-2.5 rounded-xl bg-slate-900 border border-white/20 text-white font-bold text-center">
-                  <option value="users">👤 ارسال به تمام کاربران (پیوی)</option>
-                  <option value="groups">👥 ارسال به تمام گروه‌ها</option>
-                </select>
-
-                <label class="block text-[11px] text-slate-300 font-bold">۲. دکمه شیشه‌ای زیر پیام (اختیاری):</label>
-                <div class="grid grid-cols-2 gap-2">
-                  <input id="bc_btxt" type="text" placeholder="متن دکمه شیشه‌ای" class="p-2.5 rounded-xl glass-soft text-white text-center" />
-                  <input id="bc_burl" type="text" placeholder="لینک (https://...)" class="p-2.5 rounded-xl glass-soft text-white text-center" />
-                </div>
-
-                <button onclick="callTowerAdminApi('bot_broadcast',{target_type:document.getElementById('bc_target').value,btn_text:document.getElementById('bc_btxt').value,btn_url:document.getElementById('bc_burl').value})" ${!draft ? 'disabled' : ''} class="${draft ? 'btn-success' : 'bg-slate-800 opacity-50'} w-full py-4 rounded-2xl font-black text-sm mt-2">
-                  🚀 شروع ارسال همگانی نهایی
-                </button>
-              </div>
-            </div>
-          </div>
-        `;
-      }
-
-      /* ۰-ب. تب مدیریت کانال‌های عضویت اجباری */
-      else if (admTab === 'bot_channels') {
-        const chRows = (admState.forced_channels || []).map(c => `
-          <div class="glass-soft p-3 rounded-2xl flex justify-between items-center text-xs">
-            <div>
-              <div class="font-black text-amber-300">${c.title || c.chat_id}</div>
-              <div class="text-[10px] text-slate-300">ID: ${c.chat_id} ${c.username ? '(@'+c.username+')' : ''}</div>
-            </div>
-            <button onclick="callTowerAdminApi('bot_del_channel',{chat_id:'${c.chat_id}'})" class="btn-danger px-3 py-1.5 rounded-xl text-[10px] font-black">حذف</button>
-          </div>
-        `).join('');
-
-        sectionHtml = `
-          <div class="glass-panel p-4 rounded-3xl space-y-2.5 text-xs">
-            <h3 class="font-black text-sm text-amber-300 text-center">🔒 افزودن کانال به قفل عضویت اجباری</h3>
-            <div>
-              <label class="block text-[11px] text-slate-300 mb-1">یوزرنیم کانال (با @) یا آیدی عددی (-100...):</label>
-              <input id="fc_cid" type="text" placeholder="مثلاً: @RHINOBOT_TM" class="w-full p-2.5 rounded-xl glass-soft text-center font-black text-white" />
-            </div>
-            <div class="grid grid-cols-2 gap-2">
-              <div>
-                <label class="block text-[11px] text-slate-300 mb-1">عنوان نمایشی دکمه:</label>
-                <input id="fc_title" type="text" placeholder="کانال رسمی راینو" class="w-full p-2.5 rounded-xl glass-soft text-center text-white" />
-              </div>
-              <div>
-                <label class="block text-[11px] text-slate-300 mb-1">یوزرنیم بدون @ (جهت لینک):</label>
-                <input id="fc_uname" type="text" placeholder="RHINOBOT_TM" class="w-full p-2.5 rounded-xl glass-soft text-center text-white" />
-              </div>
-            </div>
-            <button onclick="callTowerAdminApi('bot_add_channel',{chat_id:document.getElementById('fc_cid').value,title:document.getElementById('fc_title').value,username:document.getElementById('fc_uname').value})" class="btn-success w-full py-3.5 rounded-2xl font-black text-sm">
-              ➕ افزودن کانال به قفل اجباری
-            </button>
-          </div>
-
-          <div class="glass-panel p-3.5 rounded-3xl space-y-2 mt-3">
-            <h4 class="text-xs font-black text-indigo-300 text-center">لیست کانال‌های عضویت اجباری فعال</h4>
-            <div class="flex flex-col gap-2">${chRows || '<div class="text-center text-xs text-slate-400">هیچ کانالی ثبت نشده است.</div>'}</div>
-          </div>
-        `;
-      }
-
-      /* ۰-ج. تب لیست گروه‌ها */
-      else if (admTab === 'bot_groups') {
-        const gRows = (admState.groups_list || []).map(g => `
-          <div class="glass-soft p-3 rounded-2xl flex justify-between items-center gap-2 text-xs">
-            <div class="truncate">
-              <div class="font-black text-white truncate">${g.title || 'Group'}</div>
-              <div class="text-[10px] text-slate-400 font-mono">${g.chat_id}</div>
-            </div>
-            <div class="flex gap-1 shrink-0">
-              <button onclick="callTowerAdminApi('bot_group_link',{chat_id:${g.chat_id}})" class="btn-primary px-2.5 py-1.5 rounded-xl text-[10px] font-bold">🔗 لینک</button>
-              <button onclick="callTowerAdminApi('bot_leave_group',{chat_id:${g.chat_id}})" class="btn-danger px-2.5 py-1.5 rounded-xl text-[10px] font-bold">🚪 خروج</button>
-            </div>
-          </div>
-        `).join('');
-
-        sectionHtml = `
-          <div class="glass-panel p-4 rounded-3xl space-y-2.5">
-            <h3 class="font-black text-sm text-amber-300 text-center">👥 لیست گروه‌های فعال ربات (${(admState.groups_list || []).length})</h3>
-            <div class="flex flex-col gap-2">${gRows || '<div class="text-center text-xs text-slate-400">گروهی ثبت نشده است.</div>'}</div>
-          </div>
-        `;
-      }
-
-      /* ۱. تب طبقات و غول‌ها */
-      else if (admTab === 'floors') {
-        const fList = (admState.floors || []).map(f => `
-          <div class="glass-soft p-2.5 rounded-2xl flex items-center justify-between gap-2 text-xs">
-            <div class="flex items-center gap-2">
-              ${f.photo ? `<img src="${f.photo}" class="w-10 h-10 rounded-xl object-cover" />` : `<div class="w-10 h-10 rounded-xl bg-rose-900/50 flex items-center justify-center">👹</div>`}
-              <div>
-                <div class="font-black text-amber-300">طبقه ${f.floor_num}: ${f.boss_name}</div>
-                <div class="text-[10px] text-slate-300">❤️${f.hp} | ⚔️${f.atk} | 🛡️${f.def} | 🪙${f.reward_coins}</div>
-              </div>
-            </div>
-            <div class="flex gap-1">
-              <button onclick="admFillFloorForm(${f.floor_num})" class="btn-primary px-2.5 py-1.5 rounded-xl text-[10px] font-bold">ویرایش</button>
-              <button onclick="callTowerAdminApi('delete_floor',{floor_num:${f.floor_num}})" class="btn-danger px-2.5 py-1.5 rounded-xl text-[10px] font-bold">حذف</button>
-            </div>
-          </div>
-        `).join('');
-
-        sectionHtml = `
-          <div class="glass-panel p-4 rounded-3xl space-y-2.5 text-xs">
-            <h3 class="font-black text-sm text-amber-300 text-center mb-1">👹 افزودن / ویرایش طبقه و غول (خانه‌به‌خانه)</h3>
-            <div class="grid grid-cols-2 gap-2">
-              <div>
-                <label class="block text-[11px] text-slate-300 mb-1">شماره طبقه:</label>
-                <input id="af_num" type="number" value="${(admState.floors?.length || 0) + 1}" class="w-full p-2.5 rounded-xl glass-soft text-center font-black text-white" />
-              </div>
-              <div>
-                <label class="block text-[11px] text-slate-300 mb-1">نام غول:</label>
-                <input id="af_name" type="text" placeholder="مثلاً: اژدهای خاکستر" class="w-full p-2.5 rounded-xl glass-soft text-center font-bold text-white" />
-              </div>
-            </div>
-
-            <div class="glass-soft p-3 rounded-2xl text-center">
-              <label class="block text-[11px] text-amber-200 font-bold mb-2">📷 عکس غول (آپلود مستقیم از گالری):</label>
-              <input type="file" accept="image/*" onchange="handleImageUpload(this, 'floor_photo', 'prev_floor_photo')" class="w-full text-[11px] text-slate-300" />
-              <img id="prev_floor_photo" class="hidden w-28 h-28 object-cover rounded-2xl mx-auto mt-2 border border-amber-400" />
-            </div>
-
-            <div>
-              <label class="block text-[11px] text-slate-300 mb-1">توضیح کوتاه مرحله:</label>
-              <input id="af_desc" type="text" placeholder="توضیح داستان یا ویژگی غول..." class="w-full p-2.5 rounded-xl glass-soft text-white" />
-            </div>
-
-            <div class="grid grid-cols-2 gap-2">
-              <div>
-                <label class="block text-[11px] text-slate-300 mb-1">🔥 قدرت ویژه غول:</label>
-                <input id="af_power" type="text" placeholder="مثلاً: نفس آتشین" class="w-full p-2.5 rounded-xl glass-soft text-white" />
-              </div>
-              <div>
-                <label class="block text-[11px] text-slate-300 mb-1">⚡ نقطه ضعف غول:</label>
-                <input id="af_weak" type="text" placeholder="مثلاً: شمشیر یخی" class="w-full p-2.5 rounded-xl glass-soft text-white" />
-              </div>
-            </div>
-
-            <div class="grid grid-cols-3 gap-2">
-              <div>
-                <label class="block text-[11px] text-rose-300 mb-1">❤️ جان (HP):</label>
-                <input id="af_hp" type="number" value="250" class="w-full p-2 rounded-xl glass-soft text-center font-bold text-white" />
-              </div>
-              <div>
-                <label class="block text-[11px] text-amber-300 mb-1">⚔️ حمله (ATK):</label>
-                <input id="af_atk" type="number" value="35" class="w-full p-2 rounded-xl glass-soft text-center font-bold text-white" />
-              </div>
-              <div>
-                <label class="block text-[11px] text-sky-300 mb-1">🛡️ دفاع (DEF):</label>
-                <input id="af_def" type="number" value="15" class="w-full p-2 rounded-xl glass-soft text-center font-bold text-white" />
-              </div>
-            </div>
-
-            <div class="grid grid-cols-2 gap-2">
-              <div>
-                <label class="block text-[11px] text-amber-300 mb-1">🪙 پاداش سکه:</label>
-                <input id="af_coins" type="number" value="300" class="w-full p-2 rounded-xl glass-soft text-center font-bold text-white" />
-              </div>
-              <div>
-                <label class="block text-[11px] text-purple-300 mb-1">⭐ پاداش XP:</label>
-                <input id="af_xp" type="number" value="100" class="w-full p-2 rounded-xl glass-soft text-center font-bold text-white" />
-              </div>
-            </div>
-
-            <div class="grid grid-cols-2 gap-2">
-              <div>
-                <label class="block text-[11px] text-emerald-300 mb-1">🎁 نام غنیمت افتاده:</label>
-                <input id="af_drop" type="text" placeholder="مثلاً: یاقوت سرخ" class="w-full p-2 rounded-xl glass-soft text-center text-white" />
-              </div>
-              <div>
-                <label class="block text-[11px] text-emerald-300 mb-1">💰 قیمت فروش غنیمت:</label>
-                <input id="af_dprice" type="number" value="80" class="w-full p-2 rounded-xl glass-soft text-center font-bold text-white" />
-              </div>
-            </div>
-
-            <button onclick="admSubmitFloor()" class="btn-success w-full py-3.5 rounded-2xl font-black text-sm mt-2">💾 ذخیره طبقه و غول</button>
-          </div>
-
-          <div class="glass-panel p-3.5 rounded-3xl space-y-2 mt-3">
-            <h4 class="text-xs font-black text-indigo-300 text-center">لیست طبقات فعلی برج (${(admState.floors || []).length} طبقه)</h4>
-            <div class="flex flex-col gap-2">${fList}</div>
-          </div>
-        `;
-      }
-
-      /* ۲. تب سلاح‌ها و زره‌ها */
-      else if (admTab === 'items') {
-        const iList = (admState.items || []).map(it => `
-          <div class="glass-soft p-2.5 rounded-2xl flex items-center justify-between gap-2 text-xs">
-            <div class="flex items-center gap-2">
-              ${it.photo ? `<img src="${it.photo}" class="w-10 h-10 rounded-xl object-cover" />` : `<div class="w-10 h-10 rounded-xl glass-panel flex items-center justify-center">${it.item_type==='weapon'?'⚔️':'🛡️'}</div>`}
-              <div>
-                <div class="font-black text-white">${it.name} (${it.price} 🪙)</div>
-                <div class="text-[10px] text-emerald-300">+HP:${it.hp_bonus} | +ATK:${it.atk_bonus} | +DEF:${it.def_bonus} | SPD:${it.spd_bonus}</div>
-              </div>
-            </div>
-            <button onclick="callTowerAdminApi('delete_item',{item_id:${it.id}})" class="btn-danger px-2.5 py-1.5 rounded-xl text-[10px] font-bold">حذف</button>
-          </div>
-        `).join('');
-
-        sectionHtml = `
-          <div class="glass-panel p-4 rounded-3xl space-y-2.5 text-xs">
-            <h3 class="font-black text-sm text-amber-300 text-center">⚔️ افزودن سلاح یا زره جدید</h3>
-            <div class="grid grid-cols-2 gap-2">
-              <div>
-                <label class="block text-[11px] text-slate-300 mb-1">نوع آیتم:</label>
-                <select id="ai_type" class="w-full p-2.5 rounded-xl bg-slate-900 border border-white/20 text-white font-bold">
-                  <option value="weapon">⚔️ سلاح (Weapon)</option>
-                  <option value="armor">🛡️ زره (Armor)</option>
-                </select>
-              </div>
-              <div>
-                <label class="block text-[11px] text-slate-300 mb-1">نام سلاح / زره:</label>
-                <input id="ai_name" type="text" placeholder="مثلاً: شمشیر اژدها" class="w-full p-2.5 rounded-xl glass-soft text-white font-bold" />
-              </div>
-            </div>
-
-            <div class="glass-soft p-3 rounded-2xl text-center">
-              <label class="block text-[11px] text-amber-200 font-bold mb-2">📷 عکس سلاح یا زره (آپلود مستقیم از گالری):</label>
-              <input type="file" accept="image/*" onchange="handleImageUpload(this, 'item_photo', 'prev_item_photo')" class="w-full text-[11px] text-slate-300" />
-              <img id="prev_item_photo" class="hidden w-24 h-24 object-cover rounded-2xl mx-auto mt-2 border border-amber-400" />
-            </div>
-
-            <div>
-              <label class="block text-[11px] text-amber-300 mb-1">🪙 قیمت خرید (۰ = رایگان):</label>
-              <input id="ai_price" type="number" value="1000" class="w-full p-2.5 rounded-xl glass-soft text-center font-black text-white" />
-            </div>
-
-            <div class="grid grid-cols-2 gap-2">
-              <div><label class="block text-[11px] text-rose-300 mb-1">❤️ +HP:</label><input id="ai_hp" type="number" value="40" class="w-full p-2 rounded-xl glass-soft text-center font-bold text-white" /></div>
-              <div><label class="block text-[11px] text-amber-300 mb-1">⚔️ +ATK:</label><input id="ai_atk" type="number" value="50" class="w-full p-2 rounded-xl glass-soft text-center font-bold text-white" /></div>
-              <div><label class="block text-[11px] text-sky-300 mb-1">🛡️ +DEF:</label><input id="ai_def" type="number" value="20" class="w-full p-2 rounded-xl glass-soft text-center font-bold text-white" /></div>
-              <div><label class="block text-[11px] text-emerald-300 mb-1">⚡ +SPD:</label><input id="ai_spd" type="number" value="5" class="w-full p-2 rounded-xl glass-soft text-center font-bold text-white" /></div>
-            </div>
-
-            <button onclick="admSubmitItem()" class="btn-success w-full py-3.5 rounded-2xl font-black text-sm">➕ افزودن به لیست تجهیزات برج</button>
-          </div>
-
-          <div class="glass-panel p-3.5 rounded-3xl space-y-2 mt-3">
-            <h4 class="text-xs font-black text-indigo-300 text-center">لیست سلاح‌ها و زره‌های موجود</h4>
-            <div class="flex flex-col gap-2">${iList}</div>
-          </div>
-        `;
-      }
-
-      /* ۳. تب عکس کاراکتر مرد و زن */
-      else if (admTab === 'chars') {
-        sectionHtml = `
-          <div class="glass-panel p-4 rounded-3xl space-y-4 text-xs text-center">
-            <h3 class="font-black text-sm text-amber-300">🚻 آپلود مستقیم تصاویر کاراکتر مرد و زن</h3>
-            <div class="glass-soft p-3.5 rounded-2xl">
-              <div class="font-black text-sky-300 mb-2">🚹 تصویر کاراکتر مرد</div>
-              ${admState.male_img ? `<img src="${admState.male_img}" class="w-28 h-32 object-cover rounded-xl mx-auto mb-2 border border-sky-400" />` : ''}
-              <input type="file" accept="image/*" onchange="handleImageUpload(this, 'male_photo', 'prev_male_photo')" class="w-full text-[11px]" />
-              <img id="prev_male_photo" class="hidden w-28 h-32 object-cover rounded-xl mx-auto mt-2 border-2 border-emerald-400" />
-            </div>
-            <div class="glass-soft p-3.5 rounded-2xl">
-              <div class="font-black text-pink-300 mb-2">🚺 تصویر کاراکتر زن</div>
-              ${admState.female_img ? `<img src="${admState.female_img}" class="w-28 h-32 object-cover rounded-xl mx-auto mb-2 border border-pink-400" />` : ''}
-              <input type="file" accept="image/*" onchange="handleImageUpload(this, 'female_photo', 'prev_female_photo')" class="w-full text-[11px]" />
-              <img id="prev_female_photo" class="hidden w-28 h-32 object-cover rounded-xl mx-auto mt-2 border-2 border-emerald-400" />
-            </div>
-            <button onclick="admSubmitChars()" class="btn-success w-full py-3.5 rounded-2xl font-black text-sm">💾 ذخیره تصاویر کاراکترها</button>
-          </div>
-        `;
-      }
-
-      /* ۴. تب مدیریت درخواست‌های ووچر */
-      else if (admTab === 'vouchers') {
-        const vRows = (admState.vouchers || []).map(v => `
-          <div class="glass-soft p-3 rounded-2xl text-xs space-y-2 border border-white/10">
-            <div class="flex justify-between items-center">
-              <span class="font-black text-amber-300">#${v.id} — ${v.user_name} (${v.user_id})</span>
-              <span class="px-2 py-0.5 rounded-lg bg-indigo-600/50 font-bold">${v.voucher_type}</span>
-            </div>
-            <div class="flex justify-between text-[11px]">
-              <span>سکه پیشنهادی: <b class="text-emerald-300">${v.coins_offered.toLocaleString()} 🪙</b></span>
-              <span>وضعیت: <b>${v.status}</b></span>
-            </div>
-            ${v.status === 'pending' ? `
-              <input id="vnote_${v.id}" type="text" placeholder="یادداشت شما برای این کاربر (اختیاری)..." class="w-full p-2 rounded-xl bg-slate-900 border border-white/20 text-white text-xs" />
+              <select id="bc_target" class="w-full p-2.5 rounded-xl bg-slate-900 border border-white/20 text-white font-bold text-center">
+                <option value="users">👤 ارسال به تمام کاربران (پیوی)</option>
+                <option value="groups">👥 ارسال به تمام گروه‌ها</option>
+              </select>
               <div class="grid grid-cols-2 gap-2">
-                <button onclick="admDecideVoucher(${v.id}, 'approved')" class="btn-success py-2 rounded-xl font-black">✅ تایید و ارسال کد</button>
-                <button onclick="admDecideVoucher(${v.id}, 'rejected')" class="btn-danger py-2 rounded-xl font-black">❌ رد و عودت سکه</button>
+                <input id="bc_btxt" type="text" placeholder="متن دکمه شیشه‌ای (اختیاری)" class="p-2.5 rounded-xl glass-soft text-white text-center" />
+                <input id="bc_burl" type="text" placeholder="لینک (https://...)" class="p-2.5 rounded-xl glass-soft text-white text-center" />
               </div>
-            ` : `
-              ${v.voucher_code ? `<div class="text-emerald-300 font-bold">کد صادرشده: ${v.voucher_code}</div>` : ''}
-              ${v.owner_note ? `<div class="text-slate-300">یادداشت: ${v.owner_note}</div>` : ''}
-            `}
-          </div>
-        `).join('');
-
-        sectionHtml = `
-          <div class="glass-panel p-4 rounded-3xl space-y-2.5">
-            <h3 class="font-black text-sm text-amber-300 text-center">🎟️ مدیریت درخواست‌های ووچر بازیکنان</h3>
-            <div class="flex flex-col gap-2.5">${vRows || '<div class="text-center text-xs text-slate-400">درخواستی ثبت نشده است.</div>'}</div>
-          </div>
-        `;
-      }
-
-      /* ۵. تب ساخت کد هدیه */
-      else if (admTab === 'gifts') {
-        const gRows = (admState.gifts || []).map(g => {
-          const usedCnt = JSON.parse(g.used_by || '[]').length;
-          return `
-            <div class="glass-soft p-2.5 rounded-2xl flex justify-between items-center text-xs">
-              <div>
-                <div class="font-black text-amber-300">${g.code}</div>
-                <div class="text-[10px] text-slate-300">+${g.coins} 🪙 | +${g.xp} XP | مصرف: ${usedCnt}/${g.max_uses}</div>
-              </div>
-              <button onclick="callTowerAdminApi('delete_gift',{code:'${g.code}'})" class="btn-danger px-2.5 py-1 rounded-xl text-[10px] font-bold">حذف</button>
-            </div>
-          `;
-        }).join('');
-
-        sectionHtml = `
-          <div class="glass-panel p-4 rounded-3xl space-y-2.5 text-xs">
-            <h3 class="font-black text-sm text-amber-300 text-center">🎁 ساخت کد هدیه جدید</h3>
-            <div>
-              <label class="block text-[11px] text-slate-300 mb-1">کد هدیه:</label>
-              <input id="ag_code" type="text" placeholder="مثلاً: RHINO2026" class="w-full p-2.5 rounded-xl glass-soft text-center font-black text-white" />
-            </div>
-            <div class="grid grid-cols-3 gap-2">
-              <div><label class="block text-[11px] text-amber-300 mb-1">سکه:</label><input id="ag_coins" type="number" value="2000" class="w-full p-2 rounded-xl glass-soft text-center font-bold text-white" /></div>
-              <div><label class="block text-[11px] text-purple-300 mb-1">XP:</label><input id="ag_xp" type="number" value="300" class="w-full p-2 rounded-xl glass-soft text-center font-bold text-white" /></div>
-              <div><label class="block text-[11px] text-emerald-300 mb-1">ظرفیت:</label><input id="ag_uses" type="number" value="50" class="w-full p-2 rounded-xl glass-soft text-center font-bold text-white" /></div>
-            </div>
-            <button onclick="admSubmitGift()" class="btn-success w-full py-3.5 rounded-2xl font-black text-sm">➕ ثبت کد هدیه</button>
-          </div>
-          <div class="glass-panel p-3.5 rounded-3xl space-y-2 mt-3">
-            <h4 class="text-xs font-black text-indigo-300 text-center">کدهای هدیه فعال</h4>
-            <div class="flex flex-col gap-2">${gRows}</div>
-          </div>
-        `;
-      }
-
-      /* ۶. تب ساخت پاپ‌آپ تبلیغاتی شناور */
-      else if (admTab === 'popup') {
-        sectionHtml = `
-          <div class="glass-panel p-4 rounded-3xl space-y-2.5 text-xs">
-            <h3 class="font-black text-sm text-amber-300 text-center">📢 تنظیم پاپ‌آپ تبلیغاتی شناور</h3>
-            <textarea id="ap_text" rows="3" placeholder="متن تبلیغ یا اطلاعیه..." class="w-full p-2.5 rounded-xl glass-soft text-white"></textarea>
-            <div class="glass-soft p-3 rounded-2xl text-center">
-              <label class="block text-[11px] text-amber-200 font-bold mb-1">📷 عکس پاپ‌آپ (آپلود مستقیم از گالری):</label>
-              <input type="file" accept="image/*" onchange="handleImageUpload(this, 'popup_photo', 'prev_popup_photo')" class="w-full text-[11px]" />
-              <img id="prev_popup_photo" class="hidden w-32 h-24 object-cover rounded-xl mx-auto mt-2 border border-amber-400" />
-            </div>
-            <div class="grid grid-cols-2 gap-2">
-              <input id="ap_btxt" type="text" placeholder="متن دکمه (اختیاری)" class="w-full p-2 rounded-xl glass-soft text-white" />
-              <input id="ap_burl" type="text" placeholder="لینک دکمه (https://...)" class="w-full p-2 rounded-xl glass-soft text-white" />
-            </div>
-            <div>
-              <label class="block text-[11px] text-amber-300 mb-1">⏳ مدت نمایش شناور (ساعت):</label>
-              <input id="ap_hrs" type="number" value="24" class="w-full p-2.5 rounded-xl glass-soft text-center font-black text-white" />
-            </div>
-            <div class="grid grid-cols-2 gap-2 pt-2">
-              <button onclick="admSubmitPopup(false)" class="btn-success py-3 rounded-2xl font-black">✅ فعال‌سازی</button>
-              <button onclick="admSubmitPopup(true)" class="btn-danger py-3 rounded-2xl font-black">🗑️ حذف پاپ‌آپ</button>
+              <button onclick="callTowerAdminApi('bot_broadcast',{target_type:document.getElementById('bc_target').value,btn_text:document.getElementById('bc_btxt').value,btn_url:document.getElementById('bc_burl').value})" ${!draft ? 'disabled' : ''} class="${draft ? 'btn-success' : 'bg-slate-800 opacity-50'} w-full py-4 rounded-2xl font-black text-sm">
+                🚀 شروع ارسال همگانی نهایی
+              </button>
             </div>
           </div>
         `;
       }
 
-      /* ۷. تب مدیریت کاربران + لیست کامل تمام کاربران با مشخصات کامل */
       else if (admTab === 'users') {
         const u = admLookedUpUser;
         const allUsers = admState.users_list || [];
         const usersRowsHtml = allUsers.map((usr, idx) => `
-          <div onclick="callTowerAdminApi('Lookup_user',{target_uid:${usr.user_id}})" class="glass-soft p-3 rounded-2xl flex items-center justify-between gap-2 text-xs cursor-pointer hover:border-amber-400/50 transition">
+          <div onclick="callTowerAdminApi('Lookup_user',{target_uid:${usr.user_id}})" class="glass-soft p-3 rounded-2xl flex items-center justify-between gap-2 text-xs cursor-pointer hover:border-amber-400/50">
             <div class="text-right space-y-0.5 min-w-0">
-              <div class="font-black text-white truncate">
-                ${idx + 1}. ${usr.first_name || 'بدون نام'}
-                ${usr.username ? `<span class="text-sky-300 font-normal">(@${usr.username})</span>` : ''}
-                ${usr.is_bot_admin ? '<span class="text-amber-300">👑</span>' : ''}
-              </div>
-              <div class="text-[10px] text-slate-300 font-mono">
-                ID: ${usr.user_id} | 🌐 ${usr.language || 'fa'} | ⭐ Lvl ${usr.dt_level} | 🏰 طبقه ${usr.dt_floor} | 🪙 ${Number(usr.dt_coins || 0).toLocaleString()}
-              </div>
-              <div class="text-[10px]">
-                ${usr.global_banned ? '<span class="text-rose-400 font-bold">⛔ بن از ربات</span> ' : '<span class="text-emerald-400">🟢 فعال</span> '}
-                ${usr.dt_banned ? '<span class="text-rose-400 font-bold">| 🚫 بن از برج</span>' : ''}
-              </div>
+              <div class="font-black text-white truncate">${idx + 1}. ${usr.first_name || 'بدون نام'} ${usr.username ? `(@${usr.username})` : ''}</div>
+              <div class="text-[10px] text-slate-300 font-mono">ID: ${usr.user_id} | 💎 ${(usr.sub_tier||'free').toUpperCase()} | 🪙 ${Number(usr.coins||0).toLocaleString()} | ⭐ ${usr.stars_balance||0}</div>
             </div>
             <button class="btn-primary px-2.5 py-1.5 rounded-xl text-[10px] font-black shrink-0">مدیریت ◀</button>
           </div>
@@ -1828,541 +2165,122 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
 
         sectionHtml = `
           <div class="glass-panel p-4 rounded-3xl space-y-3 text-xs">
-            <div class="flex justify-between items-center glass-soft p-3 rounded-2xl">
-              <span class="font-black">وضعیت کلی بازی برج شیاطین:</span>
-              <button onclick="callTowerAdminApi('toggle_dev')" class="${admState.dev_mode ? 'btn-danger' : 'btn-success'} px-3 py-1.5 rounded-xl font-black">
-                ${admState.dev_mode ? '🛠️ در حال توسعه (فقط مالک)' : '🟢 باز برای همه'}
-              </button>
-            </div>
-
-            <h3 class="font-black text-sm text-amber-300 text-center pt-1">🔍 جستجو، شارژ و مدیریت کاربر</h3>
+            <h3 class="font-black text-sm text-amber-300 text-center">🔍 جستجو، شارژ سکه/استارز و اهدای اشتراک VIP</h3>
             <div class="flex gap-2">
               <input id="au_uid" type="number" value="${u ? u.user_id : ''}" placeholder="آیدی عددی کاربر..." class="flex-1 p-2.5 rounded-xl glass-soft text-center font-black text-white" />
               <button onclick="callTowerAdminApi('Lookup_user',{target_uid:Number(document.getElementById('au_uid').value)})" class="btn-primary px-4 rounded-xl font-black">جستجو</button>
             </div>
 
             ${u ? `
-              <div class="glass-soft p-3 rounded-2xl space-y-1.5 border-2 border-amber-400">
-                <div class="flex justify-between"><span>نام و یوزرنیم:</span><b>${u.first_name || '—'} ${u.username ? '(@'+u.username+')' : ''}</b></div>
-                <div class="flex justify-between"><span>آیدی عددی:</span><b class="font-mono text-amber-200">${u.user_id}</b></div>
-                <div class="flex justify-between"><span>کاراکتر / لول برج:</span><b class="text-purple-300">${u.gender || 'ندارد'} | Lvl ${u.level} (${u.xp} XP)</b></div>
-                <div class="flex justify-between"><span>موجودی کیف / بانک:</span><b class="text-amber-300">${u.coins.toLocaleString()} 🪙 / ${u.bank_coins.toLocaleString()} 🏦</b></div>
-                <div class="flex justify-between"><span>طبقه / جان / انسانیت:</span><b>طبقه ${u.current_floor} | ❤️${u.hp}/${u.max_hp} | 🧠${u.humanity}%</b></div>
-                <div class="flex justify-between"><span>وضعیت در برج / ربات:</span><b class="${(u.is_banned || u.global_banned) ? 'text-rose-400' : 'text-emerald-400'}">${u.is_banned ? '🚫 بن برج' : '🟢 آزاد برج'} | ${u.global_banned ? '⛔ بن ربات' : '🟢 فعال ربات'}</b></div>
+              <div class="glass-soft p-3 rounded-2xl space-y-2 border-2 border-amber-400">
+                <div class="flex justify-between"><span>کاربر:</span><b>${u.display_name} (${u.user_id})</b></div>
+                <div class="flex justify-between"><span>موجودی سکه / استارز:</span><b class="text-amber-300">🪙 ${(u.coins||0).toLocaleString()} | ⭐ ${u.stars_balance||0}</b></div>
+                <div class="flex justify-between"><span>اشتراک فعلی:</span><b class="text-emerald-300 uppercase">${u.sub_tier} ${u.sub_badge||''}</b></div>
 
                 <div class="grid grid-cols-2 gap-2 pt-2 border-t border-white/10">
-                  <input id="au_addc" type="number" placeholder="سکه اهدایی (+)" class="p-2 rounded-xl bg-slate-900 text-center text-white font-bold" />
-                  <input id="au_addx" type="number" placeholder="XP اهدایی (+)" class="p-2 rounded-xl bg-slate-900 text-center text-white font-bold" />
+                  <input id="au_addc" type="number" placeholder="افزودن سکه (+)" class="p-2 rounded-xl bg-slate-900 text-center text-white font-bold" />
+                  <input id="au_adds" type="number" placeholder="افزودن استارز (+)" class="p-2 rounded-xl bg-slate-900 text-center text-white font-bold" />
+                </div>
+                <div>
+                  <label class="block text-[10px] text-slate-300 mb-1">تغییر سطح اشتراک کاربر:</label>
+                  <select id="au_tier" class="w-full p-2 rounded-xl bg-slate-900 border border-white/20 text-white font-bold text-center">
+                    <option value="">بدون تغییر (${u.sub_tier.toUpperCase()})</option>
+                    <option value="free">FREE (عادی)</option>
+                    <option value="pro">🥈 PRO (پرو)</option>
+                    <option value="plus">🥇 PLUS (پلاس)</option>
+                    <option value="ultra">💎 ULTRA (الترا)</option>
+                  </select>
                 </div>
                 <div class="grid grid-cols-2 gap-2 pt-1">
-                  <button onclick="callTowerAdminApi('charge_user',{target_uid:${u.user_id},add_coins:Number(document.getElementById('au_addc').value||0),add_xp:Number(document.getElementById('au_addx').value||0)})" class="btn-success py-2 rounded-xl font-black">⚡ شارژ در برج</button>
-                  <button onclick="callTowerAdminApi('toggle_ban_user',{target_uid:${u.user_id}})" class="btn-danger py-2 rounded-xl font-black">${u.is_banned ? '🟢 آزادی در برج' : '🚫 بن از برج'}</button>
-                  <button onclick="callTowerAdminApi('bot_global_ban',{target_id:${u.user_id},ban:${!u.global_banned}})" class="btn-danger py-2 rounded-xl font-black">${u.global_banned ? '🟢 آن‌بن کل ربات' : '⛔ بن از کل ربات'}</button>
-                  <button onclick="callTowerAdminApi('bot_set_admin',{target_id:${u.user_id},is_admin:${!u.is_bot_admin}})" class="btn-primary py-2 rounded-xl font-black">${u.is_bot_admin ? 'حذف ادمین' : '👑 ارتقا به ادمین'}</button>
+                  <button onclick="callTowerAdminApi('charge_user',{target_uid:${u.user_id},add_coins:Number(document.getElementById('au_addc').value||0),add_stars:Number(document.getElementById('au_adds').value||0),set_tier:document.getElementById('au_tier').value})" class="btn-success py-2.5 rounded-xl font-black">⚡ اعمال تغییرات</button>
+                  <button onclick="callTowerAdminApi('bot_global_ban',{target_id:${u.user_id},ban:${!u.global_banned}})" class="btn-danger py-2.5 rounded-xl font-black">${u.global_banned ? '🟢 رفع مسدودیت' : '⛔ مسدود کردن'}</button>
                 </div>
               </div>
             ` : ''}
           </div>
 
-          <div class="glass-panel p-4 rounded-3xl space-y-2.5 mt-3">
-            <h4 class="text-xs font-black text-indigo-300 text-center">📋 لیست کامل کاربران ربات (${allUsers.length} نفر — برای مدیریت روی کاربر بزنید)</h4>
-            <div class="flex flex-col gap-2 max-h-96 overflow-y-auto">${usersRowsHtml || '<div class="text-center text-xs text-slate-400">کاربری یافت نشد.</div>'}</div>
+          <div class="glass-panel p-4 rounded-3xl space-y-2 mt-3">
+            <h4 class="text-xs font-black text-indigo-300 text-center">📋 لیست کل کاربران (${allUsers.length} نفر)</h4>
+            <div class="flex flex-col gap-2 max-h-96 overflow-y-auto">${usersRowsHtml}</div>
           </div>
         `;
       }
 
+      else if (admTab === 'store_mgr') {
+        const items = admState.store_items || [];
+        sectionHtml = `
+          <div class="glass-panel p-4 rounded-3xl space-y-2.5 text-xs">
+            <h3 class="font-black text-sm text-amber-300 text-center">🛍️ افزودن گیفت یا حلقه پروفایل جدید به فروشگاه</h3>
+            <div class="grid grid-cols-2 gap-2">
+              <select id="st_cat" class="p-2.5 rounded-xl bg-slate-900 border border-white/20 text-white font-bold">
+                <option value="gift">🎁 گیفت اتاق صوتی</option>
+                <option value="ring">⭕ حلقه دور پروفایل</option>
+              </select>
+              <input id="st_name" type="text" placeholder="نام آیتم..." class="p-2.5 rounded-xl glass-soft text-white font-bold text-center" />
+            </div>
+            <div class="grid grid-cols-2 gap-2">
+              <input id="st_icon" type="text" placeholder="ایموجی (مثلاً 👑 یا 🚀)" class="p-2.5 rounded-xl glass-soft text-white text-center" />
+              <input id="st_coins" type="number" value="1500" placeholder="قیمت به سکه" class="p-2.5 rounded-xl glass-soft text-white font-bold text-center" />
+            </div>
+            <input id="st_css" type="text" placeholder="کد استایل حلقه (مثلاً: 0 0 0 3.5px #fbbf24, 0 0 18px #f59e0b)" class="w-full p-2.5 rounded-xl glass-soft text-white text-center ltr-grid" />
+            <button onclick="callTowerAdminApi('save_store_item',{category:document.getElementById('st_cat').value,name:document.getElementById('st_name').value,icon:document.getElementById('st_icon').value,price_coins:Number(document.getElementById('st_coins').value||1000),ring_css:document.getElementById('st_css').value})" class="btn-success w-full py-3 rounded-2xl font-black">
+              ➕ افزودن به فروشگاه
+            </button>
+          </div>
+          <div class="glass-panel p-3.5 rounded-3xl space-y-2 mt-3 text-xs">
+            ${items.map(it => `
+              <div class="glass-soft p-2.5 rounded-2xl flex justify-between items-center">
+                <span>${it.icon} <b>${it.name}</b> (${it.category}) — ${it.price_coins} 🪙</span>
+                <button onclick="callTowerAdminApi('delete_store_item',{item_id:${it.id}})" class="btn-danger px-2.5 py-1 rounded-xl text-[10px] font-bold">حذف</button>
+              </div>
+            `).join('')}
+          </div>
+        `;
+      }
+
+      else if (admTab === 'bot_channels') {
+        const chRows = (admState.forced_channels || []).map(c => `
+          <div class="glass-soft p-3 rounded-2xl flex justify-between items-center text-xs">
+            <div><div class="font-black text-amber-300">${c.title || c.chat_id}</div><div class="text-[10px] text-slate-300">${c.chat_id}</div></div>
+            <button onclick="callTowerAdminApi('bot_del_channel',{chat_id:'${c.chat_id}'})" class="btn-danger px-3 py-1.5 rounded-xl text-[10px] font-black">حذف</button>
+          </div>
+        `).join('');
+        sectionHtml = `
+          <div class="glass-panel p-4 rounded-3xl space-y-2.5 text-xs">
+            <h3 class="font-black text-sm text-amber-300 text-center">🔒 افزودن کانال به قفل اجباری</h3>
+            <input id="fc_cid" type="text" placeholder="یوزرنیم کانال با @ (مثلاً @RHINOBOT_TM)" class="w-full p-2.5 rounded-xl glass-soft text-center font-black text-white" />
+            <div class="grid grid-cols-2 gap-2">
+              <input id="fc_title" type="text" placeholder="عنوان دکمه" class="w-full p-2.5 rounded-xl glass-soft text-center text-white" />
+              <input id="fc_uname" type="text" placeholder="یوزرنیم بدون @" class="w-full p-2.5 rounded-xl glass-soft text-center text-white" />
+            </div>
+            <button onclick="callTowerAdminApi('bot_add_channel',{chat_id:document.getElementById('fc_cid').value,title:document.getElementById('fc_title').value,username:document.getElementById('fc_uname').value})" class="btn-success w-full py-3 rounded-2xl font-black">➕ افزودن کانال</button>
+            <div class="flex flex-col gap-2 pt-2">${chRows}</div>
+          </div>
+        `;
+      }
+
+      else if (admTab === 'bot_groups') {
+        const gRows = (admState.groups_list || []).map(g => `
+          <div class="glass-soft p-3 rounded-2xl flex justify-between items-center gap-2 text-xs">
+            <div class="truncate"><div class="font-black text-white truncate">${g.title || 'Group'}</div><div class="text-[10px] text-slate-400 font-mono">${g.chat_id}</div></div>
+            <div class="flex gap-1 shrink-0">
+              <button onclick="callTowerAdminApi('bot_group_link',{chat_id:${g.chat_id}})" class="btn-primary px-2.5 py-1.5 rounded-xl text-[10px] font-bold">🔗 لینک</button>
+              <button onclick="callTowerAdminApi('bot_leave_group',{chat_id:${g.chat_id}})" class="btn-danger px-2.5 py-1.5 rounded-xl text-[10px] font-bold">🚪 خروج</button>
+            </div>
+          </div>
+        `).join('');
+        sectionHtml = `<div class="glass-panel p-4 rounded-3xl space-y-2">${gRows}</div>`;
+      }
+
       root.innerHTML = `
-        ${renderTopBar('👑 فرماندهی کل ربات')}
-        <div class="flex-1 overflow-y-auto px-3 pb-6 flex flex-col">
+        ${renderTopBar('👑 فرماندهی کل پلتفرم')}
+        <div class="flex-1 overflow-y-auto px-3 pb-24 flex flex-col">
           <div class="flex gap-1.5 overflow-x-auto pb-2 mb-2 shrink-0">${tabsHtml}</div>
           ${admMsg ? `<div class="p-3 rounded-2xl bg-emerald-600/35 border border-emerald-400 text-xs font-extrabold text-center mb-2.5 whitespace-pre-line">${admMsg}</div>` : ''}
           ${admErr ? `<div class="p-3 rounded-2xl bg-rose-600/40 border border-rose-400 text-xs font-extrabold text-center mb-2.5 whitespace-pre-line">${admErr}</div>` : ''}
           ${sectionHtml}
-          <button onclick="nav('hub')" class="btn-primary w-full py-3 rounded-2xl font-black text-xs mt-3">🏠 مشاهده منوی اصلی با تغییرات جدید</button>
         </div>
-      `;
-    }
-
-    /* ═══════════════════════════════════════════════════════════════════════════
-       بازی کامل برج شیاطین (Demon Tower RPG)
-       ═══════════════════════════════════════════════════════════════════════════ */
-    let dtData = null;
-    let dtTab = 'main';
-    let dtMsg = '';
-    let dtErr = '';
-    let dtSelectedWeapon = 0;
-    let dtPopupDismissed = false;
-
-    async function callTowerApi(action = 'state', extra = {}) {
-      try {
-        const res = await fetch('/api/tower/action', {
-          method: 'POST',
-          headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({ uid: Number(uid), name: myName, lang: lang, action: action, ...extra })
-        });
-        const data = await res.json();
-        dtMsg = data.msg || '';
-        dtErr = data.ok === false ? (data.error || '') : '';
-        if (data.invoice_link && tg?.openInvoice) {
-          tg.openInvoice(data.invoice_link, () => callTowerApi('state'));
-          return;
-        } else if (data.invoice_link) {
-          window.open(data.invoice_link, '_blank');
-        }
-        if (data.state) {
-          dtData = data.state;
-          if (!dtSelectedWeapon) dtSelectedWeapon = dtData.player?.equipped_weapon || 1;
-          drawDemonTower(document.getElementById('app'));
-        }
-      } catch (e) {}
-    }
-
-    window.dtNav = function(tab) {
-      dtTab = tab; dtMsg = ''; dtErr = '';
-      drawDemonTower(document.getElementById('app'));
-    };
-    window.dtAct = function(act, extra = {}) { callTowerApi(act, extra); };
-
-    function startDemonTowerApp(root) {
-      dtTab = 'main';
-      root.innerHTML = `<div class="p-6 text-center"><div class="glass-panel p-6 rounded-3xl font-bold">...</div></div>`;
-      callTowerApi('state');
-    }
-
-    function drawDemonTower(root) {
-      if (!root || currentGame !== 'demontower' || !dtData) return;
-      const p = dtData.player;
-      const boss = dtData.current_boss;
-      const D = T().dt;
-
-      if (dtData.dev_mode && !dtData.is_owner) {
-        root.innerHTML = `
-          ${renderTopBar(T().games.wip3)}
-          <div class="flex-1 flex items-center justify-center p-5 tower-bg-wrap">
-            <div class="glass-panel p-6 rounded-3xl text-center border border-amber-400/50">
-              <div class="text-5xl mb-3">🛠️</div>
-              <h2 class="text-base font-black text-amber-300">${dtErr || 'Under Development (Owner Only)'}</h2>
-            </div>
-          </div>
-        `;
-        return;
-      }
-
-      const pop = (!dtPopupDismissed && dtData.popup) ? dtData.popup : null;
-      const popupHtml = pop ? `
-        <div class="fixed inset-0 z-50 bg-black/75 backdrop-blur-md flex items-center justify-center p-5">
-          <div class="glass-panel p-5 rounded-3xl max-w-sm w-full text-center border border-amber-400/50">
-            ${pop.photo ? `<img src="${pop.photo}" class="w-full h-40 object-cover rounded-2xl mb-3" />` : ''}
-            <p class="text-sm font-bold text-white mb-4 whitespace-pre-line">${pop.text}</p>
-            <div class="flex gap-2">
-              ${pop.btn_text && pop.btn_url ? `<button onclick="openChannelLink('${pop.btn_url}')" class="btn-success flex-1 py-2.5 rounded-xl font-black text-xs">${pop.btn_text}</button>` : ''}
-              <button onclick="dtPopupDismissed=true;drawDemonTower(document.getElementById('app'))" class="btn-danger flex-1 py-2.5 rounded-xl font-bold text-xs">✖</button>
-            </div>
-          </div>
-        </div>
-      ` : '';
-
-      const alertHtml = `
-        ${dtMsg ? `<div class="p-3 rounded-2xl bg-emerald-600/35 border border-emerald-400 text-xs font-extrabold text-emerald-100 mb-3 whitespace-pre-line text-center">${dtMsg}</div>` : ''}
-        ${dtErr ? `<div class="p-3 rounded-2xl bg-rose-600/40 border border-rose-400 text-xs font-extrabold text-rose-100 mb-3 whitespace-pre-line text-center">${dtErr}</div>` : ''}
-      `;
-
-      let bodyHtml = '';
-
-      if (dtTab === 'main') {
-        const tHero = getAssetImg('tower_hero', TOWER_HERO_IMG || '/api/banner/demontower.png');
-        bodyHtml = `
-          <div class="glass-panel rounded-3xl overflow-hidden mb-3 shrink-0">
-            <img src="${tHero}" class="w-full h-36 object-cover border-b border-white/10" />
-            <div class="p-3 flex justify-between items-center text-xs font-extrabold">
-              <span class="text-amber-300">🪙 ${p.coins.toLocaleString()}</span>
-              <span class="text-emerald-300">❤️ ${p.hp}/${p.max_hp}</span>
-              <span class="text-sky-300">🧠 ${D.humanity}: ${p.humanity}%</span>
-              <span class="text-purple-300">⭐ Lvl ${p.level}</span>
-            </div>
-          </div>
-
-          ${alertHtml}
-
-          <button onclick="dtNav('floor')" class="btn-danger w-full py-4 px-4 rounded-2xl font-black text-base mb-2.5 flex items-center justify-between shadow-lg">
-            <span>⚔️ ${D.floorBtn} ${p.current_floor} (${boss ? boss.boss_name : '✓'})</span>
-            <span class="text-xs bg-black/30 px-2.5 py-1 rounded-xl">${D.enterBattle} ◀</span>
-          </button>
-
-          <div class="grid grid-cols-2 gap-2.5">
-            <button onclick="dtNav('char')" class="glass-panel p-3.5 rounded-2xl font-black text-sm flex items-center justify-center gap-2">${D.charBtn}</button>
-            <button onclick="dtNav('hospital')" class="glass-panel p-3.5 rounded-2xl font-black text-sm flex items-center justify-center gap-2">${D.hospBtn}</button>
-            <button onclick="dtNav('vault')" class="glass-panel p-3.5 rounded-2xl font-black text-sm flex items-center justify-center gap-2">${D.vaultBtn}</button>
-            <button onclick="dtNav('shop')" class="glass-panel p-3.5 rounded-2xl font-black text-sm flex items-center justify-center gap-2">${D.shopBtn}</button>
-            <button onclick="dtNav('gift')" class="glass-panel p-3.5 rounded-2xl font-black text-sm flex items-center justify-center gap-2">${D.giftBtn}</button>
-            <button onclick="dtNav('voucher')" class="glass-panel p-3.5 rounded-2xl font-black text-sm flex items-center justify-center gap-2">${D.voucherBtn}</button>
-            <button onclick="dtNav('account')" class="btn-primary col-span-2 p-3.5 rounded-2xl font-black text-sm text-center">${D.accBtn}</button>
-          </div>
-        `;
-      }
-      
-      else if (dtTab === 'floor') {
-        if (window.dtBattleTimer) { clearInterval(window.dtBattleTimer); window.dtBattleTimer = null; }
-        const bt = dtData.active_battle;
-
-        if (bt) {
-          const bossHpPct = Math.max(0, Math.min(100, Math.round((bt.boss_hp / bt.boss_max_hp) * 100)));
-          const myHpPct = Math.max(0, Math.min(100, Math.round((bt.p_hp / bt.p_max_hp) * 100)));
-          const isCharging = bt.boss_state === 'charging';
-          const isAbsDef = bt.boss_state === 'abs_defense';
-          const isStunned = bt.boss_state === 'stunned';
-
-          const stateColors = {
-            charging: 'bg-rose-600/50 border-rose-400 text-rose-100 animate-pulse',
-            abs_defense: 'bg-sky-600/40 border-sky-400 text-sky-100',
-            evasive: 'bg-amber-600/40 border-amber-400 text-amber-100',
-            stunned: 'bg-emerald-600/40 border-emerald-400 text-emerald-100',
-            normal: 'glass-soft border-white/20 text-slate-200'
-          };
-
-          const logsHtml = (bt.logs || []).map((l, idx) => `
-            <div class="text-[11px] ${idx === 0 ? 'text-amber-300 font-black' : 'text-slate-300'} border-b border-white/5 pb-1">${l}</div>
-          `).join('');
-
-          bodyHtml = `
-            ${alertHtml}
-            <div class="glass-panel p-3.5 rounded-3xl mb-2.5 border ${isCharging ? 'border-rose-500 shadow-[0_0_25px_rgba(244,63,94,0.45)]' : 'border-white/15'}">
-              <div class="flex items-center gap-3 mb-2">
-                ${bt.boss_photo ? `<img src="${bt.boss_photo}" class="w-16 h-16 rounded-2xl object-cover border-2 border-rose-500 shrink-0" />` : `<div class="w-16 h-16 rounded-2xl bg-rose-950 flex items-center justify-center text-4xl shrink-0">👹</div>`}
-                <div class="flex-1 min-w-0">
-                  <div class="flex justify-between items-center mb-1">
-                    <span class="font-black text-sm text-amber-300 truncate">${bt.boss_name}</span>
-                    <span class="text-xs font-extrabold text-rose-300">❤️ ${bt.boss_hp} / ${bt.boss_max_hp}</span>
-                  </div>
-                  <div class="w-full h-3 bg-slate-900 rounded-full overflow-hidden border border-white/10">
-                    <div style="width: ${bossHpPct}%" class="h-full bg-gradient-to-r from-rose-600 to-amber-500 transition-all"></div>
-                  </div>
-                  <div class="text-[10px] text-slate-300 mt-1 flex justify-between">
-                    <span>نوبت ${bt.turn}</span>
-                    <span>⚔️ ATK: ${bt.boss_atk} | 🛡️ DEF: ${bt.boss_def}</span>
-                  </div>
-                </div>
-              </div>
-
-              <div class="p-3 rounded-2xl border text-center font-black text-xs mb-3 ${stateColors[bt.boss_state] || stateColors.normal}">
-                <div>${bt.state_prompt}</div>
-                ${isCharging ? `
-                  <div class="mt-2 flex items-center justify-center gap-2">
-                    <span class="px-3 py-1 rounded-xl bg-black/60 text-rose-300 text-sm font-black">
-                      ⏱️ فرصت واکنش: <span id="dtCountdownNum">5.0</span> ثانیه
-                    </span>
-                  </div>
-                ` : ''}
-              </div>
-
-              <div class="glass-soft p-2.5 rounded-2xl mb-3">
-                <div class="flex justify-between text-xs font-extrabold mb-1">
-                  <span class="text-emerald-300">❤️ جان شما: ${bt.p_hp} / ${bt.p_max_hp}</span>
-                  <span class="text-amber-300">🔥 خشم (Rage): ${bt.p_rage}%</span>
-                </div>
-                <div class="w-full h-2.5 bg-slate-900 rounded-full overflow-hidden mb-1.5">
-                  <div style="width: ${myHpPct}%" class="h-full bg-emerald-500 transition-all"></div>
-                </div>
-                <div class="w-full h-1.5 bg-slate-900 rounded-full overflow-hidden">
-                  <div style="width: ${bt.p_rage}%" class="h-full bg-amber-400 transition-all"></div>
-                </div>
-              </div>
-
-              <div class="grid grid-cols-2 gap-2 mb-3">
-                <button onclick="dtAct('battle_move',{move:'quick'})" class="btn-primary py-3 px-2 rounded-2xl font-black text-xs flex flex-col items-center">
-                  <span>⚡ حمله سریع</span>
-                  <span class="text-[10px] opacity-80 font-bold">ضد جاخالی (+25 خشم)</span>
-                </button>
-                <button onclick="dtAct('battle_move',{move:'heavy'})" class="${isStunned ? 'btn-success ring-2 ring-white' : 'btn-danger'} py-3 px-2 rounded-2xl font-black text-xs flex flex-col items-center">
-                  <span>💥 ضربه سنگین</span>
-                  <span class="text-[10px] opacity-80 font-bold">خسارت بالا به غول</span>
-                </button>
-                <button onclick="dtAct('battle_move',{move:'shield'})" class="${isCharging ? 'btn-success ring-2 ring-amber-300' : 'glass-soft'} py-3 px-2 rounded-2xl font-black text-xs flex flex-col items-center">
-                  <span>🛡️ سپر دفاعی</span>
-                  <span class="text-[10px] opacity-80 font-bold">دفع حمله ۵ ثانیه‌ای + ضدحمله</span>
-                </button>
-                <button onclick="dtAct('battle_move',{move:'dodge'})" class="${isCharging ? 'btn-success ring-2 ring-amber-300' : 'glass-soft'} py-3 px-2 rounded-2xl font-black text-xs flex flex-col items-center">
-                  <span>💨 جاخالی سریع</span>
-                  <span class="text-[10px] opacity-80 font-bold">فرار از ضربه (+30 خشم)</span>
-                </button>
-                <button onclick="dtAct('battle_move',{move:'break'})" class="${isAbsDef ? 'btn-success ring-2 ring-sky-300' : 'glass-soft'} py-3 px-2 rounded-2xl font-black text-xs flex flex-col items-center">
-                  <span>🔨 شکستن گارد</span>
-                  <span class="text-[10px] opacity-80 font-bold">ضد حالت دفاع مطلق غول</span>
-                </button>
-                <button onclick="dtAct('battle_move',{move:'blood'})" ${bt.p_rage < 50 ? 'disabled' : ''} class="${bt.p_rage >= 50 ? 'btn-danger ring-2 ring-rose-300' : 'bg-slate-800/60 opacity-45'} py-3 px-2 rounded-2xl font-black text-xs flex flex-col items-center">
-                  <span>🩸 جادوی خون (50% خشم)</span>
-                  <span class="text-[10px] opacity-80 font-bold">ضربه مرگبار + شفای جان</span>
-                </button>
-              </div>
-
-              <div class="glass-soft p-2.5 rounded-2xl max-h-28 overflow-y-auto space-y-1 text-right">
-                ${logsHtml}
-              </div>
-            </div>
-          `;
-
-          if (isCharging) {
-            let rem = 5.0;
-            setTimeout(() => {
-              if (window.dtBattleTimer) clearInterval(window.dtBattleTimer);
-              window.dtBattleTimer = setInterval(() => {
-                if (currentGame !== 'demontower' || dtTab !== 'floor') {
-                  clearInterval(window.dtBattleTimer);
-                  return;
-                }
-                rem = Math.max(0, rem - 0.2);
-                const el = document.getElementById('dtCountdownNum');
-                if (el) el.innerText = rem.toFixed(1);
-                if (rem <= 0) {
-                  clearInterval(window.dtBattleTimer);
-                  window.dtBattleTimer = null;
-                  dtAct('battle_move', { move: 'timeout' });
-                }
-              }, 200);
-            }, 50);
-          }
-        } else {
-          const myWeapons = (dtData.items || []).filter(i => i.item_type === 'weapon' && p.owned_weapons.includes(i.id));
-          const wSelectHtml = myWeapons.map(w => `
-            <button onclick="dtSelectedWeapon=${w.id};drawDemonTower(document.getElementById('app'))" class="px-3 py-2 rounded-xl text-xs font-bold border ${dtSelectedWeapon === w.id ? 'btn-success border-white' : 'glass-soft border-white/10'}">
-              ⚔️ ${w.name} (+${w.atk_bonus} ATK)
-            </button>
-          `).join('');
-
-          bodyHtml = `
-            ${alertHtml}
-            ${boss ? `
-              <div class="glass-panel p-4 rounded-3xl text-center mb-3">
-                ${boss.photo ? `<img src="${boss.photo}" class="w-full h-40 object-cover rounded-2xl mb-3" />` : `<div class="text-6xl my-3">👹</div>`}
-                <div class="text-xs font-black text-rose-400">${D.floorBtn} ${boss.floor_num}</div>
-                <h2 class="text-xl font-black text-amber-300 mb-1">${boss.boss_name}</h2>
-                <p class="text-xs text-slate-200 mb-3">${boss.description}</p>
-                <div class="grid grid-cols-3 gap-2 text-xs font-extrabold glass-soft p-2.5 rounded-2xl mb-2">
-                  <span class="text-rose-300">❤️ HP: ${boss.hp * 2}</span>
-                  <span class="text-amber-300">⚔️ ATK: ${boss.atk}</span>
-                  <span class="text-sky-300">🛡️ DEF: ${boss.def}</span>
-                </div>
-                <div class="text-[11px] text-slate-300 text-start space-y-1 glass-soft p-2.5 rounded-2xl mb-3">
-                  <div>🔥 <b>${D.bossPower}:</b> ${boss.power_desc}</div>
-                  <div>⚡ <b>${D.bossWeak}:</b> ${boss.weakness}</div>
-                  <div>🎁 <b>${D.bossReward}:</b> ${boss.reward_coins} 🪙 + ${boss.reward_xp} XP + «${boss.drop_item}»</div>
-                </div>
-
-                <div class="text-xs font-bold text-amber-200 mb-2">${D.pickWeaponHint}</div>
-                <div class="flex flex-wrap gap-1.5 justify-center mb-4">${wSelectHtml}</div>
-
-                <button onclick="dtAct('battle_start', {weapon_id: dtSelectedWeapon})" class="btn-danger w-full py-4 rounded-2xl font-black text-base">
-                  ${D.startBattleBtn} ${boss.floor_num}
-                </button>
-              </div>
-            ` : `<div class="glass-panel p-6 rounded-3xl text-center font-black text-emerald-300">🎉</div>`}
-            <button onclick="dtNav('main')" class="btn-primary w-full py-3 rounded-2xl font-bold text-xs">${D.backTower}</button>
-          `;
-        }
-      }
-
-      else if (dtTab === 'char') {
-        const genderSection = !p.gender ? `
-          <div class="glass-panel p-4 rounded-3xl text-center mb-3 border border-amber-400/50">
-            <h3 class="text-sm font-black text-amber-300 mb-3">${D.pickGenderTitle}</h3>
-            <div class="grid grid-cols-2 gap-3">
-              <button onclick="dtAct('choose_gender', {gender:'male'})" class="glass-soft p-3 rounded-2xl flex flex-col items-center border hover:border-amber-400">
-                ${dtData.male_img ? `<img src="${dtData.male_img}" class="w-24 h-28 object-cover rounded-xl mb-2" />` : `<div class="text-5xl my-4">🥷</div>`}
-                <span class="font-black text-xs text-sky-300">${D.male}</span>
-              </button>
-              <button onclick="dtAct('choose_gender', {gender:'female'})" class="glass-soft p-3 rounded-2xl flex flex-col items-center border hover:border-amber-400">
-                ${dtData.female_img ? `<img src="${dtData.female_img}" class="w-24 h-28 object-cover rounded-xl mb-2" />` : `<div class="text-5xl my-4">🧝‍♀️</div>`}
-                <span class="font-black text-xs text-pink-300">${D.female}</span>
-              </button>
-            </div>
-          </div>
-        ` : `
-          <div class="glass-panel p-3.5 rounded-2xl flex items-center justify-between mb-3 text-xs font-bold">
-            <span><b class="text-amber-300">${p.gender === 'male' ? D.male : D.female}</b></span>
-            <span>⚔️ ATK: ${p.atk} | 🛡️ DEF: ${p.def} | ⚡ SPD: ${p.spd}</span>
-          </div>
-        `;
-
-        const itemsHtml = (dtData.items || []).map(it => {
-          const isW = it.item_type === 'weapon';
-          const owned = isW ? p.owned_weapons.includes(it.id) : p.owned_armors.includes(it.id);
-          const equipped = isW ? (p.equipped_weapon === it.id) : (p.equipped_armor === it.id);
-          return `
-            <div class="glass-panel p-3 rounded-2xl flex items-center justify-between gap-2">
-              <div class="flex items-center gap-2.5">
-                ${it.photo ? `<img src="${it.photo}" class="w-12 h-12 rounded-xl object-cover" />` : `<div class="w-12 h-12 rounded-xl glass-soft flex items-center justify-center text-2xl">${isW ? '⚔️' : '🛡️'}</div>`}
-                <div class="text-start">
-                  <div class="font-black text-xs text-white">${it.name}</div>
-                  <div class="text-[10px] text-emerald-300 font-bold">
-                    +HP:${it.hp_bonus} | +ATK:${it.atk_bonus} | +DEF:${it.def_bonus} | SPD:${it.spd_bonus}
-                  </div>
-                </div>
-              </div>
-              <button onclick="dtAct('buy_or_equip_item', {item_id:${it.id}})" class="${equipped ? 'btn-success' : (owned ? 'btn-primary' : 'btn-danger')} px-3 py-2 rounded-xl text-[11px] font-black shrink-0">
-                ${equipped ? D.equipped : (owned ? D.select : `${it.price} 🪙 ${D.buy}`)}
-              </button>
-            </div>
-          `;
-        }).join('');
-
-        bodyHtml = `
-          ${alertHtml}
-          ${genderSection}
-          <div class="flex flex-col gap-2 mb-3">${itemsHtml}</div>
-          <button onclick="dtNav('main')" class="btn-primary w-full py-3 rounded-2xl font-bold text-xs">${D.backTower}</button>
-        `;
-      }
-
-      else if (dtTab === 'hospital') {
-        bodyHtml = `
-          ${alertHtml}
-          <div class="glass-panel p-5 rounded-3xl text-center mb-3">
-            <div class="text-5xl mb-2">🏥</div>
-            <h2 class="text-lg font-black text-emerald-300 mb-2">${D.hospBtn}</h2>
-            <p class="text-xs text-slate-300 leading-relaxed mb-4">${D.hospDesc}</p>
-            <div class="grid grid-cols-2 gap-2 glass-soft p-3 rounded-2xl text-xs font-extrabold mb-4">
-              <span class="text-rose-300">❤️ HP: ${p.hp} / ${p.max_hp}</span>
-              <span class="text-sky-300">🧠 ${D.humanity}: ${p.humanity}%</span>
-            </div>
-            ${p.sleep_rem > 0 ? `<div class="p-3 rounded-xl bg-rose-600/40 text-xs font-bold mb-3">😴 (${Math.ceil(p.sleep_rem/60)}m)</div>` : ''}
-            ${p.hospital_rem > 0 ? `
-              <div class="p-3 rounded-xl bg-amber-500/30 text-amber-200 text-xs font-extrabold mb-3">⏳ ${p.hospital_rem}s</div>
-              <button onclick="dtAct('state')" class="btn-primary w-full py-3 rounded-xl font-bold text-xs">🔄</button>
-            ` : `
-              <button onclick="dtAct('enter_hospital')" class="btn-success w-full py-4 rounded-2xl font-black text-sm">${D.healBtn}</button>
-            `}
-          </div>
-          <button onclick="dtNav('main')" class="btn-primary w-full py-3 rounded-2xl font-bold text-xs">${D.backTower}</button>
-        `;
-      }
-
-      else if (dtTab === 'vault') {
-        const lootCount = (p.inventory || []).length;
-        const lootVal = (p.inventory || []).reduce((a, b) => a + (b.price || 50), 0);
-        bodyHtml = `
-          ${alertHtml}
-          <div class="glass-panel p-4 rounded-3xl mb-3 text-center">
-            <h2 class="text-base font-black text-amber-300 mb-2">${D.vaultBtn} (2% / h)</h2>
-            <div class="grid grid-cols-2 gap-2 glass-soft p-3 rounded-2xl text-xs font-extrabold mb-3">
-              <span class="text-amber-300">🪙 ${p.coins.toLocaleString()}</span>
-              <span class="text-emerald-300">🏦 ${p.bank_coins.toLocaleString()}</span>
-            </div>
-
-            <div class="flex gap-2 mb-3">
-              <input id="bankAmt" type="number" placeholder="🪙..." class="flex-1 p-2.5 rounded-xl glass-soft text-center text-white text-xs font-bold" />
-              <button onclick="dtAct('bank_deposit', {amount: Number(document.getElementById('bankAmt').value)})" class="btn-success px-3 py-2 rounded-xl text-xs font-black">${D.deposit}</button>
-              <button onclick="dtAct('bank_withdraw', {amount: Number(document.getElementById('bankAmt').value)})" class="btn-primary px-3 py-2 rounded-xl text-xs font-black">${D.withdraw}</button>
-            </div>
-
-            <div class="border-t border-white/10 pt-3 mb-3">
-              <div class="text-xs font-bold mb-2">🎒 (${lootCount}) = ${lootVal} 🪙</div>
-              <button onclick="dtAct('sell_loot')" class="btn-primary w-full py-2.5 rounded-xl font-black text-xs">${D.sellLootBtn}</button>
-            </div>
-
-            <div class="border-t border-white/10 pt-3">
-              <div class="text-xs font-black text-amber-200 mb-2">${D.transferTitle}</div>
-              <input id="trTarget" type="text" placeholder="@username / ID" class="w-full p-2.5 rounded-xl glass-soft text-center text-white text-xs font-bold mb-2" />
-              <input id="trAmt" type="number" placeholder="🪙" class="w-full p-2.5 rounded-xl glass-soft text-center text-white text-xs font-bold mb-2" />
-              <button onclick="dtAct('transfer_coins', {target: document.getElementById('trTarget').value, amount: Number(document.getElementById('trAmt').value)})" class="btn-danger w-full py-3 rounded-xl font-black text-xs">
-                ${D.transferBtn}
-              </button>
-            </div>
-          </div>
-          <button onclick="dtNav('main')" class="btn-primary w-full py-3 rounded-2xl font-bold text-xs">${D.backTower}</button>
-        `;
-      }
-
-      else if (dtTab === 'shop') {
-        const packsHtml = (dtData.star_packages || []).map(pk => `
-          <div class="glass-panel p-3.5 rounded-2xl flex items-center justify-between">
-            <div class="text-start">
-              <div class="font-black text-xs text-amber-300">${pk.title}</div>
-              <div class="text-[11px] text-emerald-300 font-bold mt-0.5">+${pk.coins.toLocaleString()} 🪙 | +${pk.xp.toLocaleString()} XP</div>
-            </div>
-            <button onclick="dtAct('create_star_invoice', {pack_id:'${pk.id}'})" class="btn-success px-3.5 py-2 rounded-xl font-black text-xs shrink-0">
-              ⭐ ${pk.stars} Stars
-            </button>
-          </div>
-        `).join('');
-        bodyHtml = `
-          ${alertHtml}
-          <div class="flex flex-col gap-2.5 mb-3">${packsHtml}</div>
-          <button onclick="dtNav('main')" class="btn-primary w-full py-3 rounded-2xl font-bold text-xs">${D.backTower}</button>
-        `;
-      }
-
-      else if (dtTab === 'gift') {
-        bodyHtml = `
-          ${alertHtml}
-          <div class="glass-panel p-5 rounded-3xl text-center mb-3">
-            <div class="text-4xl mb-2">🎁</div>
-            <h3 class="text-base font-black text-amber-300 mb-3">${D.giftBtn}</h3>
-            <input id="giftInp" type="text" placeholder="CODE..." class="w-full p-3.5 rounded-2xl glass-soft text-center font-black text-white mb-3" />
-            <button onclick="dtAct('redeem_gift', {code: document.getElementById('giftInp').value})" class="btn-success w-full py-3.5 rounded-2xl font-black">${D.redeemBtn}</button>
-          </div>
-          <button onclick="dtNav('main')" class="btn-primary w-full py-3 rounded-2xl font-bold text-xs">${D.backTower}</button>
-        `;
-      }
-
-      else if (dtTab === 'voucher') {
-        const optsHtml = D.vchTypes.map(vt => `<option value="${vt}">${vt}</option>`).join('');
-        const vListHtml = (dtData.vouchers || []).map(v => {
-          const stBadge = v.status === 'approved'
-            ? `<span class="text-emerald-300 font-black">${D.vchApproved} (${v.voucher_code})</span>`
-            : (v.status === 'rejected' ? `<span class="text-rose-400 font-black">${D.vchRejected}</span>` : `<span class="text-amber-300 font-black">${D.vchPending}</span>`);
-          return `
-            <div class="glass-soft p-3 rounded-2xl text-start text-xs space-y-1 border border-white/10">
-              <div class="flex justify-between"><b>🎁 ${v.voucher_type}</b><span>🪙 ${v.coins_offered.toLocaleString()}</span></div>
-              <div>${stBadge}</div>
-              ${v.owner_note ? `<div class="p-2 rounded-xl bg-indigo-950/80 text-amber-200">💬 <b>${D.ownerNote}:</b> ${v.owner_note}</div>` : ''}
-            </div>
-          `;
-        }).join('');
-
-        bodyHtml = `
-          ${alertHtml}
-          <div class="glass-panel p-4 rounded-3xl mb-3">
-            <h3 class="text-sm font-black text-amber-300 text-center mb-3">${D.voucherBtn}</h3>
-            <input id="vchCoins" type="number" placeholder="${D.vchOfferHint} (${p.coins} 🪙)" class="w-full p-3 rounded-xl glass-soft text-center font-bold text-xs text-white mb-2.5" />
-            <select id="vchType" class="w-full p-3 rounded-xl bg-slate-900 border border-white/20 text-white text-xs font-bold mb-3 text-center">
-              ${optsHtml}
-            </select>
-            <button onclick="dtAct('request_voucher', {coins: Number(document.getElementById('vchCoins').value), voucher_type: document.getElementById('vchType').value})" class="btn-success w-full py-3 rounded-2xl font-black text-xs">
-              ${D.vchSendBtn}
-            </button>
-          </div>
-
-          <div class="glass-panel p-3.5 rounded-3xl mb-3">
-            <div class="text-xs font-black text-indigo-300 mb-2 text-center">${D.vchChatTitle}</div>
-            <div class="flex flex-col gap-2 max-h-52 overflow-y-auto">${vListHtml || '—'}</div>
-          </div>
-          <button onclick="dtNav('main')" class="btn-primary w-full py-3 rounded-2xl font-bold text-xs">${D.backTower}</button>
-        `;
-      }
-
-      else if (dtTab === 'account') {
-        bodyHtml = `
-          <div class="glass-panel p-5 rounded-3xl text-start space-y-2 text-xs font-bold mb-3">
-            <h3 class="text-base font-black text-amber-300 text-center mb-3">${D.accBtn}</h3>
-            <div class="flex justify-between glass-soft p-2.5 rounded-xl"><span>ID:</span><b>${myName} (${p.user_id})</b></div>
-            <div class="flex justify-between glass-soft p-2.5 rounded-xl"><span>${D.charBtn}:</span><b>${p.gender === 'male' ? D.male : (p.gender === 'female' ? D.female : '—')}</b></div>
-            <div class="flex justify-between glass-soft p-2.5 rounded-xl"><span>Level / XP:</span><b class="text-purple-300">Level ${p.level} (${p.xp} XP)</b></div>
-            <div class="flex justify-between glass-soft p-2.5 rounded-xl"><span>${D.floorBtn}:</span><b class="text-rose-400">${p.current_floor}</b></div>
-            <div class="flex justify-between glass-soft p-2.5 rounded-xl"><span>🪙 / 🏦:</span><b class="text-amber-300">${p.coins.toLocaleString()} / ${p.bank_coins.toLocaleString()}</b></div>
-            <div class="flex justify-between glass-soft p-2.5 rounded-xl"><span>❤️ / 🧠:</span><b class="text-emerald-300">${p.hp}/${p.max_hp} | ${p.humanity}%</b></div>
-            <div class="flex justify-between glass-soft p-2.5 rounded-xl"><span>ATK / DEF / SPD:</span><b>⚔️${p.atk} | 🛡️${p.def} | ⚡${p.spd}</b></div>
-            <div class="flex justify-between glass-soft p-2.5 rounded-xl"><span>⚔️ / 🛡️:</span><b>${p.weapon_name} / ${p.armor_name}</b></div>
-          </div>
-          <button onclick="dtNav('main')" class="btn-primary w-full py-3 rounded-2xl font-bold text-xs">${D.backTower}</button>
-        `;
-      }
-
-      root.innerHTML = `
-        ${popupHtml}
-        ${renderTopBar(T().games.wip3)}
-        <div class="flex-1 overflow-y-auto px-3 pb-6 flex flex-col tower-bg-wrap">
-          ${bodyHtml}
-        </div>
+        ${renderBottomNav()}
       `;
     }
 
@@ -2756,7 +2674,7 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
       `;
     }
 
-    /* ═══════════ بازی ۲۰۴۸ با اسکرول لمسی ═══════════ */
+    /* ═══════════ سایر بازی‌های گیم باکس (2048, پازل ۱۵، دوز، ۴ در ردیف، حدس عدد و...) ═══════════ */
     let b2048 = null, s2048 = 0, t2048X = 0, t2048Y = 0;
     const TILE_COLORS_2048 = {
       0:    "bg-white/5 text-transparent border-white/5",
@@ -2807,7 +2725,7 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
       }).join('');
       root.innerHTML = `
         ${renderTopBar(T().games.g2048)}
-        <div class="flex-1 flex flex-col justify-between p-4">
+        <div class="flex-1 flex flex-col justify-between p-4 pb-24">
           <div class="glass-panel px-4 py-2.5 rounded-2xl flex justify-between items-center">
             <span class="font-extrabold text-sm">${T().score}: <b class="text-amber-300">${s2048}</b></span>
             <button onclick="init2048();render()" class="btn-success px-3 py-1 rounded-xl text-xs font-bold">${T().restart}</button>
@@ -2815,6 +2733,7 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
           <div id="board2048" class="ltr-grid grid grid-cols-4 gap-2.5 glass-panel p-3.5 rounded-3xl touch-none">${cells}</div>
           <p class="text-center text-xs text-slate-300 font-bold">${T().swipeHint}</p>
         </div>
+        ${renderBottomNav()}
       `;
       const el = document.getElementById('board2048');
       if (el) {
@@ -2829,7 +2748,6 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
       }
     }
 
-    /* ═══════════ پازل ۱۵ با اسکرول لمسی ═══════════ */
     let spz = null, spzX = 0, spzY = 0;
     function initSpz() { spz = [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,0].sort(() => Math.random()-0.5); }
     window.clickSpz = function(i) {
@@ -2852,11 +2770,12 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
       const cells = spz.map((v,i) => `<button onclick="clickSpz(${i})" class="aspect-square rounded-2xl font-black text-xl ${v ? 'btn-primary' : 'bg-white/5'}">${v || ''}</button>`).join('');
       root.innerHTML = `
         ${renderTopBar(T().games.spuzzle)}
-        <div class="flex-1 flex flex-col justify-between p-4">
+        <div class="flex-1 flex flex-col justify-between p-4 pb-24">
           <div class="flex justify-end"><button onclick="initSpz();render()" class="btn-success px-3 py-1.5 rounded-xl font-bold text-xs">${T().restart}</button></div>
           <div id="spzBoard" class="ltr-grid grid grid-cols-4 gap-2 glass-panel p-3.5 rounded-3xl touch-none">${cells}</div>
           <p class="text-center text-xs text-slate-300 font-bold">${T().swipeHint}</p>
         </div>
+        ${renderBottomNav()}
       `;
       const el = document.getElementById('spzBoard');
       if (el) {
@@ -2871,7 +2790,6 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
       }
     }
 
-    /* ═══════════ دوز با دایره‌های رنگی ═══════════ */
     const DOOZ_COLORS = [
       { id: 'rose',   cls: 'bg-rose-500 shadow-[0_0_12px_#f43f5e]' },
       { id: 'cyan',   cls: 'bg-cyan-400 shadow-[0_0_12px_#22d3ee]' },
@@ -2909,7 +2827,7 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
       `).join('');
       root.innerHTML = `
         ${renderTopBar(mode==='doz4p' ? T().games.doz4p : T().games.dooz)}
-        <div class="flex-1 flex flex-col justify-between p-4">
+        <div class="flex-1 flex flex-col justify-between p-4 pb-24">
           <div class="glass-panel p-3 rounded-2xl flex justify-between items-center">
             <span class="text-xs font-extrabold">${T().pickColor}</span>
             <div class="flex gap-2">${colorPickerHtml}</div>
@@ -2917,10 +2835,10 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
           <div class="ltr-grid grid ${sz===5?'grid-cols-5':'grid-cols-3'} gap-3 glass-panel p-4 rounded-3xl">${cells}</div>
           <button onclick="initDooz('${mode}');render()" class="btn-success w-full py-3.5 rounded-2xl font-black">${T().restart}</button>
         </div>
+        ${renderBottomNav()}
       `;
     }
 
-    /* ═══════════ حدس عدد همگانی گروه ═══════════ */
     let guessRoomData = null;
     async function callGuessApi(action, extra = {}) {
       if (action === 'state' && isUserTyping()) return;
@@ -2967,7 +2885,7 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
       if (!guessRoomData) {
         root.innerHTML = `
           ${renderTopBar(T().games.guess)}
-          <div class="flex-1 flex flex-col justify-center p-4">
+          <div class="flex-1 flex flex-col justify-center p-4 pb-24">
             <div class="glass-panel p-5 rounded-3xl text-center">
               <div class="grid grid-cols-2 gap-3 my-4">
                 <div>
@@ -2982,6 +2900,7 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
               <button onclick="createGroupGuessRange()" class="btn-success w-full py-3.5 rounded-2xl font-black">${T().createGame}</button>
             </div>
           </div>
+          ${renderBottomNav()}
         `;
         return;
       }
@@ -3001,7 +2920,7 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
 
       root.innerHTML = `
         ${renderTopBar(`${T().games.guess} (${r.min}-${r.max})`)}
-        <div class="flex-1 flex flex-col justify-between p-4 overflow-hidden">
+        <div class="flex-1 flex flex-col justify-between p-4 pb-24 overflow-hidden">
           <div class="glass-panel p-4 rounded-3xl text-center">
             ${r.winner_id ? `
               <div class="p-4 rounded-2xl bg-emerald-600/30 border border-emerald-400 my-2">
@@ -3023,10 +2942,10 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
             <button onclick="guessRoomData=null;nav('hub')" class="btn-danger flex-1 py-3.5 rounded-2xl font-black">${T().backMenu}</button>
           </div>
         </div>
+        ${renderBottomNav()}
       `;
     }
 
-    /* ═══════════ سنگ کاغذ قیچی ═══════════ */
     let rpsU = 0, rpsB = 0, rpsMsg = '...';
     window.playRPS = function(c) {
       const target = lobbyState.rpsTargetWins || 3;
@@ -3044,7 +2963,7 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
       const target = lobbyState.rpsTargetWins || 3;
       root.innerHTML = `
         ${renderTopBar(`${T().games.rps} (${target})`)}
-        <div class="flex-1 flex flex-col justify-between p-4 text-center">
+        <div class="flex-1 flex flex-col justify-between p-4 pb-24 text-center">
           <div class="glass-panel p-6 rounded-3xl">
             <p class="text-3xl font-black mb-3">${rpsU} — ${rpsB}</p>
             <div class="p-3 rounded-xl glass-soft font-bold text-sm">${rpsMsg}</div>
@@ -3056,10 +2975,10 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
           </div>
           <div></div>
         </div>
+        ${renderBottomNav()}
       `;
     }
 
-    /* ═══════════ سایر بازی‌ها ═══════════ */
     let c4B = null, c4Turn = 1, c4Win = 0;
     function initC4() { c4B = Array(6).fill(0).map(()=>Array(7).fill(0)); c4Turn = 1; c4Win = 0; }
     window.dropC4 = function(col) {
@@ -3079,11 +2998,12 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
       const cells = c4B.map(row=>row.map((v,c)=>`<button onclick="dropC4(${c})" class="aspect-square rounded-full ${v===1?'btn-danger':v===2?'btn-success':'glass-soft'}"></button>`).join('')).join('');
       root.innerHTML = `
         ${renderTopBar(T().games.connect4)}
-        <div class="flex-1 flex flex-col justify-between p-4">
+        <div class="flex-1 flex flex-col justify-between p-4 pb-24">
           <div class="glass-panel px-4 py-2 rounded-xl text-center font-bold text-sm">${c4Win ? `🏆 P${c4Win}` : `${T().turn}: P${c4Turn}`}</div>
           <div class="ltr-grid grid grid-cols-7 gap-1.5 glass-panel p-3 rounded-3xl">${cells}</div>
           <button onclick="initC4();render()" class="btn-success w-full py-3.5 rounded-2xl font-black">${T().restart}</button>
         </div>
+        ${renderBottomNav()}
       `;
     }
 
@@ -3107,11 +3027,12 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
       const cells = sgGrid.map((row,r)=>row.map((v,c)=>`<button onclick="clickSg(${r},${c})" class="aspect-square rounded-lg ${sgCls[v]}"></button>`).join('')).join('');
       root.innerHTML = `
         ${renderTopBar(T().games.samegame)}
-        <div class="flex-1 flex flex-col justify-between p-4">
+        <div class="flex-1 flex flex-col justify-between p-4 pb-24">
           <div class="glass-panel px-4 py-2 rounded-xl text-center font-bold">${T().score}: ${sgScore}</div>
           <div class="ltr-grid grid grid-cols-8 gap-1.5 glass-panel p-3 rounded-3xl">${cells}</div>
           <div></div>
         </div>
+        ${renderBottomNav()}
       `;
     }
 
@@ -3131,9 +3052,10 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
       const cells = memCards.map((v,i)=>{ const open = memFlip.includes(i) || memMatch.includes(i); return `<button onclick="clickMem(${i})" class="aspect-square rounded-2xl font-black text-2xl ${open?'btn-success':'glass-panel'}">${open?v:'?'}</button>`; }).join('');
       root.innerHTML = `
         ${renderTopBar(T().games.memory)}
-        <div class="flex-1 flex flex-col justify-between p-4">
+        <div class="flex-1 flex flex-col justify-between p-4 pb-24">
           <div class="ltr-grid grid grid-cols-4 gap-2.5 glass-panel p-3.5 rounded-3xl my-auto">${cells}</div>
         </div>
+        ${renderBottomNav()}
       `;
     }
 
@@ -3149,7 +3071,7 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
       if (!typeStart) initTyping();
       root.innerHTML = `
         ${renderTopBar(T().games.typing)}
-        <div class="flex-1 flex flex-col justify-center p-4">
+        <div class="flex-1 flex flex-col justify-center p-4 pb-24">
           <div class="glass-panel p-5 rounded-3xl">
             <p class="p-3.5 rounded-2xl glass-soft font-bold text-emerald-300 mb-4 text-center">${targetSentence}</p>
             <input id="typeInput" type="text" class="w-full p-3.5 rounded-2xl glass-soft text-white mb-3 text-center" />
@@ -3157,6 +3079,7 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
             <button onclick="checkTyping()" class="btn-success w-full py-3.5 rounded-2xl font-black">${T().submitBtn}</button>
           </div>
         </div>
+        ${renderBottomNav()}
       `;
     }
 
@@ -3173,20 +3096,21 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
       const kbHtml = "آابپتثجچحخدذرزژسشصضطظعغفقکگلمنوهی".split('').map(ch => `<button onclick="guessLetter('${ch}')" class="py-2 rounded-xl font-bold ${hmGuessed.includes(ch) ? 'opacity-30 glass-soft' : 'btn-primary'}">${ch}</button>`).join('');
       root.innerHTML = `
         ${renderTopBar(T().games.hangman)}
-        <div class="flex-1 flex flex-col justify-between p-4">
+        <div class="flex-1 flex flex-col justify-between p-4 pb-24">
           <div class="glass-panel p-5 rounded-3xl text-center">
             <div class="text-xs text-rose-300 font-bold">❤️ ${hmLives}</div>
             <div class="text-3xl font-black tracking-widest my-3">${display}</div>
           </div>
           <div class="grid grid-cols-7 gap-1.5 glass-panel p-3 rounded-3xl">${kbHtml}</div>
         </div>
+        ${renderBottomNav()}
       `;
     }
 
     async function renderGardoneAnim(root) {
       root.innerHTML = `
         ${renderTopBar()}
-        <div class="flex-1 flex flex-col justify-between p-4 text-center">
+        <div class="flex-1 flex flex-col justify-between p-4 pb-24 text-center">
           <div class="glass-panel rounded-3xl p-8 border-2 border-indigo-400 my-auto"><div id="wheelSlot" class="text-3xl font-black text-amber-300">...</div></div>
           <div id="wheelWinners" class="glass-panel p-4 rounded-2xl flex flex-col gap-2 text-sm max-h-52 overflow-y-auto"></div>
         </div>
@@ -3221,703 +3145,19 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
       setTimeout(nextWinner, 400);
     }
 
-/* ═══════════════════════════════════════════════════════════════════════════
-       پلتفرم اجتماعی راینو: اتاق‌های صوتی (SUGO Style) + پروفایل کاربری + فروشگاه VIP
-       ═══════════════════════════════════════════════════════════════════════════ */
-    let spState = null;
-    let activeVoiceRoom = null;
-    let minimizedVoiceRoom = null;
-    let viewedProfileData = null;
-    let spMsg = '';
-    let spErr = '';
-    let vrSheet = ''; // '' | 'manage' | 'modes' | 'details' | 'gifts' | 'edit_room'
-    let vrPollTimer = null;
-    let storeTab = 'subs'; // subs | rings | gifts
-
-    async function callSocialApi(action = 'state', extra = {}) {
-      try {
-        const res = await fetch('/api/social/action', {
-          method: 'POST',
-          headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({
-            uid: Number(uid),
-            name: myName,
-            username: myUsername,
-            photo: myPhoto,
-            action: action,
-            ...extra
-          })
-        });
-        const data = await res.json();
-        spMsg = data.msg || '';
-        spErr = data.ok === false ? (data.error || '') : '';
-
-        if (data.need_pin) {
-          const pin = prompt(data.error || 'رمز اتاق صوتی را وارد کنید:');
-          if (pin !== null) {
-            return callSocialApi('join_room', { room_id: data.room_id, pin_code: pin });
-          }
-          return;
-        }
-        if (data.invoice_link && tg?.openInvoice) {
-          tg.openInvoice(data.invoice_link, () => callSocialApi('state'));
-          return;
-        } else if (data.invoice_link) {
-          window.open(data.invoice_link, '_blank');
-        }
-        if (data.state) spState = data.state;
-        if (data.viewed_profile) viewedProfileData = data.viewed_profile;
-        if (data.active_room) {
-          activeVoiceRoom = data.active_room;
-          currentGame = 'voice_room_live';
-        }
-        if (data.left) {
-          activeVoiceRoom = null;
-          minimizedVoiceRoom = null;
-          if (vrPollTimer) { clearInterval(vrPollTimer); vrPollTimer = null; }
-          currentGame = 'voice_hub';
-        }
-        render();
-      } catch (e) {}
-    }
-
-    window.openMyVoiceRoomQuick = async function() {
-      if (!spState) await callSocialApi('state');
-      if (spState?.me?.room) {
-        callSocialApi('join_room', { room_id: spState.me.room.room_id });
-      } else {
-        currentGame = 'voice_hub';
-        vrSheet = 'edit_room';
-        render();
-      }
-    };
-
-    window.openUserProfileModal = function(targetUid) {
-      viewedProfileData = null;
-      currentGame = 'sp_profile';
-      callSocialApi('view_profile', { target_uid: Number(targetUid) });
-    };
-
-    window.vrOpenExitPrompt = function() {
-      vrSheet = 'exit_confirm';
-      drawLiveVoiceRoom(document.getElementById('app'));
-    };
-
-    window.vrKeepMinimized = function() {
-      minimizedVoiceRoom = activeVoiceRoom;
-      vrSheet = '';
-      currentGame = 'voice_hub';
-      render();
-    };
-
-    /* ۱. صفحه لیست اتاق‌های صوتی (مشابه تصویر ۶ اپلیکیشن SUGO) */
-    function renderVoiceHub(root) {
-      if (!spState) {
-        root.innerHTML = `<div class="p-6 text-center"><div class="glass-panel p-6 rounded-3xl font-bold">در حال بارگذاری اتاق‌های صوتی...</div></div>`;
-        callSocialApi('state');
-        return;
-      }
-      const me = spState.me;
-      const rooms = spState.rooms || [];
-
-      const roomsGridHtml = rooms.map(r => `
-        <div onclick="callSocialApi('join_room',{room_id:${r.room_id}})" class="arcade-card cursor-pointer">
-          <img src="${r.photo || '/api/banner/hub.png'}" onerror="this.src='/api/banner/hub.png'" class="arcade-card-bg" />
-          <div class="arcade-card-overlay">
-            <div class="flex justify-between items-start">
-              <span class="px-2 py-0.5 rounded-full bg-black/60 backdrop-blur-md text-[10px] font-black text-amber-300 border border-amber-400/30">
-                Lv.${r.level || 1}
-              </span>
-              ${r.is_locked ? `<span class="w-7 h-7 rounded-full bg-rose-600/90 flex items-center justify-center text-xs shadow">🔒</span>` : `<span class="px-2 py-0.5 rounded-full bg-emerald-500/80 text-[9px] font-black">LIVE</span>`}
-            </div>
-            <div>
-              <div class="font-black text-sm text-white truncate drop-shadow">${r.title}</div>
-              <div class="text-[10px] text-slate-300 truncate mb-1.5">${r.description || ''}</div>
-              <div class="flex items-center justify-between ltr-grid">
-                <span class="pill-mode-pve">${r.category || 'Friendship'}</span>
-                <span class="pill-players">👥 ${r.online_count || 1}</span>
-              </div>
-            </div>
-          </div>
-        </div>
-      `).join('');
-
-      const editModalHtml = vrSheet === 'edit_room' ? renderEditRoomModal(me.room) : '';
-
-      root.innerHTML = `
-        ${editModalHtml}
-        ${renderMinimizedFloatingWidget()}
-        <div class="glass-panel mx-3 mb-2 px-3.5 py-2.5 rounded-3xl flex items-center justify-between shrink-0">
-          <div class="flex items-center gap-3 text-sm font-black">
-            <span class="text-white border-b-2 border-purple-400 pb-0.5">Rooms</span>
-            <button onclick="nav('hub')" class="text-slate-400 hover:text-white">Games</button>
-            <button onclick="nav('sp_store')" class="text-slate-400 hover:text-white">VIP Store</button>
-          </div>
-          <div class="flex items-center gap-1.5">
-            <button onclick="vrSheet='edit_room';renderVoiceHub(document.getElementById('app'))" class="btn-primary px-3 py-1.5 rounded-xl text-xs font-black">
-              ${me.room ? '⚙️ اتاق من' : '➕ ساخت اتاق'}
-            </button>
-            <button onclick="openUserProfileModal(${uid})" class="glass-soft px-2.5 py-1.5 rounded-xl text-xs font-bold">👤</button>
-          </div>
-        </div>
-
-        <div class="flex-1 overflow-y-auto px-3 pb-24">
-          ${spMsg ? `<div class="p-3 rounded-2xl bg-emerald-600/35 border border-emerald-400 text-xs font-bold text-center mb-3">${spMsg}</div>` : ''}
-          ${spErr ? `<div class="p-3 rounded-2xl bg-rose-600/40 border border-rose-400 text-xs font-bold text-center mb-3">${spErr}</div>` : ''}
-
-          ${me.room ? `
-            <div onclick="callSocialApi('join_room',{room_id:${me.room.room_id}})" class="glass-panel p-3 rounded-3xl mb-3 flex items-center justify-between border border-purple-400/40 cursor-pointer">
-              <div class="flex items-center gap-3 min-w-0">
-                <img src="${me.room.photo || myPhoto || '/api/banner/hub.png'}" class="w-12 h-12 rounded-2xl object-cover border border-amber-400" />
-                <div class="min-w-0">
-                  <div class="text-xs font-black text-amber-300 truncate">👑 اتاق شخصی شما: ${me.room.title}</div>
-                  <div class="text-[10px] text-slate-300">ID: ${me.room.room_id} • ${me.room.is_locked ? '🔒 قفل‌شده' : '🟢 عمومی'} • ${me.room.mic_count} مایک</div>
-                </div>
-              </div>
-              <span class="btn-success px-3 py-1.5 rounded-xl text-xs font-black shrink-0">ورود ◀</span>
-            </div>
-          ` : ''}
-
-          <div class="grid grid-cols-2 gap-3">
-            ${roomsGridHtml || `<div class="col-span-2 glass-panel p-8 rounded-3xl text-center text-xs text-slate-300">هنوز اتاق صوتی ساخته نشده است! اولین اتاق را شما بسازید.</div>`}
-          </div>
-        </div>
-      `;
-    }
-
-    function renderEditRoomModal(rm) {
-      const me = spState?.me || {};
-      return `
-        <div class="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
-          <div class="glass-panel p-4 rounded-3xl w-full max-w-sm space-y-2.5 text-xs max-h-[90vh] overflow-y-auto border border-purple-400/40">
-            <h3 class="text-sm font-black text-amber-300 text-center">🎙️ تنظیمات اتاق صوتی شخصی شما</h3>
-            <div>
-              <label class="block text-[11px] text-slate-300 mb-1">نام اتاق صوتی:</label>
-              <input id="rm_title" type="text" value="${rm?.title || ('مجلس ' + myName)}" class="w-full p-2.5 rounded-xl glass-soft text-white font-bold text-center" />
-            </div>
-            <div>
-              <label class="block text-[11px] text-slate-300 mb-1">بیوگرافی / معرفی اتاق (Room Info):</label>
-              <input id="rm_desc" type="text" value="${rm?.description || 'به اتاق صوتی خوش آمدید!'}" class="w-full p-2.5 rounded-xl glass-soft text-white text-center" />
-            </div>
-            <div class="glass-soft p-2.5 rounded-2xl text-center">
-              <label class="block text-[11px] text-amber-200 font-bold mb-1">📷 عکس کاور اتاق صوتی (آپلود از گالری):</label>
-              <input type="file" accept="image/*" onchange="handleImageUpload(this, 'my_room_photo', 'prev_my_room_photo')" class="w-full text-[10px]" />
-              <img id="prev_my_room_photo" src="${rm?.photo || ''}" class="${rm?.photo ? '' : 'hidden'} w-20 h-20 rounded-2xl object-cover mx-auto mt-2 border border-amber-400" />
-            </div>
-            <div class="grid grid-cols-2 gap-2">
-              <div>
-                <label class="block text-[11px] text-slate-300 mb-1">تعداد میکروفون‌ها:</label>
-                <select id="rm_mics" class="w-full p-2.5 rounded-xl bg-slate-900 border border-white/20 text-white font-bold text-center">
-                  ${[1,2,6,8,10,12,15,20,24,30,36].map(n => `<option value="${n}" ${(rm?.mic_count||8)===n?'selected':''}>${n} Mic</option>`).join('')}
-                </select>
-              </div>
-              <div>
-                <label class="block text-[11px] text-slate-300 mb-1">دسته‌بندی:</label>
-                <select id="rm_cat" class="w-full p-2.5 rounded-xl bg-slate-900 border border-white/20 text-white font-bold text-center">
-                  <option value="Friendship">Friendship</option>
-                  <option value="Families">Families</option>
-                  <option value="PK Battle">PK Battle</option>
-                  <option value="Music">Music</option>
-                </select>
-              </div>
-            </div>
-
-            <div class="glass-soft p-3 rounded-2xl space-y-2 border ${me.can_lock_room ? 'border-emerald-400/40' : 'border-rose-400/40'}">
-              <div class="flex justify-between items-center">
-                <span class="font-black text-amber-300">🔒 قفل کردن اتاق (ویژه اشتراک PRO+):</span>
-                <input id="rm_lock" type="checkbox" ${rm?.is_locked ? 'checked' : ''} ${!me.can_lock_room ? 'disabled' : ''} class="w-4 h-4" />
-              </div>
-              ${!me.can_lock_room ? `<div class="text-[10px] text-rose-300">برای قفل کردن اتاق نیاز به اشتراک PRO، PLUS یا ULTRA دارید.</div>` : `
-                <input id="rm_pin" type="text" value="${rm?.pin_code || ''}" placeholder="رمز عبور اتاق (مثلاً: 1234)" class="w-full p-2 rounded-xl bg-slate-900 text-white text-center font-bold" />
-              `}
-            </div>
-
-            <div class="grid grid-cols-2 gap-2 pt-2">
-              <button onclick="vrSheet='';callSocialApi('save_my_room',{title:document.getElementById('rm_title').value,description:document.getElementById('rm_desc').value,room_photo:window.uploadedImages['my_room_photo']||'',mic_count:Number(document.getElementById('rm_mics').value),category:document.getElementById('rm_cat').value,is_locked:document.getElementById('rm_lock').checked,pin_code:document.getElementById('rm_pin')?.value||''})" class="btn-success py-3 rounded-2xl font-black">💾 ذخیره و ورود</button>
-              <button onclick="vrSheet='';render()" class="btn-danger py-3 rounded-2xl font-bold">انصراف</button>
-            </div>
-          </div>
-        </div>
-      `;
-    }
-
-    function renderMinimizedFloatingWidget() {
-      if (!minimizedVoiceRoom || currentGame === 'voice_room_live') return '';
-      return `
-        <div onclick="activeVoiceRoom=minimizedVoiceRoom;minimizedVoiceRoom=null;currentGame='voice_room_live';render()" class="fixed top-20 left-3 z-40 w-20 h-24 rounded-2xl overflow-hidden border-2 border-purple-400 shadow-2xl cursor-pointer bg-slate-950">
-          <img src="${minimizedVoiceRoom.photo || '/api/banner/hub.png'}" class="w-full h-16 object-cover" />
-          <div class="bg-purple-900/90 text-[9px] font-black text-center py-1 truncate px-1">🎙️ ${minimizedVoiceRoom.title}</div>
-        </div>
-      `;
-    }
-
-    /* ۲. داخل اتاق صوتی زنده (مشابه تصاویر ۷ تا ۱۵ اپلیکیشن SUGO) */
-    function startLiveVoiceRoom(root) {
-      if (!activeVoiceRoom) { currentGame = 'voice_hub'; return render(); }
-      drawLiveVoiceRoom(root);
-      if (vrPollTimer) clearInterval(vrPollTimer);
-      vrPollTimer = setInterval(() => {
-        if (currentGame === 'voice_room_live' && activeVoiceRoom && !isUserTyping() && !vrSheet) {
-          callSocialApi('room_op', { room_id: activeVoiceRoom.room_id, op: 'ping' });
-        }
-      }, 3500);
-    }
-
-    function drawLiveVoiceRoom(root) {
-      if (!root || currentGame !== 'voice_room_live' || !activeVoiceRoom) return;
-      const r = activeVoiceRoom;
-      const me = spState?.me || {};
-      const isRoomOwner = (Number(r.owner_id) === Number(uid)) || isOwner;
-
-      const bgThemes = {
-        lighthouse: "radial-gradient(circle at 50% 20%, #1e1b4b 0%, #090514 85%)",
-        royal_stage: "radial-gradient(circle at 50% 15%, #581c87 0%, #1e1b4b 60%, #090514 95%)",
-        crimson: "radial-gradient(circle at 50% 20%, #7f1d1d 0%, #111827 90%)",
-        emerald: "radial-gradient(circle at 50% 20%, #065f46 0%, #090514 90%)"
-      };
-      const roomBgCss = bgThemes[r.bg_theme] || bgThemes.lighthouse;
-
-      // چیدمان صندلی‌های میکروفون بر اساس تعداد (از ۱ تا ۳۶ مایک)
-      const mc = r.mic_count || 8;
-      const gridCols = mc === 1 ? 'grid-cols-1 max-w-[110px]' : (mc === 2 ? 'grid-cols-2 max-w-[220px]' : (mc <= 8 ? 'grid-cols-4' : (mc <= 15 ? 'grid-cols-5' : 'grid-cols-6')));
-      const seatSize = mc <= 8 ? 'w-14 h-14 text-lg' : (mc <= 15 ? 'w-12 h-12 text-sm' : 'w-10 h-10 text-xs');
-
-      let seatsHtml = '';
-      for (let i = 1; i <= mc; i++) {
-        const occ = (r.seats || {})[String(i)];
-        const isLockedSeat = (r.locked_seats || []).includes(i);
-        seatsHtml += `
-          <div class="flex flex-col items-center gap-1">
-            <button onclick="callSocialApi('room_op',{room_id:${r.room_id},op:'take_seat',seat_idx:'${i}'})"
-              style="${occ?.ring_css ? `box-shadow:${occ.ring_css};` : ''}"
-              class="${seatSize} rounded-full ${occ ? 'bg-indigo-950 border-2 border-emerald-400' : 'bg-white/10 border border-white/25'} flex items-center justify-center relative overflow-hidden active:scale-95 transition">
-              ${occ ? (occ.photo ? `<img src="${occ.photo}" class="w-full h-full object-cover" />` : `<span class="font-black">${(occ.name||'P')[0]}</span>`) : (isLockedSeat ? '🔒' : '➕')}
-              ${occ?.muted ? `<span class="absolute bottom-0 right-0 bg-rose-600 text-[9px] rounded-full px-1">🔇</span>` : ''}
-            </button>
-            <div onclick="${occ ? `openUserProfileModal(${occ.uid})` : (isRoomOwner ? `callSocialApi('room_op',{room_id:${r.room_id},op:'toggle_seat_lock',seat_idx:${i}})` : '')}" class="text-[10px] font-bold text-slate-200 truncate max-w-[64px] cursor-pointer">
-              ${occ ? `${occ.name}` : `${i}`}
-            </div>
-          </div>
-        `;
-      }
-
-      const membersAvatars = (r.visible_members || []).slice(0, 6).map(m => `
-        <img onclick="openUserProfileModal(${m.uid})" src="${m.photo || '/api/banner/hub.png'}" title="${m.name}" class="w-7 h-7 rounded-full object-cover border border-amber-400/60 cursor-pointer" />
-      `).join('');
-
-      const chatsHtml = (r.chats || []).map(c => c.sys ? `
-        <div class="px-3 py-1.5 rounded-2xl ${c.gift ? 'bg-amber-500/25 border border-amber-400/50 text-amber-200' : 'bg-teal-950/60 border border-teal-500/25 text-teal-300'} text-[11px] font-bold">
-          ${c.text}
-        </div>
-      ` : `
-        <div class="px-3 py-1.5 rounded-2xl bg-black/45 text-xs">
-          <span onclick="openUserProfileModal(${c.uid})" class="font-black text-amber-300 cursor-pointer">${c.badge ? c.badge + ' ' : ''}${c.name}:</span>
-          <span class="text-white mr-1">${c.text}</span>
-        </div>
-      `).join('');
-
-      const imSeated = Object.values(r.seats || {}).some(s => s && Number(s.uid) === Number(uid));
-
-      // شیت‌های کشویی (Room Management, Mic Modes, Room Details, Gifts, Keep/Exit)
-      let modalSheetHtml = '';
-      if (vrSheet === 'exit_confirm') {
-        modalSheetHtml = `
-          <div onclick="vrSheet='';drawLiveVoiceRoom(document.getElementById('app'))" class="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex flex-col items-center justify-center gap-10">
-            <div class="flex flex-col items-center gap-2">
-              <button onclick="event.stopPropagation();vrKeepMinimized()" class="w-20 h-20 rounded-full bg-gradient-to-br from-emerald-400 to-teal-500 flex items-center justify-center text-3xl shadow-[0_0_25px_#10b981]">🗗</button>
-              <span class="font-black text-sm">Keep</span>
-            </div>
-            <div class="flex flex-col items-center gap-2">
-              <button onclick="event.stopPropagation();callSocialApi('room_op',{room_id:${r.room_id},op:'leave_room'})" class="w-20 h-20 rounded-full bg-gradient-to-br from-rose-500 to-red-600 flex items-center justify-center text-3xl shadow-[0_0_25px_#f43f5e]">⏻</button>
-              <span class="font-black text-sm">Exit</span>
-            </div>
-          </div>
-        `;
-      } else if (vrSheet === 'manage') {
-        modalSheetHtml = `
-          <div onclick="vrSheet='';drawLiveVoiceRoom(document.getElementById('app'))" class="fixed inset-0 z-50 bg-black/65 flex flex-col justify-end">
-            <div onclick="event.stopPropagation()" class="glass-panel rounded-t-3xl p-4 space-y-4 border-t border-purple-400/40">
-              <div class="flex justify-between items-center border-b border-white/10 pb-2 text-xs font-black">
-                <span class="text-amber-300">🎛️ Room Management & Basic Tools</span>
-                <button onclick="vrSheet='';drawLiveVoiceRoom(document.getElementById('app'))" class="text-slate-400">✖</button>
-              </div>
-              <div class="grid grid-cols-4 gap-3 text-center text-[11px] font-bold">
-                <button onclick="vrSheet='modes';drawLiveVoiceRoom(document.getElementById('app'))" class="glass-soft p-3 rounded-2xl flex flex-col items-center gap-1"><span class="text-xl">🎙️</span><span>Room Mode</span></button>
-                <button onclick="callSocialApi('room_op',{room_id:${r.room_id},op:'toggle_lock_room'});vrSheet=''" class="glass-soft p-3 rounded-2xl flex flex-col items-center gap-1"><span class="text-xl">${r.is_locked ? '🔓' : '🔒'}</span><span>${r.is_locked ? 'Unlock' : 'Lock Room'}</span></button>
-                <button onclick="callSocialApi('room_op',{room_id:${r.room_id},op:'toggle_auto_lock_mics'});vrSheet=''" class="glass-soft p-3 rounded-2xl flex flex-col items-center gap-1"><span class="text-xl">💺</span><span>Mic Lock</span></button>
-                <button onclick="callSocialApi('room_op',{room_id:${r.room_id},op:'clear_chat'});vrSheet=''" class="glass-soft p-3 rounded-2xl flex flex-col items-center gap-1"><span class="text-xl">🧹</span><span>Delete Chat</span></button>
-                <button onclick="callSocialApi('room_op',{room_id:${r.room_id},op:'toggle_music'});vrSheet=''" class="glass-soft p-3 rounded-2xl flex flex-col items-center gap-1"><span class="text-xl">🎵</span><span>Music</span></button>
-                <button onclick="callSocialApi('room_op',{room_id:${r.room_id},op:'toggle_pk'});vrSheet=''" class="glass-soft p-3 rounded-2xl flex flex-col items-center gap-1"><span class="text-xl">⚔️</span><span>PK Battle</span></button>
-                <button onclick="callSocialApi('room_op',{room_id:${r.room_id},op:'change_bg',bg_theme:'royal_stage'});vrSheet=''" class="glass-soft p-3 rounded-2xl flex flex-col items-center gap-1"><span class="text-xl">🌌</span><span>Stage BG</span></button>
-                <button onclick="vrSheet='';nav('sp_store')" class="glass-soft p-3 rounded-2xl flex flex-col items-center gap-1"><span class="text-xl">🛍️</span><span>VIP Store</span></button>
-              </div>
-            </div>
-          </div>
-        `;
-      } else if (vrSheet === 'modes') {
-        const micOptions = [
-          { n: 1, mode: 'normal', lbl: '1 Mic (Solo)' },
-          { n: 2, mode: 'normal', lbl: '2 Mic (Couple)' },
-          { n: 6, mode: 'normal', lbl: '6 Mic' },
-          { n: 8, mode: 'pk',     lbl: '8 Mic (PK)' },
-          { n: 10, mode: 'pk',    lbl: '10 Mic (PK)' },
-          { n: 12, mode: 'theme', lbl: '12 Mic (Stage)' },
-          { n: 15, mode: 'normal',lbl: '15 Mic' },
-          { n: 20, mode: 'normal',lbl: '20 Mic' },
-          { n: 24, mode: 'normal',lbl: '24 Mic' },
-          { n: 30, mode: 'normal',lbl: '30 Mic' },
-          { n: 36, mode: 'normal',lbl: '36 Mic (Mega)' }
-        ];
-        modalSheetHtml = `
-          <div onclick="vrSheet='';drawLiveVoiceRoom(document.getElementById('app'))" class="fixed inset-0 z-50 bg-black/70 flex flex-col justify-end">
-            <div onclick="event.stopPropagation()" class="bg-slate-950 rounded-t-3xl p-4 space-y-3 max-h-[75vh] overflow-y-auto border-t border-purple-400">
-              <h3 class="text-sm font-black text-center text-amber-300">🎙️ انتخاب چیدمان میکروفون‌های اتاق (Voice Modes)</h3>
-              <div class="grid grid-cols-3 gap-2.5 text-xs">
-                ${micOptions.map(m => `
-                  <button onclick="callSocialApi('room_op',{room_id:${r.room_id},op:'change_layout',mic_count:${m.n},mic_mode:'${m.mode}'});vrSheet=''"
-                    class="p-3 rounded-2xl border ${r.mic_count===m.n ? 'border-purple-400 bg-purple-950/60' : 'border-white/10 bg-white/5'} flex flex-col items-center gap-1.5">
-                    <span class="px-2 py-0.5 rounded-full bg-sky-500/20 text-sky-300 text-[9px] font-black">${m.mode.toUpperCase()}</span>
-                    <span class="font-black text-white">${m.lbl}</span>
-                  </button>
-                `).join('')}
-              </div>
-            </div>
-          </div>
-        `;
-      } else if (vrSheet === 'details') {
-        modalSheetHtml = `
-          <div onclick="vrSheet='';drawLiveVoiceRoom(document.getElementById('app'))" class="fixed inset-0 z-50 bg-black/70 flex flex-col justify-end">
-            <div onclick="event.stopPropagation()" class="bg-white text-slate-900 rounded-t-3xl p-5 space-y-4 max-h-[80vh] overflow-y-auto">
-              <div class="flex justify-between items-center">
-                <h3 class="font-black text-base">Room Details</h3>
-                <button onclick="openUserProfileModal(${r.owner_id})" class="text-xs font-bold text-purple-700">👤 مشاهده پروفایل مالک</button>
-              </div>
-              <div class="flex items-center justify-between bg-slate-100 p-3 rounded-2xl">
-                <div class="flex items-center gap-3">
-                  <img src="${r.photo || '/api/banner/hub.png'}" class="w-14 h-14 rounded-2xl object-cover" />
-                  <div>
-                    <div class="font-black text-sm">👑 ${r.title}</div>
-                    <div class="text-xs text-slate-500">ID: ${r.room_id}</div>
-                  </div>
-                </div>
-                <span class="px-3 py-1 rounded-xl bg-amber-400 text-black font-black text-xs">Lv.${r.level || 1}</span>
-              </div>
-              <div class="bg-slate-100 p-3 rounded-2xl">
-                <div class="font-black text-xs mb-2">Room Members (${r.online_count || 1})</div>
-                <div class="flex gap-2 flex-wrap">
-                  ${(r.visible_members || []).map(m => `
-                    <div onclick="openUserProfileModal(${m.uid})" class="flex items-center gap-1 bg-white px-2 py-1 rounded-full text-xs font-bold shadow-sm cursor-pointer">
-                      <span>👤 ${m.name}</span><span class="text-[10px] text-purple-600">${m.badge||''}</span>
-                    </div>
-                  `).join('')}
-                </div>
-              </div>
-              <div class="bg-slate-100 p-3 rounded-2xl">
-                <div class="font-black text-xs mb-1">Room Info</div>
-                <div class="text-xs text-slate-600">${r.description || '—'}</div>
-              </div>
-            </div>
-          </div>
-        `;
-      } else if (vrSheet === 'gifts') {
-        const gifts = (spState?.store_items || []).filter(x => x.category === 'gift');
-        modalSheetHtml = `
-          <div onclick="vrSheet='';drawLiveVoiceRoom(document.getElementById('app'))" class="fixed inset-0 z-50 bg-black/65 flex flex-col justify-end">
-            <div onclick="event.stopPropagation()" class="glass-panel rounded-t-3xl p-4 space-y-3 border-t border-amber-400/40">
-              <div class="flex justify-between items-center text-xs font-black">
-                <span class="text-amber-300">🎁 ارسال هدیه در اتاق صوتی (موجودی: ${(me.coins||0).toLocaleString()} 🪙)</span>
-                <button onclick="vrSheet='';drawLiveVoiceRoom(document.getElementById('app'))">✖</button>
-              </div>
-              <div class="grid grid-cols-4 gap-2 text-center text-xs">
-                ${gifts.map(g => `
-                  <button onclick="callSocialApi('room_op',{room_id:${r.room_id},op:'send_gift',gift_id:${g.id}});vrSheet=''" class="glass-soft p-2.5 rounded-2xl flex flex-col items-center gap-1 hover:border-amber-400">
-                    ${g.photo ? `<img src="${g.photo}" class="w-10 h-10 object-cover rounded-xl" />` : `<span class="text-2xl">${g.icon}</span>`}
-                    <span class="font-bold text-[10px] truncate w-full">${g.name}</span>
-                    <span class="text-[10px] text-amber-300 font-black">${g.price_coins} 🪙</span>
-                  </button>
-                `).join('')}
-              </div>
-            </div>
-          </div>
-        `;
-      }
-
-      root.innerHTML = `
-        ${modalSheetHtml}
-        <div style="background: ${roomBgCss};" class="flex-1 flex flex-col justify-between p-3 overflow-hidden relative">
-          <!-- هدر بالای اتاق صوتی (مشابه عکس‌های SUGO) -->
-          <div class="flex items-center justify-between gap-2 shrink-0">
-            <div onclick="vrSheet='details';drawLiveVoiceRoom(document.getElementById('app'))" class="glass-panel px-2.5 py-1.5 rounded-2xl flex items-center gap-2 cursor-pointer">
-              <img src="${r.photo || '/api/banner/hub.png'}" class="w-9 h-9 rounded-xl object-cover border border-amber-400" />
-              <div class="leading-tight">
-                <div class="font-black text-xs text-amber-200 flex items-center gap-1">
-                  <span>👑 ${r.title}</span>
-                  ${r.is_locked ? '<span>🔒</span>' : ''}
-                </div>
-                <div class="text-[10px] text-slate-400">ID: ${r.room_id} • 🪙 ${r.total_gifts || 0}</div>
-              </div>
-            </div>
-
-            <div class="flex items-center gap-1.5">
-              <div class="flex -space-x-2 overflow-hidden">${membersAvatars}</div>
-              <span class="px-2 py-1 rounded-xl glass-soft text-[11px] font-black">👥 ${r.online_count || 1}</span>
-              <button onclick="vrOpenExitPrompt()" class="w-8 h-8 rounded-full glass-panel flex items-center justify-center text-sm font-black">⏻</button>
-            </div>
-          </div>
-
-          <!-- بنر وضعیت روح یا موزیک یا PK -->
-          <div class="flex items-center justify-between gap-2 my-1 shrink-0">
-            <div class="px-2.5 py-1 rounded-full bg-amber-500/20 border border-amber-400/30 text-[10px] font-black text-amber-300">
-              🏆 Lv.${r.level || 1} • ${r.mic_count} Mic
-            </div>
-            ${r.music_playing ? `<div class="px-2.5 py-1 rounded-full bg-purple-600/40 border border-purple-400 text-[10px] font-bold animate-pulse">🎵 ${r.music_title}</div>` : ''}
-            ${me.can_ghost_join && me.ghost_mode && !imSeated && !isRoomOwner ? `<div class="px-2.5 py-1 rounded-full bg-sky-500/30 border border-sky-300 text-[10px] font-black text-sky-200">👻 حالت روح فعال (مخفی)</div>` : ''}
-          </div>
-
-          ${r.pk_active ? `
-            <div class="glass-panel p-2 rounded-2xl flex items-center justify-between text-xs font-black border border-rose-500/50 mb-1 shrink-0">
-              <span class="text-sky-400">🔵 TEAM A: ${r.pk_score_a}</span>
-              <span class="px-2 py-0.5 rounded bg-rose-600 text-[10px]">PK VS</span>
-              <span class="text-rose-400">🔴 TEAM B: ${r.pk_score_b}</span>
-            </div>
-          ` : ''}
-
-          <!-- چیدمان صندلی‌های میکروفون وسط اتاق -->
-          <div class="my-auto py-2 overflow-y-auto max-h-[44vh] flex justify-center">
-            <div class="grid ${gridCols} gap-3 justify-items-center w-full">
-              ${seatsHtml}
-            </div>
-          </div>
-
-          <!-- بخش اعلان و چت زنده پایین اتاق -->
-          <div class="flex flex-col gap-1.5 max-h-[26vh] overflow-y-auto mb-2 pr-1">
-            <div class="px-3 py-1.5 rounded-2xl bg-indigo-950/70 border border-indigo-400/30 text-[11px] text-amber-200">
-              📣 <b>Room Info:</b> ${r.description}
-            </div>
-            ${chatsHtml}
-          </div>
-
-          <!-- نوار ابزار پایین اتاق صوتی (Say something, Mic, Tools, PK, Gift) -->
-          <div class="flex items-center gap-1.5 shrink-0 pt-1">
-            <div class="flex-1 flex items-center gap-1 glass-panel rounded-full px-3 py-1.5">
-              <input id="vrChatInp" type="text" placeholder="Say something..." onkeydown="if(event.key==='Enter'){callSocialApi('room_op',{room_id:${r.room_id},op:'chat',text:this.value});this.value='';}" class="flex-1 bg-transparent text-xs text-white outline-none" />
-              <button onclick="const el=document.getElementById('vrChatInp');if(el.value){callSocialApi('room_op',{room_id:${r.room_id},op:'chat',text:el.value});el.value='';}" class="text-purple-300 font-black text-xs">ارسال</button>
-            </div>
-
-            ${imSeated ? `
-              <button onclick="callSocialApi('room_op',{room_id:${r.room_id},op:'toggle_my_mic'})" class="w-10 h-10 rounded-full btn-success flex items-center justify-center text-base">🎙️</button>
-              <button onclick="callSocialApi('room_op',{room_id:${r.room_id},op:'leave_seat'})" class="w-10 h-10 rounded-full btn-danger flex items-center justify-center text-xs font-bold">⬇️</button>
-            ` : ''}
-
-            <button onclick="vrSheet='manage';drawLiveVoiceRoom(document.getElementById('app'))" class="w-10 h-10 rounded-full glass-panel flex items-center justify-center text-base" title="ابزارهای اتاق">🎛️</button>
-            <button onclick="vrSheet='gifts';drawLiveVoiceRoom(document.getElementById('app'))" class="w-10 h-10 rounded-full bg-gradient-to-br from-amber-400 to-rose-500 flex items-center justify-center text-base shadow-lg">🎁</button>
-          </div>
-        </div>
-      `;
-    }
-
-    /* ۳. صفحه پروفایل اختصاصی کاربر با کارت‌های رنگی تلگرامی + نمایش اتاق صوتی داخل پروفایل */
-    function renderSpProfile(root) {
-      if (!spState) {
-        root.innerHTML = `<div class="p-6 text-center"><div class="glass-panel p-6 rounded-3xl font-bold">در حال بارگذاری پروفایل...</div></div>`;
-        callSocialApi('state');
-        return;
-      }
-      const me = spState.me;
-      const p = viewedProfileData || me;
-      const isMe = Number(p.user_id) === Number(uid);
-      const themes = spState.profile_themes || [];
-      const curTheme = themes.find(t => t.id === p.card_theme) || themes[0];
-
-      const themeSelectorHtml = isMe ? themes.map(t => `
-        <button onclick="callSocialApi('save_profile',{card_theme:'${t.id}'})" style="background:${t.css}" class="px-2.5 py-2 rounded-xl text-[10px] font-black border ${p.card_theme===t.id ? 'border-white scale-105' : 'border-white/20 opacity-80'} flex items-center justify-between gap-1">
-          <span>${t.title}</span>
-          ${t.tier !== 'free' ? `<span class="px-1 rounded bg-black/50 text-amber-300 text-[8px]">${t.tier.toUpperCase()}</span>` : ''}
-        </button>
-      `).join('') : '';
-
-      const visitorsHtml = isMe ? (p.visitors_log || []).map(v => `
-        <div onclick="openUserProfileModal(${v.uid})" class="glass-soft p-2 rounded-xl flex items-center justify-between text-xs cursor-pointer">
-          <div class="flex items-center gap-2">
-            <img src="${v.photo || '/api/banner/hub.png'}" class="w-8 h-8 rounded-full object-cover" />
-            <span class="font-bold">${v.name} <b class="text-amber-300">${v.badge||''}</b></span>
-          </div>
-          <span class="text-[10px] text-slate-400">${v.time}</span>
-        </div>
-      `).join('') : '';
-
-      root.innerHTML = `
-        ${renderTopBar('👤 پروفایل کاربری')}
-        <div class="flex-1 overflow-y-auto px-3 pb-24 space-y-3">
-          ${spMsg ? `<div class="p-3 rounded-2xl bg-emerald-600/35 border border-emerald-400 text-xs font-bold text-center">${spMsg}</div>` : ''}
-          ${spErr ? `<div class="p-3 rounded-2xl bg-rose-600/40 border border-rose-400 text-xs font-bold text-center">${spErr}</div>` : ''}
-
-          <!-- کارت رنگی پروفایل به سبک تلگرام + حلقه دور آواتار + نشان اشتراک -->
-          <div style="background: ${curTheme?.css || '#3b0764'};" class="p-5 rounded-3xl border border-white/20 shadow-2xl text-center relative overflow-hidden">
-            <div class="relative inline-block mb-2">
-              <img src="${p.photo || '/api/banner/hub.png'}" style="${p.ring_css ? `box-shadow:${p.ring_css};` : ''}" class="w-24 h-24 rounded-full object-cover mx-auto border-2 border-white" />
-            </div>
-            <div class="text-lg font-black text-white flex items-center justify-center gap-1.5">
-              <span>${p.display_name}</span>
-              ${p.sub_badge ? `<span class="px-2 py-0.5 rounded-full bg-black/45 border border-amber-300/50 text-amber-300 text-xs font-black">${p.sub_badge}</span>` : ''}
-            </div>
-            <div class="text-xs text-white/75 font-mono mb-2">ID: ${p.user_id} ${p.username ? '• @'+p.username : ''}</div>
-            <p class="text-xs text-white/95 bg-black/25 p-2.5 rounded-2xl max-w-xs mx-auto">${p.bio}</p>
-
-            <div class="grid grid-cols-3 gap-2 mt-3 text-xs font-black">
-              <div class="bg-black/30 p-2 rounded-xl"><div class="text-[10px] text-white/70">سکه</div><div class="text-amber-300">🪙 ${(p.coins||0).toLocaleString()}</div></div>
-              <div class="bg-black/30 p-2 rounded-xl"><div class="text-[10px] text-white/70">هدایا</div><div class="text-pink-300">🎁 ${p.gifts_received||0}</div></div>
-              <div class="bg-black/30 p-2 rounded-xl"><div class="text-[10px] text-white/70">اشتراک</div><div class="text-emerald-300 uppercase">${p.sub_tier}</div></div>
-            </div>
-          </div>
-
-          <!-- نمایش اتاق صوتی شخص در داخل پروفایلش (برای ورود مستقیم سایر کاربران) -->
-          <div class="glass-panel p-4 rounded-3xl">
-            <h4 class="text-xs font-black text-amber-300 mb-2">🎙️ اتاق صوتی اختصاصی ${isMe ? 'شما' : p.display_name}</h4>
-            ${p.room ? `
-              <div onclick="callSocialApi('join_room',{room_id:${p.room.room_id}})" class="glass-soft p-3 rounded-2xl flex items-center justify-between cursor-pointer border border-purple-400/40">
-                <div class="flex items-center gap-3 min-w-0">
-                  <img src="${p.room.photo || p.photo || '/api/banner/hub.png'}" class="w-12 h-12 rounded-2xl object-cover" />
-                  <div class="min-w-0">
-                    <div class="font-black text-xs text-white truncate">${p.room.title} ${p.room.is_locked ? '🔒' : '🟢'}</div>
-                    <div class="text-[10px] text-slate-300 truncate">${p.room.description}</div>
-                    <div class="text-[10px] text-emerald-300 font-bold">👥 ${p.room.online_count || 1} نفر داخل اتاق • Lv.${p.room.level || 1}</div>
-                  </div>
-                </div>
-                <button class="btn-success px-3 py-2 rounded-xl text-xs font-black shrink-0">ورود ◀</button>
-              </div>
-            ` : `
-              <div class="text-center text-xs text-slate-400 py-2">
-                ${isMe ? `<button onclick="openMyVoiceRoomQuick()" class="btn-primary px-4 py-2.5 rounded-xl font-black">➕ ساخت اتاق صوتی شخصی</button>` : 'این کاربر هنوز اتاق صوتی نساخته است.'}
-              </div>
-            `}
-          </div>
-
-          ${isMe ? `
-            <!-- تنظیمات ویرایش پروفایل، رنگ کارت و حالت‌های مخفی Plus/Ultra -->
-            <div class="glass-panel p-4 rounded-3xl space-y-3 text-xs">
-              <h4 class="font-black text-sm text-indigo-300 text-center">🎨 رنگ پس‌زمینه کارت پروفایل (مشابه تلگرام)</h4>
-              <div class="grid grid-cols-2 gap-2">${themeSelectorHtml}</div>
-
-              <div class="border-t border-white/10 pt-3 space-y-2">
-                <label class="block text-[11px] text-slate-300">نام نمایشی و بیوگرافی:</label>
-                <input id="sp_name_inp" type="text" value="${p.display_name}" class="w-full p-2.5 rounded-xl glass-soft text-white font-bold text-center" />
-                <input id="sp_bio_inp" type="text" value="${p.bio}" class="w-full p-2.5 rounded-xl glass-soft text-white text-center" />
-
-                <div class="glass-soft p-2.5 rounded-xl flex justify-between items-center">
-                  <span>🕵️ بازدید مخفی پروفایل دیگران (PLUS+):</span>
-                  <input id="sp_stealth_chk" type="checkbox" ${p.stealth_mode ? 'checked' : ''} ${!p.can_stealth_visit ? 'disabled' : ''} class="w-4 h-4" />
-                </div>
-                <div class="glass-soft p-2.5 rounded-xl flex justify-between items-center">
-                  <span>👻 ورود روح به اتاق‌های صوتی (ULTRA):</span>
-                  <input id="sp_ghost_chk" type="checkbox" ${p.ghost_mode ? 'checked' : ''} ${!p.can_ghost_join ? 'disabled' : ''} class="w-4 h-4" />
-                </div>
-
-                <button onclick="callSocialApi('save_profile',{display_name:document.getElementById('sp_name_inp').value,bio:document.getElementById('sp_bio_inp').value,card_theme:'${p.card_theme}',stealth_mode:document.getElementById('sp_stealth_chk').checked,ghost_mode:document.getElementById('sp_ghost_chk').checked})" class="btn-success w-full py-3 rounded-2xl font-black">
-                  💾 ذخیره تغییرات پروفایل
-                </button>
-              </div>
-            </div>
-
-            <div class="glass-panel p-4 rounded-3xl space-y-2 text-xs">
-              <h4 class="font-black text-amber-300 text-center">👁️ آخرین بازدیدکنندگان پروفایل شما</h4>
-              <div class="flex flex-col gap-1.5">${visitorsHtml || '<div class="text-center text-slate-400">هنوز کسی از پروفایل شما بازدید نکرده است.</div>'}</div>
-            </div>
-          ` : `
-            <button onclick="viewedProfileData=null;renderSpProfile(document.getElementById('app'))" class="btn-primary w-full py-3 rounded-2xl font-black text-xs">🔙 بازگشت به پروفایل خودم</button>
-          `}
-        </div>
-      `;
-    }
-
-    /* ۴. فروشگاه جامع (اشتراک‌های Pro/Plus/Ultra + حلقه‌های دور پروفایل + گیفت‌ها) */
-    function renderSpStore(root) {
-      if (!spState) {
-        root.innerHTML = `<div class="p-6 text-center"><div class="glass-panel p-6 rounded-3xl font-bold">در حال بارگذاری فروشگاه...</div></div>`;
-        callSocialApi('state');
-        return;
-      }
-      const me = spState.me;
-      const subs = (spState.sub_tiers || []).filter(s => s.id !== 'free');
-      const rings = (spState.store_items || []).filter(i => i.category === 'ring');
-      const gifts = (spState.store_items || []).filter(i => i.category === 'gift');
-
-      let contentHtml = '';
-      if (storeTab === 'subs') {
-        contentHtml = subs.map(s => `
-          <div class="glass-panel p-4 rounded-3xl space-y-2.5 border ${s.id==='ultra' ? 'border-pink-400 shadow-[0_0_20px_rgba(236,72,153,0.3)]' : (s.id==='plus' ? 'border-amber-400/60' : 'border-sky-400/50')}">
-            <div class="flex justify-between items-center">
-              <span class="text-base font-black text-white">${s.title}</span>
-              <span class="px-2.5 py-1 rounded-full bg-white/10 text-amber-300 text-xs font-black">${s.badge}</span>
-            </div>
-            <ul class="text-xs text-slate-200 space-y-1 pr-2">
-              ${s.perks.map(pk => `<li>✅ ${pk}</li>`).join('')}
-            </ul>
-            <div class="grid grid-cols-2 gap-2 pt-2">
-              <button onclick="callSocialApi('buy_subscription',{tier_id:'${s.id}',pay_method:'stars'})" class="btn-primary py-2.5 rounded-xl font-black text-xs">⭐ خرید با ${s.stars} استارز</button>
-              <button onclick="callSocialApi('buy_subscription',{tier_id:'${s.id}',pay_method:'coins'})" class="btn-success py-2.5 rounded-xl font-black text-xs">🪙 خرید با ${s.coins.toLocaleString()} سکه</button>
-            </div>
-          </div>
-        `).join('');
-      } else if (storeTab === 'rings') {
-        contentHtml = rings.map(r => {
-          const owned = (me.owned_rings || []).includes(r.id);
-          const equipped = me.avatar_ring_id === r.id;
-          return `
-            <div class="glass-panel p-3.5 rounded-3xl flex items-center justify-between gap-3">
-              <div class="flex items-center gap-3">
-                <div style="box-shadow:${r.ring_css}" class="w-14 h-14 rounded-full bg-slate-900 flex items-center justify-center text-2xl shrink-0">
-                  ${r.icon || '⭕'}
-                </div>
-                <div>
-                  <div class="font-black text-xs text-white">${r.name}</div>
-                  <div class="text-[11px] text-amber-300 font-bold">${r.price_coins.toLocaleString()} 🪙</div>
-                </div>
-              </div>
-              <button onclick="callSocialApi('buy_or_equip_ring',{ring_id:${r.id}})" class="${equipped ? 'btn-success' : (owned ? 'btn-primary' : 'btn-danger')} px-3.5 py-2 rounded-xl text-xs font-black shrink-0">
-                ${equipped ? 'فعال ✓' : (owned ? 'استفاده' : 'خرید')}
-              </button>
-            </div>
-          `;
-        }).join('');
-      } else {
-        contentHtml = `<div class="grid grid-cols-2 gap-2.5">` + gifts.map(g => `
-          <div class="glass-panel p-3.5 rounded-3xl text-center space-y-1.5">
-            <div class="text-4xl">${g.icon}</div>
-            <div class="font-black text-xs text-white">${g.name}</div>
-            <div class="text-xs text-amber-300 font-extrabold">${g.price_coins.toLocaleString()} 🪙</div>
-            <div class="text-[10px] text-slate-400">قابل ارسال در تمام اتاق‌های صوتی</div>
-          </div>
-        `).join('') + `</div>`;
-      }
-
-      root.innerHTML = `
-        ${renderTopBar('🛍️ فروشگاه VIP و کاور پروفایل')}
-        <div class="flex-1 overflow-y-auto px-3 pb-24 space-y-3">
-          <div class="glass-panel p-3 rounded-2xl flex justify-between items-center text-xs font-black">
-            <span>موجودی شما: <b class="text-amber-300">🪙 ${(me.coins||0).toLocaleString()}</b></span>
-            <span>اشتراک فعلی: <b class="text-emerald-300 uppercase">${me.sub_tier} ${me.sub_badge||''}</b></span>
-          </div>
-
-          <div class="grid grid-cols-3 gap-2 text-xs font-black">
-            <button onclick="storeTab='subs';renderSpStore(document.getElementById('app'))" class="py-2.5 rounded-xl ${storeTab==='subs' ? 'btn-primary' : 'glass-soft'}">💎 اشتراک VIP</button>
-            <button onclick="storeTab='rings';renderSpStore(document.getElementById('app'))" class="py-2.5 rounded-xl ${storeTab==='rings' ? 'btn-primary' : 'glass-soft'}">⭕ حلقه آواتار</button>
-            <button onclick="storeTab='gifts';renderSpStore(document.getElementById('app'))" class="py-2.5 rounded-xl ${storeTab==='gifts' ? 'btn-primary' : 'glass-soft'}">🎁 گیفت‌ها</button>
-          </div>
-
-          ${spMsg ? `<div class="p-3 rounded-2xl bg-emerald-600/35 border border-emerald-400 text-xs font-bold text-center">${spMsg}</div>` : ''}
-          ${spErr ? `<div class="p-3 rounded-2xl bg-rose-600/40 border border-rose-400 text-xs font-bold text-center">${spErr}</div>` : ''}
-
-          <div class="space-y-3">${contentHtml}</div>
-        </div>
-      `;
-    }
-
     function render() {
       const root = document.getElementById('app');
       if (!root) return;
+      if (currentGame === 'voice_hub') return renderVoiceHub(root);
+      if (currentGame === 'voice_room_live') return startLiveVoiceRoom(root);
+      if (currentGame === 'sp_profile') return renderSpProfile(root);
+      if (currentGame === 'sp_store') return renderSpStore(root);
+      if (currentGame === 'sp_wallet') return renderSpWallet(root);
+      if (currentGame === 'crash') return renderCrashGame(root);
+      if (currentGame === 'bombs') return renderBombsGame(root);
+      if (currentGame === 'pickaxe') return renderPickaxeOrSlot(root, 'pickaxe');
+      if (currentGame === 'slot') return renderPickaxeOrSlot(root, 'slot');
       if (currentGame === 'tower_admin') return startTowerAdminApp(root);
-      if (currentGame === 'demontower') return startDemonTowerApp(root);
       if (currentGame === 'lobby_gate') return renderLobbyGate(root);
       if (currentGame === 'hokm' || currentGame === 'hokm4p') return startHokmEngine(root, '4p');
       if (currentGame === 'hokm2p') return startHokmEngine(root, '2p');
@@ -3932,10 +3172,6 @@ MINIAPP_TEMPLATE = r"""<!DOCTYPE html>
       if (currentGame === 'typing') return renderTyping(root);
       if (currentGame === 'hangman') return renderHangman(root);
       if (currentGame === 'guess') return renderGuess(root);
-      if (currentGame === 'voice_hub') return renderVoiceHub(root);
-      if (currentGame === 'voice_room_live') return startLiveVoiceRoom(root);
-      if (currentGame === 'sp_profile') return renderSpProfile(root);
-      if (currentGame === 'sp_store') return renderSpStore(root);
       return renderHub(root);
     }
 
@@ -3959,31 +3195,16 @@ async def serve_entry(request: Request, full_path: str):
     if not hero_img and CUSTOM_HERO_FILE.exists():
         hero_img = f"{base_url}/api/custom_bg/hero"
 
-    menu_bg = os.environ.get("RHINO_MENU_BG", "")
-    if not menu_bg and CUSTOM_MENU_BG.exists():
-        menu_bg = f"{base_url}/api/custom_bg/menu"
-
     carpet_bg = os.environ.get("RHINO_CARPET_BG", "")
     if not carpet_bg and CUSTOM_CARPET_BG.exists():
         carpet_bg = f"{base_url}/api/custom_bg/carpet"
-
-    tower_bg = os.environ.get("RHINO_TOWER_BG", "")
-    if not tower_bg and CUSTOM_TOWER_BG.exists():
-        tower_bg = f"{base_url}/api/custom_bg/tower_bg"
-
-    tower_hero = os.environ.get("RHINO_TOWER_HERO", "")
-    if not tower_hero and CUSTOM_TOWER_HERO.exists():
-        tower_hero = f"{base_url}/api/custom_bg/tower_hero"
 
     html_content = (
         MINIAPP_TEMPLATE
         .replace("__OG_TITLE__", meta["title"])
         .replace("__OG_IMAGE__", og_img)
         .replace("__HERO_IMAGE__", hero_img)
-        .replace("__TOWER_HERO__", tower_hero)
-        .replace("__MENU_BG__", f"url('{menu_bg}')," if menu_bg else "")
-        .replace("__CARPET_BG__", f"url('{carpet_bg}')" if carpet_bg else "none")
-        .replace("__TOWER_BG__", f"url('{tower_bg}')" if tower_bg else "none")
+        .replace("__CARPET_BG__", f"url('{carpet_bg}')," if carpet_bg else "")
         .replace("__BOT_USERNAME__", get_bot_username())
         .replace("__SHORT_NAME__", short_name)
     )
