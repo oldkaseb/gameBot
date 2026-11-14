@@ -962,12 +962,15 @@ async def handle_tower_admin_api(payload: dict) -> dict:
         target_id = int(payload.get("target_id") or 0)
         adm_state = bool(payload.get("is_admin"))
         if target_id:
-            try:
-                await db.upsert_user(target_id, "", "")
-                await db.set_admin(target_id, adm_state)
-            except Exception:
-                await db.pool.execute("UPDATE users SET is_admin=$1 WHERE user_id=$2", adm_state, target_id)
-            msg_out = f"👑 وضعیت ادمین بودن {target_id} به «{'فعال' if adm_state else 'غیرفعال'}» تغییر یافت."
+            await db.upsert_user(target_id, "", "")
+        if adm_state:
+            await db.add_admin(target_id)
+        else:
+            await db.remove_admin(target_id)
+            msg_out = (
+                f"👑 وضعیت ادمین بودن {target_id} به "
+                f"«{'فعال' if adm_state else 'غیرفعال'}» تغییر یافت."
+            )
 
     elif action == "bot_leave_group":
         chat_id = int(payload.get("chat_id") or 0)
@@ -1239,7 +1242,7 @@ async def handle_tower_admin_api(payload: dict) -> dict:
         try:
             u_main = await db.get_user(t_uid)
             looked["global_banned"] = bool(u_main["is_banned"]) if u_main else False
-            looked["is_bot_admin"] = bool(u_main["is_admin"]) if u_main else False
+            looked["is_bot_admin"] = await db.is_admin(t_uid)
             looked["first_name"] = u_main["first_name"] if u_main else ""
             looked["username"] = u_main["username"] if u_main else ""
         except Exception:
@@ -1407,7 +1410,9 @@ async def _collect_admin_state() -> dict:
                 u.username,
                 u.language,
                 u.is_banned AS global_banned,
-                u.is_admin AS is_bot_admin,
+                EXISTS (
+                    SELECT 1 FROM admins a WHERE a.user_id = u.user_id
+                ) AS is_bot_admin,
                 COALESCE(dp.level, 1) AS dt_level,
                 COALESCE(dp.xp, 0) AS dt_xp,
                 COALESCE(dp.coins, 0) AS dt_coins,
